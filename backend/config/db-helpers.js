@@ -331,6 +331,9 @@ export const dbOps = {
     const weeklyFlowWorker = dbHelpers.parseJSON(
       getSettingStmt.get("weeklyFlowWorker")?.value
     );
+    const blocklist = dbHelpers.parseJSON(
+      getSettingStmt.get("blocklist")?.value
+    );
     const onboardingComplete =
       getSettingStmt.get("onboardingComplete")?.value === "true";
     const parsedConcurrency = Number(weeklyFlowWorker?.concurrency);
@@ -394,6 +397,10 @@ export const dbOps = {
         retryCycleMinutes,
         retryPausedPlaylistIds,
       },
+      blocklist:
+        blocklist && typeof blocklist === "object"
+          ? blocklist
+          : { artists: [], tags: [] },
       onboardingComplete: !!onboardingComplete,
     };
     settingsCache = result;
@@ -456,6 +463,12 @@ export const dbOps = {
         upsertSettingStmt.run(
           "weeklyFlowWorker",
           dbHelpers.stringifyJSON(settings.weeklyFlowWorker)
+        );
+      }
+      if (settings.blocklist !== undefined) {
+        upsertSettingStmt.run(
+          "blocklist",
+          dbHelpers.stringifyJSON(settings.blocklist)
         );
       }
       if (settings.onboardingComplete !== undefined) {

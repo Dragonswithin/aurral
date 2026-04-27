@@ -16,6 +16,7 @@ import {
   Pencil,
   Volume2,
   VolumeX,
+  Ban,
 } from "lucide-react";
 import { getCoverImage, getTagColor, formatLifeSpan, getArtistType } from "../utils";
 import AddToLibraryButton from "../../../components/AddToLibraryButton";
@@ -56,6 +57,9 @@ export function ArtistDetailsHero({
   setPreviewVolume,
   handlePreviewPlay,
   onEditIds,
+  onToggleBlockArtist,
+  blockingArtist,
+  artistBlocked,
 }) {
   const coverImage = getCoverImage(coverImages);
   const lifeSpan = formatLifeSpan(artist["life-span"]);
@@ -123,20 +127,40 @@ export function ArtistDetailsHero({
                 <Pencil className="w-5 h-5" />
               </button>
             </div>
-            {existsInLibrary && canRefreshArtist && (
-              <button
-                onClick={handleRefreshArtist}
-                disabled={refreshingArtist}
-                className="btn btn-secondary btn-sm p-2 flex-shrink-0"
-                title="Refresh & Scan Artist"
-              >
-                {refreshingArtist ? (
-                  <Loader className="w-5 h-5 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-5 h-5" />
-                )}
-              </button>
-            )}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {onToggleBlockArtist && (
+                <button
+                  type="button"
+                  onClick={onToggleBlockArtist}
+                  disabled={blockingArtist}
+                  className="btn btn-secondary btn-sm p-2"
+                  title={artistBlocked ? "Remove from blocklist" : "Add to blocklist"}
+                >
+                  {blockingArtist ? (
+                    <Loader className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Ban
+                      className="w-5 h-5"
+                      style={{ color: artistBlocked ? "#f87171" : undefined }}
+                    />
+                  )}
+                </button>
+              )}
+              {existsInLibrary && canRefreshArtist && (
+                <button
+                  onClick={handleRefreshArtist}
+                  disabled={refreshingArtist}
+                  className="btn btn-secondary btn-sm p-2"
+                  title="Refresh & Scan Artist"
+                >
+                  {refreshingArtist ? (
+                    <Loader className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-5 h-5" />
+                  )}
+                </button>
+              )}
+            </div>
           </div>
 
           {artist["sort-name"] && artist["sort-name"] !== artist.name && (
@@ -657,4 +681,7 @@ ArtistDetailsHero.propTypes = {
   setPreviewVolume: PropTypes.func,
   handlePreviewPlay: PropTypes.func,
   onEditIds: PropTypes.func,
+  onToggleBlockArtist: PropTypes.func,
+  blockingArtist: PropTypes.bool,
+  artistBlocked: PropTypes.bool,
 };

@@ -47,6 +47,152 @@ const clampInt = (value, fallback, min, max) => {
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, parsed));
 };
+const MBID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const normalizeTextList = (value) => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const entry of value) {
+    const normalized = String(entry || "")
+      .trim()
+      .toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+};
+
+const normalizeBlocklist = (value) => {
+  const source = value && typeof value === "object" ? value : {};
+  const rawArtists = Array.isArray(source.artists) ? source.artists : [];
+  const seenArtistKeys = new Set();
+  const artists = [];
+  for (const entry of rawArtists) {
+    if (entry == null) continue;
+    let mbid = null;
+    let name = null;
+    if (typeof entry === "string") {
+      const normalized = entry.trim();
+      if (!normalized) continue;
+      if (MBID_REGEX.test(normalized)) {
+        mbid = normalized.toLowerCase();
+      } else {
+        name = normalized;
+      }
+    } else if (typeof entry === "object") {
+      const rawMbid = String(
+        entry.mbid || entry.artistId || entry.id || "",
+      ).trim();
+      if (rawMbid && MBID_REGEX.test(rawMbid)) {
+        mbid = rawMbid.toLowerCase();
+      }
+      const rawName = String(entry.name || entry.artistName || "").trim();
+      if (rawName) {
+        name = rawName;
+      }
+    }
+    if (!mbid && !name) continue;
+    const key = mbid
+      ? `mbid:${mbid}`
+      : `name:${String(name).trim().toLowerCase()}`;
+    if (seenArtistKeys.has(key)) continue;
+    seenArtistKeys.add(key);
+    artists.push({ mbid, name: name || null });
+  }
+  return {
+    artists,
+    tags: normalizeTextList(source.tags),
+  };
+};
+
+const getStoredBlocklist = () => {
+  const settings = dbOps.getSettings();
+  return normalizeBlocklist(settings.blocklist);
+};
+
+const isArtistBlocked = (artist, artistBlockSet) => {
+  if (!artist || !artistBlockSet) return false;
+  const mbids = [artist?.id, artist?.mbid, artist?.foreignArtistId]
+    .map((value) =>
+      String(value || "")
+        .trim()
+        .toLowerCase(),
+    )
+    .filter((value) => MBID_REGEX.test(value));
+  if (mbids.some((mbid) => artistBlockSet.mbids.has(mbid))) return true;
+  const names = [artist?.name, artist?.artistName]
+    .map((value) =>
+      String(value || "")
+        .trim()
+        .toLowerCase(),
+    )
+    .filter(Boolean);
+  return names.some((name) => artistBlockSet.names.has(name));
+};
+
+const hasBlockedTag = (artist, tagBlockSet) => {
+  if (!artist || !tagBlockSet || tagBlockSet.size === 0) return false;
+  const tags = Array.isArray(artist.tags) ? artist.tags : [];
+  return tags.some((tag) =>
+    tagBlockSet.has(
+      String(tag || "")
+        .trim()
+        .toLowerCase(),
+    ),
+  );
+};
+
+const applyBlocklistToArtistCollection = (artists, blocklist) => {
+  const list = Array.isArray(artists) ? artists : [];
+  if (list.length === 0) return [];
+  const artistEntries = Array.isArray(blocklist.artists)
+    ? blocklist.artists
+    : [];
+  const artistBlockSet = {
+    mbids: new Set(
+      artistEntries
+        .map((entry) =>
+          String(entry?.mbid || "")
+            .trim()
+            .toLowerCase(),
+        )
+        .filter((value) => MBID_REGEX.test(value)),
+    ),
+    names: new Set(
+      artistEntries
+        .map((entry) =>
+          String(entry?.name || "")
+            .trim()
+            .toLowerCase(),
+        )
+        .filter(Boolean),
+    ),
+  };
+  const tagBlockSet = new Set(blocklist.tags || []);
+  return list.filter(
+    (artist) =>
+      !isArtistBlocked(artist, artistBlockSet) &&
+      !hasBlockedTag(artist, tagBlockSet),
+  );
+};
+
+const applyBlocklistToTagList = (tags, blocklist) => {
+  const list = Array.isArray(tags) ? tags : [];
+  if (list.length === 0) return [];
+  const blockedTags = new Set(blocklist.tags || []);
+  if (blockedTags.size === 0) return list;
+  return list.filter(
+    (tag) =>
+      !blockedTags.has(
+        String(tag || "")
+          .trim()
+          .toLowerCase(),
+      ),
+  );
+};
 
 export const getDiscoveryAutoRefreshHours = () => {
   const settings = dbOps.getSettings();
@@ -716,12 +862,19 @@ export const updateDiscoveryCache = async () => {
     console.log(
       `Summary: ${recommendationsArray.length} recommendations, ${discoveryCache.topGenres.length} genres, ${discoveryCache.globalTop.length} trending artists`,
     );
+    const blocklist = getStoredBlocklist();
     websocketService.emitDiscoveryUpdate({
-      recommendations: discoveryData.recommendations,
-      globalTop: discoveryData.globalTop,
+      recommendations: applyBlocklistToArtistCollection(
+        discoveryData.recommendations,
+        blocklist,
+      ),
+      globalTop: applyBlocklistToArtistCollection(
+        discoveryData.globalTop,
+        blocklist,
+      ),
       basedOn: discoveryData.basedOn,
-      topTags: discoveryData.topTags,
-      topGenres: discoveryData.topGenres,
+      topTags: applyBlocklistToTagList(discoveryData.topTags, blocklist),
+      topGenres: applyBlocklistToTagList(discoveryData.topGenres, blocklist),
       lastUpdated: discoveryData.lastUpdated,
       isUpdating: false,
       configured: true,
