@@ -63,12 +63,33 @@ const normalizeImportedTrackList = (value) => {
       const artistMbid = String(
         track.artistMbid ?? track.artistId ?? track.mbid ?? "",
       ).trim();
+      const albumMbid = String(
+        track.albumMbid ?? track.releaseGroupMbid ?? track.albumId ?? "",
+      ).trim();
+      const trackMbid = String(
+        track.trackMbid ?? track.recordingMbid ?? track.recordingId ?? "",
+      ).trim();
+      const releaseYear = String(track.releaseYear ?? track.year ?? "").trim();
+      const durationMs =
+        track.durationMs != null && Number.isFinite(Number(track.durationMs))
+          ? Math.max(0, Math.round(Number(track.durationMs)))
+          : null;
+      const artistAliases = Array.isArray(track.artistAliases)
+        ? track.artistAliases
+            .map((entry) => String(entry || "").trim())
+            .filter(Boolean)
+        : [];
       const reason = String(track.reason ?? "").trim();
       return {
         artistName,
         trackName,
         albumName: albumName || null,
         artistMbid: artistMbid || null,
+        albumMbid: albumMbid || null,
+        trackMbid: trackMbid || null,
+        releaseYear: releaseYear || null,
+        durationMs,
+        artistAliases,
         reason: reason || null,
       };
     })
@@ -81,6 +102,9 @@ const buildTrackIdentity = (track) =>
     String(track?.trackName || "").trim(),
     String(track?.albumName || "").trim(),
     String(track?.artistMbid || "").trim(),
+    String(track?.albumMbid || "").trim(),
+    String(track?.trackMbid || "").trim(),
+    String(track?.releaseYear || "").trim(),
   ].join("\u0001");
 
 const sortJobsForTrackReuse = (jobs) =>
@@ -688,6 +712,11 @@ router.post("/flows/:flowId/static-playlist", async (req, res) => {
       trackName: job.trackName,
       albumName: job.albumName || null,
       artistMbid: job.artistMbid || null,
+      albumMbid: job.albumMbid || null,
+      trackMbid: job.trackMbid || null,
+      releaseYear: job.releaseYear || null,
+      durationMs: job.durationMs || null,
+      artistAliases: job.artistAliases || [],
       reason: job.reason || null,
     }));
     playlist = flowPlaylistConfig.createSharedPlaylist({
@@ -724,6 +753,11 @@ router.post("/flows/:flowId/static-playlist", async (req, res) => {
           trackName: job.trackName,
           albumName: job.albumName || null,
           artistMbid: job.artistMbid || null,
+          albumMbid: job.albumMbid || null,
+          trackMbid: job.trackMbid || null,
+          releaseYear: job.releaseYear || null,
+          durationMs: job.durationMs || null,
+          artistAliases: job.artistAliases || [],
           reason: job.reason || null,
         },
         playlist.id,
@@ -758,6 +792,69 @@ router.post("/flows/:flowId/static-playlist", async (req, res) => {
     }
     res.status(500).json({
       error: "Failed to create static playlist",
+      message: error.message,
+    });
+  }
+});
+
+router.post("/shared-playlists", async (req, res) => {
+  try {
+    const {
+      name,
+      sourceName = null,
+      sourceFlowId = null,
+      tracks,
+    } = req.body || {};
+    const safeName = String(name || "").trim();
+    const normalizedTracks = normalizeImportedTrackList(tracks);
+    const rawTracksProvided = Array.isArray(tracks);
+
+    if (!safeName) {
+      return res.status(400).json({ error: "name is required" });
+    }
+    if (rawTracksProvided && tracks.length > 0 && normalizedTracks.length === 0) {
+      return res.status(400).json({
+        error: "tracks are invalid",
+        message: "Add at least one valid track",
+      });
+    }
+
+    const playlist = flowPlaylistConfig.createSharedPlaylist({
+      name: safeName,
+      sourceName,
+      sourceFlowId,
+      tracks: normalizedTracks,
+    });
+
+    let tracksQueued = 0;
+    if (normalizedTracks.length > 0) {
+      tracksQueued = downloadTracker.addJobs(normalizedTracks, playlist.id).length;
+    }
+
+    playlistManager.updateConfig(false);
+    await playlistManager.ensureSmartPlaylists();
+    if (tracksQueued > 0) {
+      if (!weeklyFlowWorker.running) {
+        await weeklyFlowWorker.start();
+      } else {
+        weeklyFlowWorker.wake();
+      }
+    }
+
+    res.json({
+      success: true,
+      playlist,
+      tracksQueued,
+    });
+  } catch (error) {
+    if (error?.code === "SHARED_PLAYLIST_NAME_CONFLICT") {
+      return res.status(400).json({
+        error: "Shared playlist name already exists",
+        message: error.message,
+      });
+    }
+    res.status(500).json({
+      error: "Failed to create shared playlist",
       message: error.message,
     });
   }
@@ -825,6 +922,58 @@ router.post("/shared-playlists/import", async (req, res) => {
   }
 });
 
+router.post("/shared-playlists/:playlistId/tracks", async (req, res) => {
+  try {
+    const { playlistId } = req.params;
+    const playlist = flowPlaylistConfig.getSharedPlaylist(playlistId);
+    if (!playlist) {
+      return res.status(404).json({ error: "Shared playlist not found" });
+    }
+    const rawTracks = req.body?.tracks;
+    const normalizedTracks = normalizeImportedTrackList(rawTracks);
+    if (Array.isArray(rawTracks) && rawTracks.length > 0 && normalizedTracks.length === 0) {
+      return res.status(400).json({
+        error: "tracks are invalid",
+        message: "Add at least one valid track",
+      });
+    }
+    if (normalizedTracks.length === 0) {
+      return res.status(400).json({
+        error: "tracks are required",
+        message: "Add at least one valid track",
+      });
+    }
+
+    const updatedPlaylist = flowPlaylistConfig.appendSharedPlaylistTracks(
+      playlistId,
+      normalizedTracks,
+    );
+    const jobIds = downloadTracker.addJobs(normalizedTracks, playlistId);
+
+    playlistManager.updateConfig(false);
+    await playlistManager.ensureSmartPlaylists();
+    if (jobIds.length > 0) {
+      if (!weeklyFlowWorker.running) {
+        await weeklyFlowWorker.start();
+      } else {
+        weeklyFlowWorker.wake();
+      }
+    }
+
+    res.json({
+      success: true,
+      playlist: updatedPlaylist,
+      tracksQueued: jobIds.length,
+      jobIds,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Failed to add playlist tracks",
+      message: error.message,
+    });
+  }
+});
+
 router.put("/shared-playlists/:playlistId", async (req, res) => {
   try {
     const { playlistId } = req.params;
@@ -855,10 +1004,15 @@ router.put("/shared-playlists/:playlistId", async (req, res) => {
     const normalizedTracks = hasTracksUpdate
       ? normalizeImportedTrackList(tracks)
       : currentPlaylist.tracks;
-    if (hasTracksUpdate && normalizedTracks.length === 0) {
+    if (
+      hasTracksUpdate &&
+      Array.isArray(tracks) &&
+      tracks.length > 0 &&
+      normalizedTracks.length === 0
+    ) {
       return res.status(400).json({
-        error: "tracks are required",
-        message: "Playlist must include at least one valid track",
+        error: "tracks are invalid",
+        message: "Playlist update must include at least one valid track",
       });
     }
 
@@ -1002,7 +1156,10 @@ router.delete(
           String(track.trackName || "") === String(job.trackName || "") &&
           String(track.albumName || "") === String(job.albumName || "") &&
           String(track.reason || "") === String(job.reason || "") &&
-          String(track.artistMbid || "") === String(job.artistMbid || "")
+          String(track.artistMbid || "") === String(job.artistMbid || "") &&
+          String(track.albumMbid || "") === String(job.albumMbid || "") &&
+          String(track.trackMbid || "") === String(job.trackMbid || "") &&
+          String(track.releaseYear || "") === String(job.releaseYear || "")
         );
       });
       if (trackIndex >= 0) {

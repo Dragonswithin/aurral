@@ -1,6 +1,26 @@
 import { randomUUID } from "crypto";
 import { db } from "../config/db-sqlite.js";
 
+function parseArtistAliases(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.map((entry) => String(entry || "").trim()).filter(Boolean)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function stringifyArtistAliases(value) {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const normalized = value
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean);
+  return normalized.length > 0 ? JSON.stringify(normalized) : null;
+}
+
 function rowToJob(row) {
   return {
     id: row.id,
@@ -9,6 +29,14 @@ function rowToJob(row) {
     albumName: row.album_name || null,
     reason: row.reason || null,
     artistMbid: row.artist_mbid || null,
+    albumMbid: row.album_mbid || null,
+    trackMbid: row.track_mbid || null,
+    releaseYear: row.release_year || null,
+    durationMs:
+      row.duration_ms != null && Number.isFinite(Number(row.duration_ms))
+        ? Number(row.duration_ms)
+        : null,
+    artistAliases: parseArtistAliases(row.artist_aliases),
     playlistType: row.playlist_type,
     status: row.status,
     startedAt: row.started_at,
@@ -22,12 +50,46 @@ function rowToJob(row) {
 }
 
 const insertStmt = db.prepare(`
-  INSERT INTO weekly_flow_jobs (id, artist_name, track_name, album_name, reason, artist_mbid, playlist_type, status, staging_path, final_path, error, started_at, completed_at, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO weekly_flow_jobs (
+    id,
+    artist_name,
+    track_name,
+    album_name,
+    reason,
+    artist_mbid,
+    album_mbid,
+    track_mbid,
+    release_year,
+    duration_ms,
+    artist_aliases,
+    playlist_type,
+    status,
+    staging_path,
+    final_path,
+    error,
+    started_at,
+    completed_at,
+    created_at
+  )
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const updateStmt = db.prepare(`
-  UPDATE weekly_flow_jobs SET status = ?, staging_path = ?, final_path = ?, error = ?, started_at = ?, completed_at = ?, album_name = ?
+  UPDATE weekly_flow_jobs
+  SET status = ?,
+      staging_path = ?,
+      final_path = ?,
+      error = ?,
+      started_at = ?,
+      completed_at = ?,
+      album_name = ?,
+      reason = ?,
+      artist_mbid = ?,
+      album_mbid = ?,
+      track_mbid = ?,
+      release_year = ?,
+      duration_ms = ?,
+      artist_aliases = ?
   WHERE id = ?
 `);
 
@@ -154,6 +216,13 @@ export class WeeklyFlowDownloadTracker {
           job.startedAt,
           job.completedAt,
           job.albumName ?? null,
+          job.reason ?? null,
+          job.artistMbid ?? null,
+          job.albumMbid ?? null,
+          job.trackMbid ?? null,
+          job.releaseYear ?? null,
+          job.durationMs ?? null,
+          stringifyArtistAliases(job.artistAliases),
           job.id,
         );
         updatePlaylistTypeStmt.run("discover", "recommended");
@@ -170,6 +239,13 @@ export class WeeklyFlowDownloadTracker {
           job.startedAt,
           job.completedAt,
           job.albumName ?? null,
+          job.reason ?? null,
+          job.artistMbid ?? null,
+          job.albumMbid ?? null,
+          job.trackMbid ?? null,
+          job.releaseYear ?? null,
+          job.durationMs ?? null,
+          stringifyArtistAliases(job.artistAliases),
           job.id,
         );
       }
@@ -188,6 +264,11 @@ export class WeeklyFlowDownloadTracker {
       job.albumName ?? null,
       job.reason ?? null,
       job.artistMbid ?? null,
+      job.albumMbid ?? null,
+      job.trackMbid ?? null,
+      job.releaseYear ?? null,
+      job.durationMs ?? null,
+      stringifyArtistAliases(job.artistAliases),
       job.playlistType,
       job.status,
       job.stagingPath ?? null,
@@ -208,6 +289,13 @@ export class WeeklyFlowDownloadTracker {
       job.startedAt ?? null,
       job.completedAt ?? null,
       job.albumName ?? null,
+      job.reason ?? null,
+      job.artistMbid ?? null,
+      job.albumMbid ?? null,
+      job.trackMbid ?? null,
+      job.releaseYear ?? null,
+      job.durationMs ?? null,
+      stringifyArtistAliases(job.artistAliases),
       job.id,
     );
   }
@@ -226,6 +314,18 @@ export class WeeklyFlowDownloadTracker {
       albumName: track?.albumName ? String(track.albumName).trim() : null,
       reason: track?.reason ? String(track.reason).trim() : null,
       artistMbid: track?.artistMbid ? String(track.artistMbid).trim() : null,
+      albumMbid: track?.albumMbid ? String(track.albumMbid).trim() : null,
+      trackMbid: track?.trackMbid ? String(track.trackMbid).trim() : null,
+      releaseYear: track?.releaseYear ? String(track.releaseYear).trim() : null,
+      durationMs:
+        track?.durationMs != null && Number.isFinite(Number(track.durationMs))
+          ? Math.max(0, Math.round(Number(track.durationMs)))
+          : null,
+      artistAliases: Array.isArray(track?.artistAliases)
+        ? track.artistAliases
+            .map((entry) => String(entry || "").trim())
+            .filter(Boolean)
+        : [],
       playlistType,
       status: "pending",
       startedAt: null,
@@ -253,6 +353,57 @@ export class WeeklyFlowDownloadTracker {
       ids.push(id);
     }
     return ids;
+  }
+
+  updateMetadata(id, metadata = {}) {
+    const job = this.jobs.get(id);
+    if (!job || !metadata || typeof metadata !== "object") return false;
+    let changed = false;
+    const assignString = (key) => {
+      if (!(key in metadata)) return;
+      const nextValue = metadata[key]
+        ? String(metadata[key]).trim() || null
+        : null;
+      if (job[key] !== nextValue) {
+        job[key] = nextValue;
+        changed = true;
+      }
+    };
+    assignString("artistName");
+    assignString("trackName");
+    assignString("albumName");
+    assignString("reason");
+    assignString("artistMbid");
+    assignString("albumMbid");
+    assignString("trackMbid");
+    assignString("releaseYear");
+    if ("durationMs" in metadata) {
+      const nextDuration =
+        metadata.durationMs != null && Number.isFinite(Number(metadata.durationMs))
+          ? Math.max(0, Math.round(Number(metadata.durationMs)))
+          : null;
+      if (job.durationMs !== nextDuration) {
+        job.durationMs = nextDuration;
+        changed = true;
+      }
+    }
+    if ("artistAliases" in metadata) {
+      const nextAliases = Array.isArray(metadata.artistAliases)
+        ? metadata.artistAliases
+            .map((entry) => String(entry || "").trim())
+            .filter(Boolean)
+        : [];
+      const previousSerialized = JSON.stringify(job.artistAliases || []);
+      const nextSerialized = JSON.stringify(nextAliases);
+      if (previousSerialized !== nextSerialized) {
+        job.artistAliases = nextAliases;
+        changed = true;
+      }
+    }
+    if (changed) {
+      this._update(job);
+    }
+    return changed;
   }
 
   getJob(id) {

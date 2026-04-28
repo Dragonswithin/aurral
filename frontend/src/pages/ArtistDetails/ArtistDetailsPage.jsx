@@ -14,17 +14,47 @@ import { ArtistDetailsSimilar } from "./components/ArtistDetailsSimilar";
 import { DeleteArtistModal } from "./components/DeleteArtistModal";
 import { DeleteAlbumModal } from "./components/DeleteAlbumModal";
 import { AddArtistCustomizeModal } from "./components/AddArtistCustomizeModal";
+import { PlaylistTrackModal } from "../../components/PlaylistModals";
 import {
+  addSharedPlaylistTracks,
   getArtistCover,
   getArtistDetails,
   getArtistOverrides,
   getArtistPreview,
+  getFlowStatus,
   getSimilarArtistsForArtist,
+  createSharedPlaylist,
   updateArtistOverrides,
 } from "../../utils/api";
 
 const MBID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const normalizePlaylistNameKey = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const reserveUniquePlaylistName = (playlists, baseName = "Playlist") => {
+  const normalizedBase = String(baseName || "").trim() || "Playlist";
+  const existing = new Set(
+    (Array.isArray(playlists) ? playlists : [])
+      .map((playlist) => normalizePlaylistNameKey(playlist?.name))
+      .filter(Boolean),
+  );
+  if (!existing.has(normalizedBase.toLowerCase())) {
+    return normalizedBase;
+  }
+  let index = 2;
+  while (index < 10000) {
+    const candidate = `${normalizedBase} ${index}`;
+    if (!existing.has(candidate.toLowerCase())) {
+      return candidate;
+    }
+    index += 1;
+  }
+  return `${normalizedBase} ${Date.now()}`;
+};
 
 function ArtistDetailsPage() {
   const { mbid } = useParams();
@@ -43,6 +73,11 @@ function ArtistDetailsPage() {
     musicbrainzId: "",
     deezerArtistId: "",
   });
+  const [sharedPlaylists, setSharedPlaylists] = useState([]);
+  const [playlistTrackModal, setPlaylistTrackModal] = useState(null);
+  const [playlistModalLoading, setPlaylistModalLoading] = useState(false);
+  const [playlistModalSubmitting, setPlaylistModalSubmitting] = useState(false);
+  const [playlistModalError, setPlaylistModalError] = useState("");
 
   const stream = useArtistDetailsStream(mbid, artistNameFromNav);
   const canAddArtist = hasPermission("addArtist");
@@ -189,6 +224,127 @@ function ArtistDetailsPage() {
     }
   };
 
+  const loadSharedPlaylists = async () => {
+    setPlaylistModalLoading(true);
+    try {
+      const data = await getFlowStatus();
+      const playlists = Array.isArray(data?.sharedPlaylists)
+        ? data.sharedPlaylists
+        : [];
+      setSharedPlaylists(playlists);
+      return playlists;
+    } catch (err) {
+      const message =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        err.message ||
+        "Failed to load playlists";
+      setPlaylistModalError(message);
+      showError(message);
+      return null;
+    } finally {
+      setPlaylistModalLoading(false);
+    }
+  };
+
+  const openPlaylistTrackModal = async (trackPayload) => {
+    if (!trackPayload?.artistName || !trackPayload?.trackName) {
+      showError("Track details are incomplete");
+      return;
+    }
+    setPlaylistModalError("");
+    const playlists = await loadSharedPlaylists();
+    if (!playlists) return;
+    setPlaylistTrackModal({
+      tracks: [trackPayload],
+      defaultNewPlaylistName: reserveUniquePlaylistName(
+        playlists,
+        `${trackPayload.artistName} Picks`,
+      ),
+    });
+  };
+
+  const handleReleaseTrackAdd = (track, releaseGroup) => {
+    const year = String(
+      releaseGroup?.["first-release-date"] || "",
+    ).slice(0, 4);
+    void openPlaylistTrackModal({
+      artistName: artist?.name || artistNameFromNav || "",
+      trackName: track?.trackName || track?.title || "",
+      albumName: releaseGroup?.title || "",
+      artistMbid: mbid || "",
+      albumMbid: releaseGroup?.id || "",
+      trackMbid: track?.mbid || track?.id || "",
+      releaseYear: year || null,
+      durationMs:
+        track?.length != null && Number.isFinite(Number(track.length))
+          ? Number(track.length)
+          : null,
+      reason: null,
+      artistAliases: [],
+    });
+  };
+
+  const handleLibraryTrackAdd = (track, libraryAlbum, releaseGroupId) => {
+    const year = String(libraryAlbum?.releaseDate || "").slice(0, 4);
+    void openPlaylistTrackModal({
+      artistName: artist?.name || artistNameFromNav || "",
+      trackName: track?.trackName || track?.title || "",
+      albumName: libraryAlbum?.albumName || "",
+      artistMbid: mbid || "",
+      albumMbid: releaseGroupId || libraryAlbum?.mbid || "",
+      trackMbid: track?.mbid || track?.id || "",
+      releaseYear: year || null,
+      durationMs:
+        track?.length != null && Number.isFinite(Number(track.length))
+          ? Number(track.length)
+          : null,
+      reason: null,
+      artistAliases: [],
+    });
+  };
+
+  const handleSubmitPlaylistTrackModal = async (payload) => {
+    setPlaylistModalSubmitting(true);
+    setPlaylistModalError("");
+    try {
+      if (payload?.mode === "new") {
+        const response = await createSharedPlaylist({
+          name: payload.name,
+          tracks: payload.tracks,
+        });
+        showSuccess(
+          `Track saved to ${response?.playlist?.name || payload.name}`,
+        );
+      } else {
+        const targetPlaylist = sharedPlaylists.find(
+          (playlist) => playlist.id === payload?.playlistId,
+        );
+        await addSharedPlaylistTracks(payload.playlistId, {
+          tracks: payload.tracks,
+        });
+        showSuccess(
+          `Track added to ${targetPlaylist?.name || "playlist"}`,
+        );
+      }
+      setPlaylistTrackModal(null);
+      const nextPlaylists = await loadSharedPlaylists();
+      if (nextPlaylists) {
+        setSharedPlaylists(nextPlaylists);
+      }
+    } catch (err) {
+      const message =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        err.message ||
+        "Failed to save track to playlist";
+      setPlaylistModalError(message);
+      showError(message);
+    } finally {
+      setPlaylistModalSubmitting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center py-20">
@@ -295,6 +451,7 @@ function ArtistDetailsPage() {
           handleDeleteAlbumClick={library.handleDeleteAlbumClick}
           canReSearchAlbum={canAddAlbum}
           handleReSearchAlbum={library.handleReSearchAlbum}
+          onAddTrackToPlaylist={handleLibraryTrackAdd}
         />
       )}
 
@@ -332,6 +489,7 @@ function ArtistDetailsPage() {
           isReleaseGroupDownloadedInLibrary={
             library.isReleaseGroupDownloadedInLibrary
           }
+          onAddTrackToPlaylist={handleReleaseTrackAdd}
         />
       )}
 
@@ -393,6 +551,29 @@ function ArtistDetailsPage() {
         onChange={setIdsValues}
         onClose={() => setShowEditIdsModal(false)}
         onSave={handleSaveIds}
+      />
+
+      <PlaylistTrackModal
+        open={!!playlistTrackModal}
+        title="Add Track To Playlist"
+        description={
+          playlistModalLoading
+            ? "Loading your playlists..."
+            : "Save this song into an existing playlist or start a new one."
+        }
+        playlists={sharedPlaylists}
+        initialTracks={playlistTrackModal?.tracks || []}
+        defaultNewPlaylistName={
+          playlistTrackModal?.defaultNewPlaylistName || "Playlist"
+        }
+        saving={playlistModalSubmitting || playlistModalLoading}
+        error={playlistModalError}
+        onClose={() => {
+          if (playlistModalSubmitting || playlistModalLoading) return;
+          setPlaylistModalError("");
+          setPlaylistTrackModal(null);
+        }}
+        onSubmit={handleSubmitPlaylistTrackModal}
       />
     </div>
   );

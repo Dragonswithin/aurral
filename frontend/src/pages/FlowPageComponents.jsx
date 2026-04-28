@@ -804,6 +804,18 @@ function buildEditableTrackRows(tracks) {
     trackName: String(track?.trackName || ""),
     albumName: String(track?.albumName || ""),
     artistMbid: String(track?.artistMbid || ""),
+    albumMbid: String(track?.albumMbid || ""),
+    trackMbid: String(track?.trackMbid || ""),
+    releaseYear: String(track?.releaseYear || ""),
+    durationMs:
+      track?.durationMs != null && Number.isFinite(Number(track.durationMs))
+        ? Math.max(0, Math.round(Number(track.durationMs)))
+        : null,
+    artistAliases: Array.isArray(track?.artistAliases)
+      ? track.artistAliases
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean)
+      : [],
     reason: String(track?.reason || ""),
     status: String(track?.status || "draft"),
     error: String(track?.error || ""),
@@ -851,8 +863,29 @@ function buildTrackSavePayload(tracks) {
     const trackName = String(track?.trackName || "").trim();
     const albumName = String(track?.albumName || "").trim();
     const artistMbid = String(track?.artistMbid || "").trim();
+    const albumMbid = String(track?.albumMbid || "").trim();
+    const trackMbid = String(track?.trackMbid || "").trim();
+    const releaseYear = String(track?.releaseYear || "").trim();
     const reason = String(track?.reason || "").trim();
-    if (!artistName && !trackName && !albumName && !artistMbid && !reason) {
+    const durationMs =
+      track?.durationMs != null && Number.isFinite(Number(track.durationMs))
+        ? Math.max(0, Math.round(Number(track.durationMs)))
+        : null;
+    const artistAliases = Array.isArray(track?.artistAliases)
+      ? track.artistAliases
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean)
+      : [];
+    if (
+      !artistName &&
+      !trackName &&
+      !albumName &&
+      !artistMbid &&
+      !albumMbid &&
+      !trackMbid &&
+      !releaseYear &&
+      !reason
+    ) {
       continue;
     }
     if (!artistName || !trackName) {
@@ -863,11 +896,13 @@ function buildTrackSavePayload(tracks) {
       trackName,
       albumName: albumName || null,
       artistMbid: artistMbid || null,
+      albumMbid: albumMbid || null,
+      trackMbid: trackMbid || null,
+      releaseYear: releaseYear || null,
+      durationMs,
+      artistAliases,
       reason: reason || null,
     });
-  }
-  if (nextTracks.length === 0) {
-    throw new Error("Playlist must include at least one track");
   }
   return nextTracks;
 }
@@ -952,6 +987,11 @@ export const SharedPlaylistTrackEditor = forwardRef(function SharedPlaylistTrack
         trackName: "",
         albumName: "",
         artistMbid: "",
+        albumMbid: "",
+        trackMbid: "",
+        releaseYear: "",
+        durationMs: null,
+        artistAliases: [],
         reason: "",
         status: "draft",
         error: "",
@@ -1235,6 +1275,7 @@ export function FlowCard({
   onToggleEnabled,
   onDelete,
   onViewTracks,
+  onAddTrackToPlaylist,
   onNavigateArtist,
   onNameCancel,
   onNameApply,
@@ -1567,6 +1608,7 @@ export function FlowCard({
             tracks={tracks}
             loading={tracksLoading}
             error={tracksError}
+            onAddTrackToPlaylist={onAddTrackToPlaylist}
             onNavigateArtist={onNavigateArtist}
           />
         </div>
@@ -1587,6 +1629,7 @@ export function FlowTracksPanel({
   headerActions = null,
   deletingTrackId = null,
   onDeleteTrack,
+  onAddTrackToPlaylist,
   onNavigateArtist,
 }) {
   const [queue, setQueue] = useState([]);
@@ -1980,6 +2023,17 @@ export function FlowTracksPanel({
                             <ExternalLink className="w-3.5 h-3.5" />
                           </button>
                         ) : null}
+                        {onAddTrackToPlaylist ? (
+                          <button
+                            onClick={() => onAddTrackToPlaylist(track)}
+                            className="btn btn-secondary btn-xs px-2"
+                            aria-label={`Add ${track.trackName} to playlist`}
+                            title={`Add ${track.trackName} to playlist`}
+                            disabled={!track.artistName || !track.trackName}
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        ) : null}
                         {canDelete ? (
                           <button
                             onClick={() => onDeleteTrack?.(track)}
@@ -2052,6 +2106,7 @@ export function SharedPlaylistCard({
   onDelete,
   onExport,
   onViewTracks,
+  onAddTrackToPlaylist,
   onNavigateArtist,
   retryCyclePaused,
   retryCycleScheduled,
@@ -2318,6 +2373,7 @@ export function SharedPlaylistCard({
                   )}
                 </button>
               }
+              onAddTrackToPlaylist={onAddTrackToPlaylist}
               onNavigateArtist={onNavigateArtist}
             />
           )}

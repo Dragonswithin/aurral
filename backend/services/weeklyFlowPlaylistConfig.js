@@ -342,12 +342,33 @@ const normalizeSharedTrack = (track) => {
   const artistMbid = String(
     track.artistMbid ?? track.artistId ?? track.mbid ?? "",
   ).trim();
+  const albumMbid = String(
+    track.albumMbid ?? track.releaseGroupMbid ?? track.albumId ?? "",
+  ).trim();
+  const trackMbid = String(
+    track.trackMbid ?? track.recordingMbid ?? track.recordingId ?? "",
+  ).trim();
+  const releaseYear = String(track.releaseYear ?? track.year ?? "").trim();
+  const durationMs =
+    track.durationMs != null && Number.isFinite(Number(track.durationMs))
+      ? Math.max(0, Math.round(Number(track.durationMs)))
+      : null;
+  const artistAliases = Array.isArray(track.artistAliases)
+    ? track.artistAliases
+        .map((entry) => String(entry || "").trim())
+        .filter(Boolean)
+    : [];
   const reason = String(track.reason ?? "").trim();
   return {
     artistName,
     trackName,
     albumName: albumName || null,
     artistMbid: artistMbid || null,
+    albumMbid: albumMbid || null,
+    trackMbid: trackMbid || null,
+    releaseYear: releaseYear || null,
+    durationMs,
+    artistAliases,
     reason: reason || null,
   };
 };
@@ -724,7 +745,7 @@ export const flowPlaylistConfig = {
     );
   },
 
-  createSharedPlaylist({ name, sourceName, sourceFlowId, tracks }) {
+  createSharedPlaylist({ name, sourceName, sourceFlowId, tracks = [] }) {
     const playlists = getStoredSharedPlaylists();
     assertUniqueSharedPlaylistName(playlists, name);
     const playlist = normalizeSharedPlaylist({
@@ -739,6 +760,25 @@ export const flowPlaylistConfig = {
     playlists.push(playlist);
     setSharedPlaylists(playlists);
     return playlist;
+  },
+
+  appendSharedPlaylistTracks(playlistId, tracks) {
+    const playlists = getStoredSharedPlaylists();
+    const index = playlists.findIndex((playlist) => playlist.id === playlistId);
+    if (index === -1) return null;
+    const current = playlists[index];
+    const appendedTracks = Array.isArray(tracks)
+      ? tracks.map(normalizeSharedTrack).filter(Boolean)
+      : [];
+    const next = normalizeSharedPlaylist({
+      ...current,
+      tracks: [...current.tracks, ...appendedTracks],
+      importedAt: current.importedAt,
+      createdAt: current.createdAt,
+    });
+    playlists[index] = next;
+    setSharedPlaylists(playlists);
+    return next;
   },
 
   updateSharedPlaylist(playlistId, updates) {

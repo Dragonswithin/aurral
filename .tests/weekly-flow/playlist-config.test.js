@@ -83,6 +83,20 @@ test("stores full shared playlists but exposes trackless summaries for hot paths
   assert.equal(summaries[0].sourceName, "Discover Weekly");
 });
 
+test("supports empty manual playlists", () => {
+  const playlist = flowPlaylistConfig.createSharedPlaylist({
+    name: "Empty Queue",
+  });
+
+  const stored = flowPlaylistConfig.getSharedPlaylist(playlist.id);
+  const summary = flowPlaylistConfig
+    .getSharedPlaylistSummaries()
+    .find((entry) => entry.id === playlist.id);
+
+  assert.equal(stored?.tracks?.length, 0);
+  assert.equal(summary?.trackCount, 0);
+});
+
 test("updates shared playlists and keeps summaries in sync", () => {
   const playlist = flowPlaylistConfig.createSharedPlaylist({
     name: "Gym Mix",
@@ -104,4 +118,52 @@ test("updates shared playlists and keeps summaries in sync", () => {
   assert.equal(updated?.tracks?.length, 1);
   assert.equal(summary?.name, "Gym Mix Updated");
   assert.equal(summary?.trackCount, 1);
+});
+
+test("preserves rich track metadata when shared playlists are updated", () => {
+  const playlist = flowPlaylistConfig.createSharedPlaylist({
+    name: "Metadata Mix",
+    tracks: [
+      {
+        artistName: "Artist A",
+        trackName: "Song A",
+        albumName: "Album A",
+        artistMbid: "artist-mbid",
+        albumMbid: "album-mbid",
+        trackMbid: "track-mbid",
+        releaseYear: "1999",
+        durationMs: 185000,
+        artistAliases: ["Artist Alias"],
+      },
+    ],
+  });
+
+  const updated = flowPlaylistConfig.updateSharedPlaylist(playlist.id, {
+    tracks: [
+      {
+        artistName: "Artist B",
+        trackName: "Song B",
+        albumName: "Album B",
+        artistMbid: "artist-b",
+        albumMbid: "album-b",
+        trackMbid: "track-b",
+        releaseYear: "2004",
+        durationMs: 201000,
+        artistAliases: ["Alias B"],
+      },
+    ],
+  });
+
+  assert.deepEqual(updated?.tracks?.[0], {
+    artistName: "Artist B",
+    trackName: "Song B",
+    albumName: "Album B",
+    artistMbid: "artist-b",
+    albumMbid: "album-b",
+    trackMbid: "track-b",
+    releaseYear: "2004",
+    durationMs: 201000,
+    artistAliases: ["Alias B"],
+    reason: null,
+  });
 });

@@ -58,6 +58,7 @@ export function ArtistDetailsReleaseGroups({
   previewVolume,
   setPreviewVolume,
   isReleaseGroupDownloadedInLibrary,
+  onAddTrackToPlaylist,
 }) {
   const [sortMode, setSortMode] = useState("date");
   const [playingTrackId, setPlayingTrackId] = useState(null);
@@ -887,6 +888,24 @@ export function ArtistDetailsReleaseGroups({
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-2 flex-shrink-0">
+                                  {onAddTrackToPlaylist ? (
+                                    <button
+                                      type="button"
+                                      className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
+                                      style={{
+                                        backgroundColor: "rgba(255,255,255,0.06)",
+                                        color: "#fff",
+                                      }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onAddTrackToPlaylist(track, releaseGroup);
+                                      }}
+                                      title="Add to playlist"
+                                      aria-label="Add to playlist"
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                    </button>
+                                  ) : null}
                                   {hasPreview && (
                                     <button
                                       type="button"
@@ -996,4 +1015,5 @@ ArtistDetailsReleaseGroups.propTypes = {
   previewVolume: PropTypes.number,
   setPreviewVolume: PropTypes.func,
   isReleaseGroupDownloadedInLibrary: PropTypes.func,
+  onAddTrackToPlaylist: PropTypes.func,
 };

@@ -7,6 +7,8 @@ import {
   createFlow,
   updateFlow,
   deleteFlow,
+  createSharedPlaylist,
+  addSharedPlaylistTracks,
   convertFlowToStaticPlaylist,
   deleteSharedPlaylist,
   importSharedPlaylist,
@@ -17,6 +19,10 @@ import {
   updateFlowWorkerSettings,
   setPlaylistRetryCyclePaused,
 } from "../utils/api";
+import {
+  CreatePlaylistModal,
+  PlaylistTrackModal,
+} from "../components/PlaylistModals";
 import { useToast } from "../contexts/ToastContext";
 import { useWebSocketChannel } from "../hooks/useWebSocket";
 import {
@@ -159,6 +165,15 @@ const reserveUniqueFlowName = (reservedNames, baseName) => {
   const fallback = `${normalizedBase} ${Date.now()}`;
   reservedNames.add(normalizeNameKey(fallback));
   return fallback;
+};
+
+const buildTrackForPlaylistModal = (track) => {
+  const normalized = normalizeSharedTrackEntry(track);
+  if (!normalized) return null;
+  return {
+    ...normalized,
+    reason: track?.reason ? String(track.reason).trim() : null,
+  };
 };
 
 const parseListInput = (value) =>
@@ -545,11 +560,32 @@ const normalizeSharedTrackEntry = (track) => {
     track.albumName ?? track.album ?? track["Album Name"] ?? "",
   ).trim();
   const artistMbid = String(track.artistMbid ?? track.artistId ?? track.mbid ?? "").trim();
+  const albumMbid = String(
+    track.albumMbid ?? track.releaseGroupMbid ?? track.albumId ?? "",
+  ).trim();
+  const trackMbid = String(
+    track.trackMbid ?? track.recordingMbid ?? track.recordingId ?? "",
+  ).trim();
+  const releaseYear = String(track.releaseYear ?? track.year ?? "").trim();
+  const durationMs =
+    track.durationMs != null && Number.isFinite(Number(track.durationMs))
+      ? Math.max(0, Math.round(Number(track.durationMs)))
+      : null;
+  const artistAliases = Array.isArray(track.artistAliases)
+    ? track.artistAliases
+        .map((entry) => String(entry || "").trim())
+        .filter(Boolean)
+    : [];
   return {
     artistName,
     trackName,
     albumName: albumName || null,
     artistMbid: artistMbid || null,
+    albumMbid: albumMbid || null,
+    trackMbid: trackMbid || null,
+    releaseYear: releaseYear || null,
+    durationMs,
+    artistAliases,
   };
 };
 
@@ -566,6 +602,18 @@ const buildSharedTracklistPayload = ({ name, sourceName, sourceFlowId, tracks })
     trackName: String(track.trackName || "").trim(),
     albumName: track.albumName ? String(track.albumName).trim() : null,
     artistMbid: track.artistMbid ? String(track.artistMbid).trim() : null,
+    albumMbid: track.albumMbid ? String(track.albumMbid).trim() : null,
+    trackMbid: track.trackMbid ? String(track.trackMbid).trim() : null,
+    releaseYear: track.releaseYear ? String(track.releaseYear).trim() : null,
+    durationMs:
+      track.durationMs != null && Number.isFinite(Number(track.durationMs))
+        ? Math.max(0, Math.round(Number(track.durationMs)))
+        : null,
+    artistAliases: Array.isArray(track.artistAliases)
+      ? track.artistAliases
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean)
+      : [],
   })),
 });
 
@@ -776,6 +824,12 @@ function FlowPage() {
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const [importReview, setImportReview] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [isCreatePlaylistOpen, setIsCreatePlaylistOpen] = useState(false);
+  const [creatingPlaylist, setCreatingPlaylist] = useState(false);
+  const [createPlaylistError, setCreatePlaylistError] = useState("");
+  const [playlistTrackModal, setPlaylistTrackModal] = useState(null);
+  const [playlistTrackSubmitting, setPlaylistTrackSubmitting] = useState(false);
+  const [playlistTrackError, setPlaylistTrackError] = useState("");
   const lastFlowWsMessageAtRef = useRef(0);
   const importInputRef = useRef(null);
   const { showSuccess, showError } = useToast();
@@ -1103,6 +1157,111 @@ function FlowPage() {
     }
   };
 
+  const handleOpenCreatePlaylist = () => {
+    setCreatePlaylistError("");
+    setIsCreatePlaylistOpen(true);
+  };
+
+  const handleCreatePlaylist = async (name) => {
+    setCreatingPlaylist(true);
+    setCreatePlaylistError("");
+    try {
+      await createSharedPlaylist({ name });
+      showSuccess("Playlist created");
+      setIsCreatePlaylistOpen(false);
+      await fetchStatus();
+    } catch (err) {
+      const message =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        err.message ||
+        "Failed to create playlist";
+      setCreatePlaylistError(message);
+      showError(message);
+    } finally {
+      setCreatingPlaylist(false);
+    }
+  };
+
+  const openPlaylistTrackModal = ({
+    track,
+    title = "Add To Playlist",
+    description = "",
+    excludedPlaylistIds = [],
+  }) => {
+    const normalizedTrack = buildTrackForPlaylistModal(track);
+    if (!normalizedTrack) {
+      showError("Track details are incomplete");
+      return;
+    }
+    setPlaylistTrackError("");
+    setPlaylistTrackModal({
+      title,
+      description,
+      tracks: [normalizedTrack],
+      excludedPlaylistIds,
+      defaultNewPlaylistName: getNextPlaylistName(
+        `${normalizedTrack.artistName} Picks`,
+      ),
+    });
+  };
+
+  const handleAddTrackToPlaylist = (track, options = {}) => {
+    openPlaylistTrackModal({
+      track,
+      title: options.title || "Add Track To Playlist",
+      description:
+        options.description ||
+        "Save this song into an existing playlist or start a new one.",
+      excludedPlaylistIds: options.excludedPlaylistIds || [],
+    });
+  };
+
+  const handleSubmitPlaylistTrackModal = async (payload) => {
+    setPlaylistTrackSubmitting(true);
+    setPlaylistTrackError("");
+    try {
+      if (payload?.mode === "new") {
+        const response = await createSharedPlaylist({
+          name: payload.name,
+          tracks: payload.tracks,
+        });
+        showSuccess(
+          `Track saved to ${response?.playlist?.name || payload.name}`,
+        );
+      } else {
+        const targetPlaylist = sharedPlaylists.find(
+          (playlist) => playlist.id === payload?.playlistId,
+        );
+        await addSharedPlaylistTracks(payload.playlistId, {
+          tracks: payload.tracks,
+        });
+        showSuccess(
+          `Track added to ${targetPlaylist?.name || "playlist"}`,
+        );
+      }
+      const expandedId = tracksExpandedId;
+      setPlaylistTrackModal(null);
+      await fetchStatus();
+      if (expandedId) {
+        await fetchFlowTracks(expandedId, {
+          showSpinner: false,
+          includeFailed: true,
+        });
+      }
+    } catch (err) {
+      const message =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        err.message ||
+        "Failed to save track to playlist";
+      setPlaylistTrackError(message);
+      showError(message);
+    } finally {
+      setPlaylistTrackSubmitting(false);
+    }
+  };
+
   const handleDelete = async (flow) => {
     setConfirmDelete({
       flowId: flow.id,
@@ -1167,7 +1326,21 @@ function FlowPage() {
   };
 
   const flowList = status?.flows || [];
-  const sharedPlaylists = status?.sharedPlaylists || [];
+  const sharedPlaylists = useMemo(
+    () => status?.sharedPlaylists || [],
+    [status?.sharedPlaylists],
+  );
+  const getNextPlaylistName = useCallback(
+    (baseName = "Playlist") => {
+      const reservedNames = new Set(
+        sharedPlaylists
+          .map((playlist) => normalizeNameKey(playlist?.name))
+          .filter(Boolean),
+      );
+      return reserveUniqueFlowName(reservedNames, baseName);
+    },
+    [sharedPlaylists],
+  );
   const effectiveFlowList = flowList.map((flow) => {
     const optimisticValue = optimisticEnabled[flow.id];
     if (typeof optimisticValue !== "boolean") return flow;
@@ -1229,6 +1402,11 @@ function FlowPage() {
         trackName: job.trackName,
         albumName: job.albumName || null,
         artistMbid: job.artistMbid || null,
+        albumMbid: job.albumMbid || null,
+        trackMbid: job.trackMbid || null,
+        releaseYear: job.releaseYear || null,
+        durationMs: job.durationMs || null,
+        artistAliases: job.artistAliases || [],
       }))
       .filter((track) => track.artistName && track.trackName);
     if (tracks.length === 0) {
@@ -1698,6 +1876,14 @@ function FlowPage() {
           </a>
           <button
             type="button"
+            onClick={handleOpenCreatePlaylist}
+            className="btn btn-secondary btn-sm"
+            disabled={creatingPlaylist}
+          >
+            {creatingPlaylist ? "Creating..." : "New Playlist"}
+          </button>
+          <button
+            type="button"
             onClick={handleCreateInline}
             className="btn btn-primary btn-sm"
             disabled={creating}
@@ -1747,6 +1933,11 @@ function FlowPage() {
                 onExport={() => handleExportFlow(playlist)}
                 onViewTracks={() =>
                   handleToggleTracks(playlist.id, { includeFailed: true })
+                }
+                onAddTrackToPlaylist={(track) =>
+                  handleAddTrackToPlaylist(track, {
+                    excludedPlaylistIds: [playlist.id],
+                  })
                 }
                 onNavigateArtist={handleNavigateArtist}
                 retryCyclePaused={retryCyclePausedByPlaylist[playlist.id] === true}
@@ -1829,6 +2020,7 @@ function FlowPage() {
               onToggleEnabled={(checked) => handleToggleRequest(flow, checked)}
               onDelete={() => handleDelete(flow)}
               onViewTracks={() => handleToggleTracks(flow.id)}
+              onAddTrackToPlaylist={(track) => handleAddTrackToPlaylist(track)}
               onNavigateArtist={handleNavigateArtist}
               onNameCancel={() => handleCancelFlowNameEdit(flow)}
               onNameApply={() => handleApplyFlowNameEdit(flow)}
@@ -1901,6 +2093,38 @@ function FlowPage() {
           setImportReview(null);
         }}
         onConfirm={handleConfirmImport}
+      />
+      <CreatePlaylistModal
+        open={isCreatePlaylistOpen}
+        defaultName={getNextPlaylistName("Playlist")}
+        saving={creatingPlaylist}
+        error={createPlaylistError}
+        onClose={() => {
+          if (creatingPlaylist) return;
+          setCreatePlaylistError("");
+          setIsCreatePlaylistOpen(false);
+        }}
+        onSubmit={handleCreatePlaylist}
+      />
+      <PlaylistTrackModal
+        open={!!playlistTrackModal}
+        title={playlistTrackModal?.title || "Add To Playlist"}
+        description={playlistTrackModal?.description || ""}
+        playlists={sharedPlaylists}
+        initialTracks={playlistTrackModal?.tracks || []}
+        excludedPlaylistIds={playlistTrackModal?.excludedPlaylistIds || []}
+        defaultNewPlaylistName={
+          playlistTrackModal?.defaultNewPlaylistName ||
+          getNextPlaylistName("Playlist")
+        }
+        saving={playlistTrackSubmitting}
+        error={playlistTrackError}
+        onClose={() => {
+          if (playlistTrackSubmitting) return;
+          setPlaylistTrackError("");
+          setPlaylistTrackModal(null);
+        }}
+        onSubmit={handleSubmitPlaylistTrackModal}
       />
     </div>
   );
