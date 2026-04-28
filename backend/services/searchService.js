@@ -1,5 +1,5 @@
+import NodeCache from "node-cache";
 import { dbOps } from "../config/db-helpers.js";
-import { imagePrefetchService } from "./imagePrefetchService.js";
 import {
   getLastfmApiKey,
   lastfmRequest,
@@ -23,6 +23,11 @@ const ALL_RELEASE_TYPES = new Set([
   ...PRIMARY_RELEASE_TYPES,
   ...SECONDARY_RELEASE_TYPES,
 ]);
+const albumLibraryLookupCache = new NodeCache({
+  stdTTL: 60,
+  checkperiod: 60,
+  maxKeys: 10,
+});
 
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(value, 10);
@@ -45,6 +50,11 @@ function normalizeArtistImage(cachedImage) {
 
 export function normalizeArtistSearchItem(artist, cachedImages = {}) {
   const imageUrl = normalizeArtistImage(cachedImages[artist.id]);
+  const areaName =
+    artist?.area?.name || artist?.["begin-area"]?.name || artist?.area || null;
+  const lifeSpan = artist?.["life-span"] || artist?.lifeSpan || null;
+  const begin = lifeSpan?.begin || null;
+  const end = lifeSpan?.end || null;
   return {
     type: "artist",
     id: artist.id,
@@ -52,6 +62,12 @@ export function normalizeArtistSearchItem(artist, cachedImages = {}) {
     sortName: artist["sort-name"] || artist.name,
     image: imageUrl,
     imageUrl,
+    artistType: artist.type || null,
+    country: artist.country || null,
+    area: areaName,
+    begin,
+    end,
+    disambiguation: artist.disambiguation || null,
     inLibrary: false,
   };
 }
@@ -181,7 +197,11 @@ async function getAlbumLibraryLookup(albumMbids) {
   }
 
   try {
-    const lidarrAlbums = await lidarrClient.request("/album");
+    let lidarrAlbums = albumLibraryLookupCache.get("lidarrAlbums");
+    if (!lidarrAlbums) {
+      lidarrAlbums = await lidarrClient.request("/album");
+      albumLibraryLookupCache.set("lidarrAlbums", lidarrAlbums);
+    }
     const wanted = new Set(albumMbids);
     for (const album of Array.isArray(lidarrAlbums) ? lidarrAlbums : []) {
       const foreignAlbumId = album?.foreignAlbumId;
@@ -223,10 +243,6 @@ export async function searchArtists(query, limit = 24, offset = 0) {
   const items = filteredArtists.map((artist) =>
     normalizeArtistSearchItem(artist, cachedImages),
   );
-
-  if (items.length > 0) {
-    imagePrefetchService.prefetchSearchResults(items).catch(() => {});
-  }
 
   return {
     scope: "artist",

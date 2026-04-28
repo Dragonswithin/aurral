@@ -4,6 +4,8 @@ import NodeCache from "node-cache";
 import { dbOps } from "../config/db-helpers.js";
 import {
   MUSICBRAINZ_API,
+  AURRAL_MUSICBRAINZ_API,
+  COVER_ART_ARCHIVE_API,
   LASTFM_API,
   LISTENBRAINZ_API,
   APP_NAME,
@@ -25,6 +27,16 @@ const deezerArtistCache = new NodeCache({
   stdTTL: 3600,
   checkperiod: 120,
   maxKeys: 1000,
+});
+const musicbrainzArtistNameCache = new NodeCache({
+  stdTTL: 3600,
+  checkperiod: 120,
+  maxKeys: 1000,
+});
+const musicbrainzReleaseGroupsCache = new NodeCache({
+  stdTTL: 300,
+  checkperiod: 120,
+  maxKeys: 500,
 });
 
 export const getLastfmApiKey = () => {
@@ -50,10 +62,168 @@ export const getMusicBrainzContact = () => {
   );
 };
 
+const normalizeMusicbrainzApiBaseUrl = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return MUSICBRAINZ_API;
+
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return MUSICBRAINZ_API;
+  }
+
+  const trimmedPath = parsed.pathname.replace(/\/+$/, "");
+  parsed.pathname = trimmedPath.endsWith("/ws/2")
+    ? trimmedPath
+    : `${trimmedPath || ""}/ws/2`;
+
+  return parsed.toString().replace(/\/+$/, "");
+};
+
+export const getMusicbrainzApiBaseUrl = () => {
+  const settings = dbOps.getSettings();
+  const provider = settings.integrations?.musicbrainz?.provider || "aurralHosted";
+  if (provider === "official") {
+    return MUSICBRAINZ_API;
+  }
+  if (provider === "custom") {
+    return normalizeMusicbrainzApiBaseUrl(
+      settings.integrations?.musicbrainz?.customUrl,
+    );
+  }
+  return AURRAL_MUSICBRAINZ_API;
+};
+
+const shouldUseOfficialSearchFallback = (endpoint, params = {}) => {
+  const settings = dbOps.getSettings();
+  const provider = settings.integrations?.musicbrainz?.provider || "aurralHosted";
+  if (provider !== "aurralHosted") return false;
+  if (!params?.query) return false;
+  return endpoint === "/artist" || endpoint === "/release-group";
+};
+
+const requestMusicbrainz = async (
+  baseUrl,
+  endpoint,
+  queryParams,
+  userAgent,
+  forceIpv4 = false,
+) =>
+  axios.get(`${baseUrl}${endpoint}?${queryParams}`, {
+    headers: { "User-Agent": userAgent },
+    timeout: 5000,
+    ...(forceIpv4 ? { family: 4 } : {}),
+  });
+
+const shouldFallbackToOfficialForSearch = (endpoint, params, responseData) => {
+  if (!shouldUseOfficialSearchFallback(endpoint, params)) return false;
+  if (endpoint === "/artist") {
+    const artists = Array.isArray(responseData?.artists) ? responseData.artists : [];
+    return artists.length === 0;
+  }
+  if (endpoint === "/release-group") {
+    const releaseGroups = Array.isArray(responseData?.["release-groups"])
+      ? responseData["release-groups"]
+      : [];
+    return releaseGroups.length === 0;
+  }
+  return false;
+};
+
+const hasUsableMusicbrainzSearchResults = (endpoint, responseData) => {
+  if (endpoint === "/artist") {
+    return Array.isArray(responseData?.artists) && responseData.artists.length > 0;
+  }
+  if (endpoint === "/release-group") {
+    return (
+      Array.isArray(responseData?.["release-groups"]) &&
+      responseData["release-groups"].length > 0
+    );
+  }
+  return false;
+};
+
+const raceHostedAndOfficialSearch = async (
+  endpoint,
+  params,
+  queryParams,
+  userAgent,
+  forceIpv4,
+) => {
+  const hostedRequest = requestMusicbrainz(
+    AURRAL_MUSICBRAINZ_API,
+    endpoint,
+    queryParams,
+    userAgent,
+    forceIpv4,
+  ).then((response) => {
+    if (hasUsableMusicbrainzSearchResults(endpoint, response.data)) {
+      return response.data;
+    }
+    throw new Error("Hosted search returned no results");
+  });
+
+  const officialRequest = requestMusicbrainz(
+    MUSICBRAINZ_API,
+    endpoint,
+    queryParams,
+    userAgent,
+    forceIpv4,
+  ).then((response) => {
+    if (hasUsableMusicbrainzSearchResults(endpoint, response.data)) {
+      return response.data;
+    }
+    throw new Error("Official search returned no results");
+  });
+
+  try {
+    return await Promise.any([hostedRequest, officialRequest]);
+  } catch {
+    const fallbackHosted = await requestMusicbrainz(
+      AURRAL_MUSICBRAINZ_API,
+      endpoint,
+      queryParams,
+      userAgent,
+      forceIpv4,
+    );
+    if (
+      shouldFallbackToOfficialForSearch(endpoint, params, fallbackHosted.data)
+    ) {
+      const officialFallback = await requestMusicbrainz(
+        MUSICBRAINZ_API,
+        endpoint,
+        queryParams,
+        userAgent,
+        forceIpv4,
+      );
+      return officialFallback.data;
+    }
+    return fallbackHosted.data;
+  }
+};
+
 const mbLimiter = new Bottleneck({
   maxConcurrent: 1,
   minTime: 1000,
 });
+
+const configureMusicbrainzLimiter = async () => {
+  const settings = dbOps.getSettings();
+  const provider = settings.integrations?.musicbrainz?.provider || "aurralHosted";
+  if (provider === "official") {
+    await mbLimiter.updateSettings({
+      maxConcurrent: 1,
+      minTime: 1000,
+    });
+    return;
+  }
+
+  await mbLimiter.updateSettings({
+    maxConcurrent: 4,
+    minTime: 100,
+  });
+};
 
 const lastfmLimiter = new Bottleneck({
   maxConcurrent: 5,
@@ -120,16 +290,28 @@ const musicbrainzRequestWithRetry = async (
     (getMusicBrainzContact() || "").trim() || "https://github.com/aurral";
   const userAgent = `${APP_NAME}/${APP_VERSION} ( ${contact} )`;
   try {
-    const response = await axios.get(
-      `${MUSICBRAINZ_API}${endpoint}?${queryParams}`,
-      {
-        headers: { "User-Agent": userAgent },
-        timeout: 5000,
-        ...(forceIpv4 ? { family: 4 } : {}),
-      },
-    );
-    mbCache.set(cacheKey, response.data);
-    return response.data;
+    let responseData;
+    if (shouldUseOfficialSearchFallback(endpoint, params)) {
+      responseData = await raceHostedAndOfficialSearch(
+        endpoint,
+        params,
+        queryParams,
+        userAgent,
+        forceIpv4,
+      );
+    } else {
+      const primaryResponse = await requestMusicbrainz(
+        getMusicbrainzApiBaseUrl(),
+        endpoint,
+        queryParams,
+        userAgent,
+        forceIpv4,
+      );
+      responseData = primaryResponse.data;
+    }
+
+    mbCache.set(cacheKey, responseData);
+    return responseData;
   } catch (error) {
     const connectionError = isConnectionError(error);
     const shouldRetry =
@@ -180,7 +362,57 @@ const musicbrainzRequestWithRetry = async (
   }
 };
 
-export const musicbrainzRequest = mbLimiter.wrap(musicbrainzRequestWithRetry);
+export const musicbrainzRequest = async (endpoint, params = {}) => {
+  await configureMusicbrainzLimiter();
+  return mbLimiter.schedule(() =>
+    musicbrainzRequestWithRetry(endpoint, params),
+  );
+};
+
+export async function fetchCoverArtArchiveReleaseGroup(releaseGroupMbid) {
+  if (!releaseGroupMbid) return null;
+  const directUrl = `${COVER_ART_ARCHIVE_API}/release-group/${releaseGroupMbid}/front-250`;
+  try {
+    const response = await axios.head(directUrl, {
+      timeout: 2000,
+      maxRedirects: 0,
+      validateStatus: (status) =>
+        status === 200 || status === 301 || status === 302 || status === 307,
+    });
+
+    if (response.status >= 200 && response.status < 400) {
+      return {
+        imageUrl: directUrl,
+        types: ["Front"],
+      };
+    }
+  } catch {}
+
+  try {
+    const response = await axios.get(
+      `${COVER_ART_ARCHIVE_API}/release-group/${releaseGroupMbid}`,
+      {
+        headers: { Accept: "application/json" },
+        timeout: 2000,
+      },
+    );
+    const images = Array.isArray(response?.data?.images)
+      ? response.data.images
+      : [];
+    if (!images.length) return null;
+
+    const frontImage = images.find((img) => img.front) || images[0];
+    const imageUrl = directUrl;
+    if (!imageUrl) return null;
+
+    return {
+      imageUrl,
+      types: frontImage?.types || ["Front"],
+    };
+  } catch {
+    return null;
+  }
+}
 
 export const lastfmRequest = lastfmLimiter.wrap(async (method, params = {}) => {
   const apiKey = getLastfmApiKey();
@@ -620,17 +852,13 @@ export async function lastfmGetArtistBio(mbid) {
 }
 
 /**
- * Get artist biography: try Deezer first, then Last.fm. Returns string or null.
+ * Get artist biography: prefer Wikipedia via Wikidata, then Last.fm. Returns string or null.
  */
-export async function getArtistBio(artistName, mbid, deezerArtistId = null) {
+export async function getArtistBio(_artistName, mbid) {
   if (mbid) {
     const wikiBio = await wikipediaGetArtistBioByMbid(mbid);
     if (wikiBio) return wikiBio;
   }
-  const deezerBio = deezerArtistId
-    ? await deezerGetArtistBioById(deezerArtistId)
-    : await deezerGetArtistBio(artistName);
-  if (deezerBio) return deezerBio;
   if (mbid) {
     const lastfmBio = await lastfmGetArtistBio(mbid);
     if (lastfmBio) return lastfmBio;
@@ -716,6 +944,9 @@ const ALLOWED_PRIMARY_TYPES = new Set(["album", "ep", "single"]);
  * Returns array of { id, title, "first-release-date", "primary-type", "secondary-types" }.
  */
 export async function musicbrainzGetArtistReleaseGroups(mbid) {
+  const cacheKey = `full:${mbid}`;
+  const cached = musicbrainzReleaseGroupsCache.get(cacheKey);
+  if (cached) return cached;
   try {
     const raw = [];
     const limit = 100;
@@ -760,7 +991,57 @@ export async function musicbrainzGetArtistReleaseGroups(mbid) {
         const dateB = b["first-release-date"] || "";
         return dateB.localeCompare(dateA);
       });
+    musicbrainzReleaseGroupsCache.set(cacheKey, filtered);
     return filtered;
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function musicbrainzGetArtistReleaseGroupsPreview(mbid, limit = 50) {
+  if (!mbid) return [];
+  const parsedLimit = Number.parseInt(limit, 10);
+  const safeLimit =
+    Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(100, parsedLimit) : 50;
+  const cacheKey = `preview:${mbid}:${safeLimit}`;
+  const cached = musicbrainzReleaseGroupsCache.get(cacheKey);
+  if (cached) return cached;
+  try {
+    const data = await musicbrainzRequest("/release-group", {
+      artist: mbid,
+      limit: safeLimit,
+      offset: 0,
+    });
+    const releaseGroups = Array.isArray(data?.["release-groups"])
+      ? data["release-groups"]
+      : [];
+    const result = releaseGroups
+      .filter(
+        (rg) =>
+          rg?.id &&
+          ALLOWED_PRIMARY_TYPES.has((rg["primary-type"] || "").toLowerCase()),
+      )
+      .map((rg) => ({
+        id: rg.id,
+        title: rg.title || "",
+        "first-release-date": rg["first-release-date"] || null,
+        "primary-type":
+          rg["primary-type"] === "EP"
+            ? "EP"
+            : rg["primary-type"] === "Single"
+              ? "Single"
+              : "Album",
+        "secondary-types": Array.isArray(rg["secondary-types"])
+          ? rg["secondary-types"]
+          : [],
+      }))
+      .sort((a, b) => {
+        const dateA = a["first-release-date"] || "";
+        const dateB = b["first-release-date"] || "";
+        return dateB.localeCompare(dateA);
+      });
+    musicbrainzReleaseGroupsCache.set(cacheKey, result);
+    return result;
   } catch (e) {
     return [];
   }
@@ -965,11 +1246,17 @@ export async function lastfmGetArtistNameByMbid(mbid) {
 
 export async function musicbrainzGetArtistNameByMbid(mbid) {
   if (!mbid) return null;
+  const cached = musicbrainzArtistNameCache.get(mbid);
+  if (cached !== undefined) return cached;
   try {
     const data = await musicbrainzRequest(`/artist/${mbid}`);
     const name = data?.name;
-    return name && typeof name === "string" ? name.trim() : null;
+    const normalized =
+      name && typeof name === "string" ? name.trim() : null;
+    musicbrainzArtistNameCache.set(mbid, normalized);
+    return normalized;
   } catch (e) {
+    musicbrainzArtistNameCache.set(mbid, null);
     return null;
   }
 }
@@ -1099,6 +1386,8 @@ export function clearApiCaches() {
   lastfmCache.flushAll();
   listenbrainzCache.flushAll();
   deezerArtistCache.flushAll();
+  musicbrainzArtistNameCache.flushAll();
+  musicbrainzReleaseGroupsCache.flushAll();
   deezerAlbumCache.flushAll();
   deezerBioCache.flushAll();
 }

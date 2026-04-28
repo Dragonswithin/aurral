@@ -72,37 +72,110 @@ export function SettingsMetadataTab({
           </div>
           <fieldset
             disabled={!musicbrainzEditing}
-            className={`${musicbrainzEditing ? "" : "opacity-60"}`}
+            className={`space-y-4 ${musicbrainzEditing ? "" : "opacity-60"}`}
           >
             <div>
-            <label
-              className="block text-sm font-medium mb-1"
-              style={{ color: "#fff" }}
-            >
-              Contact Email (Required)
-            </label>
-            <input
-              type="email"
-              className="input"
-              placeholder="contact@example.com"
-              autoComplete="off"
-              value={settings.integrations?.musicbrainz?.email || ""}
-              onChange={(e) =>
-                updateSettings({
-                  ...settings,
-                  integrations: {
-                    ...settings.integrations,
-                    musicbrainz: {
-                      ...(settings.integrations?.musicbrainz || {}),
-                      email: e.target.value,
+              <label
+                className="block text-sm font-medium mb-1"
+                style={{ color: "#fff" }}
+              >
+                Metadata source
+              </label>
+              <select
+                className="input"
+                value={
+                  settings.integrations?.musicbrainz?.provider ||
+                  "aurralHosted"
+                }
+                onChange={(e) =>
+                  updateSettings({
+                    ...settings,
+                    integrations: {
+                      ...settings.integrations,
+                      musicbrainz: {
+                        ...(settings.integrations?.musicbrainz || {}),
+                        provider: e.target.value,
+                      },
                     },
-                  },
-                })
-              }
-            />
-            <p className="mt-1 text-xs" style={{ color: "#c1c1c3" }}>
-              Required by MusicBrainz API to identify the application.
-            </p>
+                  })
+                }
+              >
+                <option value="aurralHosted">
+                  Aurral-hosted MusicBrainz mirror
+                </option>
+                <option value="official">Official MusicBrainz API</option>
+                <option value="custom">Custom self-hosted instance</option>
+              </select>
+              <p className="mt-1 text-xs" style={{ color: "#c1c1c3" }}>
+                Aurral-hosted is quicker but may have downtime. Official is
+                slower but usually steadier. Custom lets users point at their
+                own MusicBrainz API.
+              </p>
+            </div>
+            {(settings.integrations?.musicbrainz?.provider || "aurralHosted") ===
+              "custom" && (
+              <div>
+                <label
+                  className="block text-sm font-medium mb-1"
+                  style={{ color: "#fff" }}
+                >
+                  Custom API URL
+                </label>
+                <input
+                  type="url"
+                  className="input"
+                  placeholder="https://musicbrainz.example.com/ws/2"
+                  autoComplete="off"
+                  value={settings.integrations?.musicbrainz?.customUrl || ""}
+                  onChange={(e) =>
+                    updateSettings({
+                      ...settings,
+                      integrations: {
+                        ...settings.integrations,
+                        musicbrainz: {
+                          ...(settings.integrations?.musicbrainz || {}),
+                          customUrl: e.target.value,
+                        },
+                      },
+                    })
+                  }
+                />
+                <p className="mt-1 text-xs" style={{ color: "#c1c1c3" }}>
+                  Enter the MusicBrainz API base URL. If you omit `/ws/2`, it
+                  will be added automatically.
+                </p>
+              </div>
+            )}
+            <div>
+              <label
+                className="block text-sm font-medium mb-1"
+                style={{ color: "#fff" }}
+              >
+                Contact Email (Required)
+              </label>
+              <input
+                type="email"
+                className="input"
+                placeholder="contact@example.com"
+                autoComplete="off"
+                value={settings.integrations?.musicbrainz?.email || ""}
+                onChange={(e) =>
+                  updateSettings({
+                    ...settings,
+                    integrations: {
+                      ...settings.integrations,
+                      musicbrainz: {
+                        ...(settings.integrations?.musicbrainz || {}),
+                        email: e.target.value,
+                      },
+                    },
+                  })
+                }
+              />
+              <p className="mt-1 text-xs" style={{ color: "#c1c1c3" }}>
+                Used for the MusicBrainz user agent so requests identify the
+                application cleanly.
+              </p>
             </div>
           </fieldset>
         </div>

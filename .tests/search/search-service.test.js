@@ -29,6 +29,12 @@ test("normalizeArtistSearchItem preserves sort name and cached image", () => {
     sortName: "Canada, Boards of",
     image: "https://images.example/artist.jpg",
     imageUrl: "https://images.example/artist.jpg",
+    artistType: null,
+    country: null,
+    area: null,
+    begin: null,
+    end: null,
+    disambiguation: null,
     inLibrary: false,
   });
 });

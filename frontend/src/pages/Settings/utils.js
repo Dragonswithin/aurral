@@ -64,6 +64,8 @@ export const normalizeSettings = (savedSettings) => {
       },
       musicbrainz: {
         email: "",
+        provider: "aurralHosted",
+        customUrl: "",
         ...(savedSettings.integrations?.musicbrainz || {}),
       },
       general: {

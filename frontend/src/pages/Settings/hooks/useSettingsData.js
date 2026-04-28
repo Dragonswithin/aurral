@@ -41,7 +41,11 @@ const defaultSettings = {
       defaultMonitorOption: "none",
       searchOnAdd: false,
     },
-    musicbrainz: { email: "" },
+    musicbrainz: {
+      email: "",
+      provider: "aurralHosted",
+      customUrl: "",
+    },
     general: { authUser: "", authPassword: "" },
     gotify: {
       url: "",

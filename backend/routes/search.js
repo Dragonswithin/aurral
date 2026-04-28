@@ -3,7 +3,6 @@ import { cacheMiddleware } from "../middleware/cache.js";
 import {
   searchAlbums,
   searchArtists,
-  searchArtistsLegacy,
   searchTags,
 } from "../services/searchService.js";
 
@@ -47,7 +46,19 @@ router.get("/artists", cacheMiddleware(300), async (req, res) => {
     if (!String(query || "").trim()) {
       return res.status(400).json({ error: "Query parameter is required" });
     }
-    return res.json(await searchArtistsLegacy(query, limit, offset));
+    const result = await searchArtists(query, limit, offset);
+    return res.json({
+      artists: result.items.map((artist) => ({
+        id: artist.id,
+        name: artist.name,
+        "sort-name": artist.sortName,
+        image: artist.imageUrl,
+        imageUrl: artist.imageUrl,
+        listeners: null,
+      })),
+      count: result.count,
+      offset: result.offset,
+    });
   } catch (error) {
     res.status(500).json({
       error: "Failed to search artists",

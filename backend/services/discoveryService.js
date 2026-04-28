@@ -4,9 +4,10 @@ import {
   lastfmRequest,
   listenbrainzRequest,
   getLastfmApiKey,
-  deezerSearchArtist,
   musicbrainzGetCachedArtistMbidByName,
+  musicbrainzResolveArtistMbidByName,
 } from "./apiClients.js";
+import { getArtistImage } from "./imageService.js";
 import { websocketService } from "./websocketService.js";
 import {libraryManager} from "./libraryManager.js";
 import {
@@ -841,12 +842,17 @@ export const updateDiscoveryCache = async () => {
               const artistName = item.name || item.artistName;
 
               if (artistName) {
-                try {
-                  const deezer = await deezerSearchArtist(artistName);
-                  if (deezer?.imageUrl) {
-                    item.image = deezer.imageUrl;
-                  }
-                } catch (e) {}
+                const resolvedMbid =
+                  item.id ||
+                  item.mbid ||
+                  musicbrainzGetCachedArtistMbidByName(artistName) ||
+                  (await musicbrainzResolveArtistMbidByName(artistName));
+                const cover = resolvedMbid
+                  ? await getArtistImage(resolvedMbid)
+                  : null;
+                if (cover?.url) {
+                  item.image = cover.url;
+                }
               }
             } catch (e) {}
           } catch (e) {}
@@ -1111,8 +1117,15 @@ export const updateUserDiscoveryCache = async (listenHistoryProfile) => {
           try {
             const artistName = item.name || item.artistName;
             if (artistName) {
-              const deezer = await deezerSearchArtist(artistName);
-              if (deezer?.imageUrl) item.image = deezer.imageUrl;
+              const resolvedMbid =
+                item.id ||
+                item.mbid ||
+                musicbrainzGetCachedArtistMbidByName(artistName) ||
+                (await musicbrainzResolveArtistMbidByName(artistName));
+              const cover = resolvedMbid
+                ? await getArtistImage(resolvedMbid)
+                : null;
+              if (cover?.url) item.image = cover.url;
             }
           } catch {}
         }),

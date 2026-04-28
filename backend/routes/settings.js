@@ -40,6 +40,52 @@ router.post("/", async (req, res) => {
       }
     }
 
+    const musicbrainzProvider = integrations?.musicbrainz?.provider;
+    const validMusicbrainzProviders = new Set([
+      "aurralHosted",
+      "official",
+      "custom",
+    ]);
+    if (
+      musicbrainzProvider !== undefined &&
+      !validMusicbrainzProviders.has(musicbrainzProvider)
+    ) {
+      return res.status(400).json({
+        error:
+          "Invalid MusicBrainz provider. Expected aurralHosted, official, or custom.",
+      });
+    }
+
+    if (integrations?.musicbrainz) {
+      const nextMusicbrainz = {
+        ...(currentSettings.integrations?.musicbrainz || {}),
+        ...integrations.musicbrainz,
+      };
+      const provider = validMusicbrainzProviders.has(nextMusicbrainz.provider)
+        ? nextMusicbrainz.provider
+        : "aurralHosted";
+      nextMusicbrainz.provider = provider;
+
+      if (provider === "custom") {
+        const customUrlValidation = validateExternalUrl(
+          nextMusicbrainz.customUrl || "",
+        );
+        if (!customUrlValidation.valid) {
+          return res.status(400).json({
+            error: `Invalid custom MusicBrainz URL: ${customUrlValidation.error}`,
+          });
+        }
+        nextMusicbrainz.customUrl = customUrlValidation.url;
+      } else {
+        nextMusicbrainz.customUrl =
+          typeof nextMusicbrainz.customUrl === "string"
+            ? nextMusicbrainz.customUrl.trim()
+            : "";
+      }
+
+      integrations.musicbrainz = nextMusicbrainz;
+    }
+
     let mergedIntegrations =
       currentSettings.integrations || defaultData.settings.integrations || {};
     if (integrations) {

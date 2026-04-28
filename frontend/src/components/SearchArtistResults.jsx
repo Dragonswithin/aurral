@@ -119,10 +119,64 @@ function SearchArtistResults({
     });
   };
 
+  const formatLifeSpan = (artist) => {
+    const begin =
+      artist?.begin || artist?.["life-span"]?.begin || artist?.lifeSpan?.begin;
+    if (!begin) return null;
+    const ended =
+      artist?.ended ??
+      artist?.["life-span"]?.ended ??
+      artist?.lifeSpan?.ended ??
+      false;
+    const end =
+      artist?.end || artist?.["life-span"]?.end || artist?.lifeSpan?.end || null;
+    const beginYear = String(begin).split("-")[0];
+    if (ended && end) {
+      const endYear = String(end).split("-")[0];
+      return `${beginYear} - ${endYear}`;
+    }
+    return `${beginYear} - Present`;
+  };
+
+  const normalizeArtistType = (artist) => {
+    const raw = artist?.artistType || artist?.type || null;
+    if (!raw) return null;
+    const types = {
+      Person: "Solo Artist",
+      Group: "Band",
+      Orchestra: "Orchestra",
+      Choir: "Choir",
+      Character: "Character",
+      Other: "Other",
+    };
+    return types[raw] || raw;
+  };
+
+  const normalizeArea = (artist) => {
+    const value = artist?.area || artist?.area?.name || null;
+    if (!value) return null;
+    return String(value).trim() || null;
+  };
+
   return (
     <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
       {artists.map((artist, index) => {
         const artistId = getArtistId(artist);
+        const artistTypeLabel = normalizeArtistType(artist);
+        const lifeSpan = formatLifeSpan(artist);
+        const area = normalizeArea(artist);
+        const country = artist?.country ? String(artist.country).trim() : null;
+        const disambiguation = artist?.disambiguation
+          ? String(artist.disambiguation).trim()
+          : null;
+        const disambiguationLine = [
+          artistTypeLabel,
+          area || country,
+          lifeSpan,
+          disambiguation,
+        ]
+          .filter(Boolean)
+          .join(" • ");
         const artistMetaText = [
           type === "recommended" &&
             artist.sourceArtist &&
@@ -184,12 +238,12 @@ function SearchArtistResults({
                       {artistMetaText}
                     </p>
                   )}
-                  {artist.country && (
+                  {disambiguationLine && (
                     <p
                       className="truncate text-xs opacity-80"
-                      title={artist.country}
+                      title={disambiguationLine}
                     >
-                      {artist.country}
+                      {disambiguationLine}
                     </p>
                   )}
                 </div>

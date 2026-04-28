@@ -1,4 +1,3 @@
-import axios from "axios";
 import { UUID_REGEX } from "../../../config/constants.js";
 import {
   getLastfmApiKey,
@@ -6,16 +5,14 @@ import {
   lastfmGetArtistNameByMbid,
   getArtistBio,
   musicbrainzGetArtistReleaseGroups,
-  enrichReleaseGroupsWithDeezer,
   enrichReleaseGroupsWithLastfm,
-  deezerSearchArtist,
-  getDeezerArtistById,
   musicbrainzGetArtistNameByMbid,
 } from "../../../services/apiClients.js";
 import { dbOps } from "../../../config/db-helpers.js";
 import { noCache } from "../../../middleware/cache.js";
 import { verifyTokenAuth } from "../../../middleware/auth.js";
 import { sendSSE, pendingArtistRequests } from "../utils.js";
+import { getArtistImage } from "../../../services/imageService.js";
 
 export default function registerStream(router) {
   router.get("/:mbid/stream", noCache, async (req, res) => {
@@ -54,7 +51,6 @@ export default function registerStream(router) {
 
       const override = dbOps.getArtistOverride(mbid);
       const resolvedMbid = override?.musicbrainzId || mbid;
-      const deezerArtistId = override?.deezerArtistId || null;
       const initialName = streamArtistName || "Unknown Artist";
       const buildArtistBase = (name) => ({
         id: resolvedMbid,
@@ -202,11 +198,6 @@ export default function registerStream(router) {
           ])
             .then(async ([releaseGroups, name]) => {
               if (!releaseGroups.length) return { releaseGroups, name };
-              await enrichReleaseGroupsWithDeezer(
-                releaseGroups,
-                name,
-                deezerArtistId,
-              );
               if (getLastfmApiKey()) {
                 await enrichReleaseGroupsWithLastfm(
                   releaseGroups,
@@ -246,11 +237,7 @@ export default function registerStream(router) {
             : Promise.resolve([]);
 
           const bioPromise = namePromise
-            .then((name) =>
-              getArtistBio(name, resolvedMbid, deezerArtistId).catch(
-                () => null,
-              ),
-            )
+            .then((name) => getArtistBio(name, resolvedMbid).catch(() => null))
             .then((bio) => {
               if (!bio || !isClientConnected()) return bio;
               sendArtist({ id: resolvedMbid, bio });
@@ -286,135 +273,6 @@ export default function registerStream(router) {
               pendingArtistRequests.delete(mbid);
             });
 
-          const releaseGroupCoversTask = enrichedReleaseGroupsPromise.then(
-            (releaseGroups) => {
-              if (!isClientConnected()) return;
-              if (!releaseGroups?.length) return;
-              const groups = releaseGroups
-                .filter(
-                  (rg) =>
-                    rg["primary-type"] === "Album" ||
-                    rg["primary-type"] === "EP" ||
-                    rg["primary-type"] === "Single",
-                )
-                .slice(0, 20);
-
-              const cacheKeys = groups.map((rg) => `rg:${rg.id}`);
-              const cachedCovers = dbOps.getImages(cacheKeys);
-
-              for (const rg of groups) {
-                if (!isClientConnected()) return;
-                const cacheKey = `rg:${rg.id}`;
-                const cachedCover = cachedCovers[cacheKey];
-                if (rg._coverUrl) {
-                  dbOps.setImage(cacheKey, rg._coverUrl);
-                  sendSSE(res, "releaseGroupCover", {
-                    mbid: rg.id,
-                    images: [
-                      { image: rg._coverUrl, front: true, types: ["Front"] },
-                    ],
-                  });
-                  continue;
-                }
-                if (
-                  cachedCover &&
-                  cachedCover.imageUrl &&
-                  cachedCover.imageUrl !== "NOT_FOUND"
-                ) {
-                  sendSSE(res, "releaseGroupCover", {
-                    mbid: rg.id,
-                    images: [
-                      {
-                        image: cachedCover.imageUrl,
-                        front: true,
-                        types: ["Front"],
-                      },
-                    ],
-                  });
-                  continue;
-                }
-                if (cachedCover && cachedCover.imageUrl === "NOT_FOUND") {
-                  sendSSE(res, "releaseGroupCover", {
-                    mbid: rg.id,
-                    images: [],
-                  });
-                  continue;
-                }
-                if (String(rg.id).startsWith("dz-")) continue;
-              }
-
-              const uncachedGroups = groups.filter((rg) => {
-                if (rg._coverUrl || String(rg.id).startsWith("dz-"))
-                  return false;
-                const cachedCover = cachedCovers[`rg:${rg.id}`];
-                return !cachedCover;
-              });
-
-              const BATCH_SIZE = 4;
-              return (async () => {
-                for (let i = 0; i < uncachedGroups.length; i += BATCH_SIZE) {
-                  if (!isClientConnected()) return;
-                  const batch = uncachedGroups.slice(i, i + BATCH_SIZE);
-                  await Promise.allSettled(
-                    batch.map(async (rg) => {
-                      if (!isClientConnected()) return;
-                      const cacheKey = `rg:${rg.id}`;
-                      try {
-                        const coverArtResponse = await axios
-                          .get(
-                            `https://coverartarchive.org/release-group/${rg.id}`,
-                            {
-                              headers: { Accept: "application/json" },
-                              timeout: 3000,
-                            },
-                          )
-                          .catch(() => null);
-
-                        if (coverArtResponse?.data?.images?.length > 0) {
-                          const frontImage =
-                            coverArtResponse.data.images.find(
-                              (img) => img.front,
-                            ) || coverArtResponse.data.images[0];
-                          if (frontImage) {
-                            const imageUrl =
-                              frontImage.thumbnails?.["500"] ||
-                              frontImage.thumbnails?.["large"] ||
-                              frontImage.image;
-                            if (imageUrl) {
-                              dbOps.setImage(cacheKey, imageUrl);
-                              sendSSE(res, "releaseGroupCover", {
-                                mbid: rg.id,
-                                images: [
-                                  {
-                                    image: imageUrl,
-                                    front: true,
-                                    types: frontImage.types || ["Front"],
-                                  },
-                                ],
-                              });
-                              return;
-                            }
-                          }
-                        }
-                        dbOps.setImage(cacheKey, "NOT_FOUND");
-                        sendSSE(res, "releaseGroupCover", {
-                          mbid: rg.id,
-                          images: [],
-                        });
-                      } catch (e) {
-                        sendSSE(res, "releaseGroupCover", {
-                          mbid: rg.id,
-                          images: [],
-                        });
-                      }
-                    }),
-                  );
-                }
-              })();
-            },
-          );
-
-          tasks.push(releaseGroupCoversTask);
         }
         const coverTask = (async () => {
           if (!isClientConnected()) return;
@@ -437,22 +295,10 @@ export default function registerStream(router) {
               return;
             }
 
-            const artistName = await namePromise;
-            if (artistName) {
-              try {
-                const deezer = deezerArtistId
-                  ? await getDeezerArtistById(deezerArtistId)
-                  : await deezerSearchArtist(artistName);
-                if (deezer?.imageUrl) {
-                  dbOps.setImage(mbid, deezer.imageUrl);
-                  sendSSE(res, "cover", {
-                    images: [
-                      { image: deezer.imageUrl, front: true, types: ["Front"] },
-                    ],
-                  });
-                  return;
-                }
-              } catch (e) {}
+            const cover = await getArtistImage(mbid);
+            if (cover?.images?.length) {
+              sendSSE(res, "cover", { images: cover.images });
+              return;
             }
 
             dbOps.setImage(mbid, "NOT_FOUND");

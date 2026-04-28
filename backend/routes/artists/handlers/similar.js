@@ -1,9 +1,10 @@
 import { UUID_REGEX } from "../../../config/constants.js";
 import { getLastfmApiKey, lastfmRequest } from "../../../services/apiClients.js";
 import { dbOps } from "../../../config/db-helpers.js";
+import { cacheMiddleware } from "../../../middleware/cache.js";
 
 export default function registerSimilar(router) {
-  router.get("/:mbid/similar", async (req, res) => {
+  router.get("/:mbid/similar", cacheMiddleware(300), async (req, res) => {
     try {
       const { mbid } = req.params;
 

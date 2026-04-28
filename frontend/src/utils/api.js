@@ -204,12 +204,8 @@ export const getArtistDetails = async (mbid, artistName) => {
   return response.data;
 };
 
-export const getReleaseGroupTracks = async (mbid, deezerAlbumId = null) => {
-  const params = {};
-  if (deezerAlbumId) params.deezerAlbumId = deezerAlbumId;
-  const response = await api.get(`/artists/release-group/${mbid}/tracks`, {
-    params,
-  });
+export const getReleaseGroupTracks = async (mbid) => {
+  const response = await api.get(`/artists/release-group/${mbid}/tracks`);
   return response.data;
 };
 

@@ -11,8 +11,13 @@ import {
   getStoredAuth,
 } from "../../../utils/api";
 import { emptyArtistShape } from "../constants";
+import { matchesReleaseTypeFilter } from "../utils";
 
-export function useArtistDetailsStream(mbid, artistNameFromNav) {
+export function useArtistDetailsStream(
+  mbid,
+  artistNameFromNav,
+  selectedReleaseTypes = [],
+) {
   const initialArtist =
     mbid && artistNameFromNav
       ? {
@@ -168,28 +173,6 @@ export function useArtistDetailsStream(mbid, artistNameFromNav) {
       } catch (err) {
         console.error("Error parsing similar artists data:", err, event.data);
         setLoadingSimilar(false);
-      }
-    });
-
-    eventSource.addEventListener("releaseGroupCover", (event) => {
-      try {
-        const coverData = JSON.parse(event.data);
-        if (coverData.images && coverData.images.length > 0 && coverData.mbid) {
-          const front =
-            coverData.images.find((img) => img.front) || coverData.images[0];
-          if (front && front.image) {
-            setAlbumCovers((prev) => ({
-              ...prev,
-              [coverData.mbid]: front.image,
-            }));
-          }
-        }
-      } catch (err) {
-        console.error(
-          "Error parsing release group cover data:",
-          err,
-          event.data,
-        );
       }
     });
 
@@ -359,34 +342,58 @@ export function useArtistDetailsStream(mbid, artistNameFromNav) {
 
   useEffect(() => {
     if (!mbid) return;
+
     const releaseGroupIds =
-      artist?.["release-groups"]?.map((rg) => rg.id).filter(Boolean) || [];
+      artist?.["release-groups"]
+        ?.filter((rg) => matchesReleaseTypeFilter(rg, selectedReleaseTypes))
+        .map((rg) => rg.id)
+        .filter(Boolean) || [];
     const libraryMbids = (libraryAlbums || [])
-      .map((a) => a.mbid || a.foreignAlbumId)
+      .map((album) => album.mbid || album.foreignAlbumId)
       .filter(Boolean);
     const needed = [...new Set([...releaseGroupIds, ...libraryMbids])];
-    const missing = needed.filter(
+    if (!needed.length) return;
+
+    const prioritized = needed.slice(0, 24);
+    const missing = prioritized.filter(
       (id) => !albumCovers[id] && !requestedAlbumCoversRef.current.has(id),
     );
-    missing.forEach((rgId) => {
-      requestedAlbumCoversRef.current.add(rgId);
-      getReleaseGroupCover(rgId)
-        .then((data) => {
-          if (data?.images?.length > 0) {
-            const front =
-              data.images.find((img) => img.front) || data.images[0];
-            const url = front?.image;
-            if (url) {
-              setAlbumCovers((prev) => ({ ...prev, [rgId]: url }));
+    if (!missing.length) return;
+
+    let cancelled = false;
+
+    const run = async () => {
+      const BATCH_SIZE = 6;
+      for (let i = 0; i < missing.length; i += BATCH_SIZE) {
+        if (cancelled) return;
+        const batch = missing.slice(i, i + BATCH_SIZE);
+        await Promise.allSettled(
+          batch.map(async (rgId) => {
+            requestedAlbumCoversRef.current.add(rgId);
+            try {
+              const data = await getReleaseGroupCover(rgId);
+              if (cancelled || !data?.images?.length) return;
+              const front =
+                data.images.find((img) => img.front) || data.images[0];
+              const url = front?.image;
+              if (url) {
+                setAlbumCovers((prev) => ({ ...prev, [rgId]: url }));
+              }
+            } catch {
+            } finally {
+              requestedAlbumCoversRef.current.delete(rgId);
             }
-          }
-        })
-        .catch(() => {})
-        .finally(() => {
-          requestedAlbumCoversRef.current.delete(rgId);
-        });
-    });
-  }, [mbid, artist, libraryAlbums, albumCovers]);
+          }),
+        );
+      }
+    };
+
+    const timer = setTimeout(run, 50);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [mbid, artist, libraryAlbums, albumCovers, selectedReleaseTypes]);
 
   return {
     artist,
