@@ -217,7 +217,7 @@ function Layout({ children, appVersion }) {
           className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#0f0f12] md:hidden"
           aria-label="Mobile navigation"
         >
-          <div className="grid grid-cols-4">
+          <div className="grid min-h-[88px] grid-cols-4">
             {mobilePrimaryItems.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.path);
@@ -225,10 +225,10 @@ function Layout({ children, appVersion }) {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className="flex flex-col items-center justify-center gap-1 py-3 text-[11px] font-medium"
+                  className="flex flex-col items-center justify-start gap-1.5 px-2 pt-3 pb-4 text-xs font-medium"
                   style={{ color: active ? "#fff" : "#8f9097" }}
                 >
-                  <Icon className="h-5 w-5" />
+                  <Icon className="h-6 w-6" />
                   <span>{item.label}</span>
                 </Link>
               );
@@ -236,7 +236,7 @@ function Layout({ children, appVersion }) {
             <button
               type="button"
               onClick={() => setIsMobileMenuOpen((open) => !open)}
-              className="flex flex-col items-center justify-center gap-1 py-3 text-[11px] font-medium"
+              className="flex flex-col items-center justify-start gap-1.5 px-2 pt-3 pb-4 text-xs font-medium"
               style={{
                 color:
                   isMobileMenuOpen ||
@@ -247,7 +247,7 @@ function Layout({ children, appVersion }) {
               aria-label="More navigation options"
               aria-expanded={isMobileMenuOpen}
             >
-              <Ellipsis className="h-5 w-5" />
+              <Ellipsis className="h-6 w-6" />
               <span>More</span>
             </button>
           </div>
