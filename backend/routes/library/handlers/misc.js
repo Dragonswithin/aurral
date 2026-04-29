@@ -1,8 +1,17 @@
 import { UUID_REGEX } from "../../../config/constants.js";
+import { dbOps } from "../../../config/db-helpers.js";
 import { libraryManager } from "../../../services/libraryManager.js";
 import { qualityManager } from "../../../services/qualityManager.js";
 
 export default function registerMisc(router) {
+  const normalizePercentOfTracks = (value) => {
+    const raw = Number(value);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    if (raw > 1 && raw <= 100) return Math.round(raw);
+    if (raw <= 1) return Math.round(raw * 100);
+    return Math.min(100, Math.round(raw / 10));
+  };
+
   router.post("/scan", async (req, res) => {
     res.status(400).json({ error: "Scanning is handled by Lidarr" });
   });
@@ -94,6 +103,58 @@ export default function registerMisc(router) {
     }
   });
 
+  router.post("/albums/lookup/batch", async (req, res) => {
+    try {
+      const { mbids } = req.body;
+      if (!Array.isArray(mbids)) {
+        return res.status(400).json({ error: "mbids must be an array" });
+      }
+
+      const { lidarrClient } =
+        await import("../../../services/lidarrClient.js");
+      if (!lidarrClient.isConfigured()) {
+        return res.json({});
+      }
+
+      const albums = await lidarrClient.request("/album");
+      const wanted = new Set(
+        mbids
+          .map((mbid) => String(mbid || "").trim())
+          .filter(Boolean),
+      );
+      const results = {};
+
+      for (const album of Array.isArray(albums) ? albums : []) {
+        const foreignAlbumId = String(album?.foreignAlbumId || "").trim();
+        if (!foreignAlbumId || !wanted.has(foreignAlbumId)) continue;
+
+        const percentOfTracks = normalizePercentOfTracks(
+          album?.statistics?.percentOfTracks,
+        );
+        const sizeOnDisk = Number(album?.statistics?.sizeOnDisk || 0);
+
+        results[foreignAlbumId] = {
+          inLibrary: true,
+          libraryAlbumId:
+            album.id !== undefined && album.id !== null ? String(album.id) : null,
+          libraryArtistId:
+            album.artistId !== undefined && album.artistId !== null
+              ? String(album.artistId)
+              : null,
+          status:
+            percentOfTracks >= 100 || sizeOnDisk > 0 ? "available" : "inLibrary",
+        };
+      }
+
+      res.json(results);
+    } catch (error) {
+      res.status(500).json({
+        error: "Failed to batch lookup albums",
+        message: error.message,
+      });
+    }
+  });
+
   router.get("/recent", async (req, res) => {
     try {
       const artists = await libraryManager.getAllArtists();
@@ -175,8 +236,26 @@ export default function registerMisc(router) {
         })
         .slice(0, 24);
 
+      const cachedCovers = dbOps.getImages(
+        recentMissing
+          .map((album) => album.mbid || album.foreignAlbumId)
+          .filter(Boolean)
+          .map((id) => `rg:${id}`),
+      );
+
+      const withCachedCovers = recentMissing.map((album) => {
+        const coverId = album.mbid || album.foreignAlbumId;
+        const coverUrl = coverId
+          ? cachedCovers[`rg:${coverId}`]?.imageUrl || null
+          : null;
+        return {
+          ...album,
+          coverUrl: coverUrl && coverUrl !== "NOT_FOUND" ? coverUrl : null,
+        };
+      });
+
       res.set("Cache-Control", "public, max-age=300");
-      res.json(recentMissing);
+      res.json(withCachedCovers);
     } catch (error) {
       res.status(500).json({
         error: "Failed to fetch recent releases",

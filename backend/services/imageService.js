@@ -80,12 +80,11 @@ export const getArtistImage = async (mbid, forceRefresh = false) => {
     };
   }
 
-  if (!forceRefresh && cachedImage && cachedImage.imageUrl === "NOT_FOUND") {
-    dbOps.deleteImage(mbid);
-    negativeImageCache.delete(mbid);
-  }
-
-  if (!forceRefresh && negativeImageCache.has(mbid)) {
+  if (
+    !forceRefresh &&
+    ((cachedImage && cachedImage.imageUrl === "NOT_FOUND") ||
+      negativeImageCache.has(mbid))
+  ) {
     return { url: null, images: [] };
   }
 

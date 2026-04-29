@@ -95,14 +95,6 @@ export const getMusicbrainzApiBaseUrl = () => {
   return AURRAL_MUSICBRAINZ_API;
 };
 
-const shouldUseOfficialSearchFallback = (endpoint, params = {}) => {
-  const settings = dbOps.getSettings();
-  const provider = settings.integrations?.musicbrainz?.provider || "aurralHosted";
-  if (provider !== "aurralHosted") return false;
-  if (!params?.query) return false;
-  return endpoint === "/artist" || endpoint === "/release-group";
-};
-
 const requestMusicbrainz = async (
   baseUrl,
   endpoint,
@@ -115,93 +107,6 @@ const requestMusicbrainz = async (
     timeout: 5000,
     ...(forceIpv4 ? { family: 4 } : {}),
   });
-
-const shouldFallbackToOfficialForSearch = (endpoint, params, responseData) => {
-  if (!shouldUseOfficialSearchFallback(endpoint, params)) return false;
-  if (endpoint === "/artist") {
-    const artists = Array.isArray(responseData?.artists) ? responseData.artists : [];
-    return artists.length === 0;
-  }
-  if (endpoint === "/release-group") {
-    const releaseGroups = Array.isArray(responseData?.["release-groups"])
-      ? responseData["release-groups"]
-      : [];
-    return releaseGroups.length === 0;
-  }
-  return false;
-};
-
-const hasUsableMusicbrainzSearchResults = (endpoint, responseData) => {
-  if (endpoint === "/artist") {
-    return Array.isArray(responseData?.artists) && responseData.artists.length > 0;
-  }
-  if (endpoint === "/release-group") {
-    return (
-      Array.isArray(responseData?.["release-groups"]) &&
-      responseData["release-groups"].length > 0
-    );
-  }
-  return false;
-};
-
-const raceHostedAndOfficialSearch = async (
-  endpoint,
-  params,
-  queryParams,
-  userAgent,
-  forceIpv4,
-) => {
-  const hostedRequest = requestMusicbrainz(
-    AURRAL_MUSICBRAINZ_API,
-    endpoint,
-    queryParams,
-    userAgent,
-    forceIpv4,
-  ).then((response) => {
-    if (hasUsableMusicbrainzSearchResults(endpoint, response.data)) {
-      return response.data;
-    }
-    throw new Error("Hosted search returned no results");
-  });
-
-  const officialRequest = requestMusicbrainz(
-    MUSICBRAINZ_API,
-    endpoint,
-    queryParams,
-    userAgent,
-    forceIpv4,
-  ).then((response) => {
-    if (hasUsableMusicbrainzSearchResults(endpoint, response.data)) {
-      return response.data;
-    }
-    throw new Error("Official search returned no results");
-  });
-
-  try {
-    return await Promise.any([hostedRequest, officialRequest]);
-  } catch {
-    const fallbackHosted = await requestMusicbrainz(
-      AURRAL_MUSICBRAINZ_API,
-      endpoint,
-      queryParams,
-      userAgent,
-      forceIpv4,
-    );
-    if (
-      shouldFallbackToOfficialForSearch(endpoint, params, fallbackHosted.data)
-    ) {
-      const officialFallback = await requestMusicbrainz(
-        MUSICBRAINZ_API,
-        endpoint,
-        queryParams,
-        userAgent,
-        forceIpv4,
-      );
-      return officialFallback.data;
-    }
-    return fallbackHosted.data;
-  }
-};
 
 const mbLimiter = new Bottleneck({
   maxConcurrent: 1,
@@ -290,25 +195,14 @@ const musicbrainzRequestWithRetry = async (
     (getMusicBrainzContact() || "").trim() || "https://github.com/aurral";
   const userAgent = `${APP_NAME}/${APP_VERSION} ( ${contact} )`;
   try {
-    let responseData;
-    if (shouldUseOfficialSearchFallback(endpoint, params)) {
-      responseData = await raceHostedAndOfficialSearch(
-        endpoint,
-        params,
-        queryParams,
-        userAgent,
-        forceIpv4,
-      );
-    } else {
-      const primaryResponse = await requestMusicbrainz(
-        getMusicbrainzApiBaseUrl(),
-        endpoint,
-        queryParams,
-        userAgent,
-        forceIpv4,
-      );
-      responseData = primaryResponse.data;
-    }
+    const primaryResponse = await requestMusicbrainz(
+      getMusicbrainzApiBaseUrl(),
+      endpoint,
+      queryParams,
+      userAgent,
+      forceIpv4,
+    );
+    const responseData = primaryResponse.data;
 
     mbCache.set(cacheKey, responseData);
     return responseData;

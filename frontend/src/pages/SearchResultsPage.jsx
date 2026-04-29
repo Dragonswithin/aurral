@@ -11,9 +11,10 @@ import {
   Tag,
 } from "lucide-react";
 import {
-  checkHealth,
   getDiscovery,
+  getBootstrapStatus,
   getReleaseGroupCover,
+  lookupAlbumsInLibraryBatch,
   lookupArtistsInLibraryBatch,
   requestAlbumFromSearch,
   searchCatalog,
@@ -73,6 +74,7 @@ function SearchResultsPage() {
   const [searchTotalCount, setSearchTotalCount] = useState(0);
   const [lastfmConfigured, setLastfmConfigured] = useState(null);
   const [libraryLookup, setLibraryLookup] = useState({});
+  const [albumLibraryLookup, setAlbumLibraryLookup] = useState({});
   const [pendingAlbumIds, setPendingAlbumIds] = useState({});
   const [showReleaseTypeDropdown, setShowReleaseTypeDropdown] = useState(false);
   const sentinelRef = useRef(null);
@@ -129,8 +131,8 @@ function SearchResultsPage() {
   useEffect(() => {
     const fetchHealth = async () => {
       try {
-        const health = await checkHealth();
-        setLastfmConfigured(!!health.lastfmConfigured);
+        const bootstrap = await getBootstrapStatus();
+        setLastfmConfigured(!!bootstrap.lastfmConfigured);
       } catch {
         setLastfmConfigured(null);
       }
@@ -141,6 +143,7 @@ function SearchResultsPage() {
   useEffect(() => {
     const performSearch = async () => {
       setLibraryLookup({});
+      setAlbumLibraryLookup({});
       setPendingAlbumIds({});
       setAlbumCovers({});
 
@@ -283,6 +286,7 @@ function SearchResultsPage() {
     if (!isAlbumSearch || results.length === 0) return undefined;
     let cancelled = false;
     const missingCoverIds = results
+      .filter((album) => !album.coverUrl)
       .map((album) => album.id)
       .filter((id) => id && albumCovers[id] === undefined);
 
@@ -321,6 +325,74 @@ function SearchResultsPage() {
       cancelled = true;
     };
   }, [results, isAlbumSearch, albumCovers]);
+
+  useEffect(() => {
+    if (!isAlbumSearch || results.length === 0) return undefined;
+    let cancelled = false;
+    const missingAlbumIds = results
+      .filter(
+        (album) =>
+          album?.id &&
+          !album.inLibrary &&
+          albumLibraryLookup[album.id] === undefined,
+      )
+      .map((album) => album.id);
+
+    if (missingAlbumIds.length === 0) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const hydrateLibraryStatus = async () => {
+      try {
+        const lookup = await lookupAlbumsInLibraryBatch(missingAlbumIds);
+        if (cancelled || !lookup || typeof lookup !== "object") return;
+
+        const resolvedLookup = {};
+        for (const albumId of missingAlbumIds) {
+          resolvedLookup[albumId] = lookup[albumId] || false;
+        }
+
+        setAlbumLibraryLookup((prev) => ({
+          ...prev,
+          ...resolvedLookup,
+        }));
+
+        setResults((prev) =>
+          prev.map((album) => {
+            const match = lookup[album.id];
+            if (!match) return album;
+            return {
+              ...album,
+              inLibrary: !!match.inLibrary,
+              libraryAlbumId: match.libraryAlbumId || album.libraryAlbumId,
+              libraryArtistId: match.libraryArtistId || album.libraryArtistId,
+              status: match.status || album.status,
+            };
+          }),
+        );
+      } catch {
+        if (!cancelled) {
+          setAlbumLibraryLookup((prev) => {
+            const next = { ...prev };
+            for (const albumId of missingAlbumIds) {
+              if (next[albumId] === undefined) {
+                next[albumId] = false;
+              }
+            }
+            return next;
+          });
+        }
+      }
+    };
+
+    hydrateLibraryStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [results, isAlbumSearch, albumLibraryLookup]);
 
   const loadMore = useCallback(async () => {
     if (loading || loadingMore || !hasMore) return;

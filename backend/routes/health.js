@@ -29,8 +29,56 @@ try {
 
 const router = express.Router();
 
+function buildBootstrapPayload(req) {
+  lidarrClient.updateConfig();
+  const settings = dbOps.getSettings();
+  const onboardingDone = settings.onboardingComplete;
+  const authRequired = isAuthRequiredByConfig();
+  const authUser = getAuthUser();
+  const currentUser = resolveRequestUser(req);
+  const lidarrConfigured = lidarrClient.isConfigured();
+
+  const payload = {
+    status: "ok",
+    authRequired,
+    authUser: currentUser ? currentUser.username : authUser,
+    onboardingRequired: !onboardingDone,
+    timestamp: new Date().toISOString(),
+    appVersion: process.env.APP_VERSION || rootPackageVersion || "unknown",
+    rootFolderConfigured: lidarrConfigured,
+    lidarrConfigured,
+    lastfmConfigured: !!getLastfmApiKey(),
+    ticketmasterConfigured: !!getTicketmasterApiKey(),
+    musicbrainzConfigured: !!(
+      settings.integrations?.musicbrainz?.email || process.env.CONTACT_EMAIL
+    ),
+  };
+
+  if (currentUser) {
+    payload.user = {
+      id: currentUser.id,
+      username: currentUser.username,
+      role: currentUser.role,
+      permissions: currentUser.permissions,
+    };
+  }
+
+  return payload;
+}
+
 router.get("/live", noCache, (_req, res) => {
   res.json({ status: "ok" });
+});
+
+router.get("/bootstrap", noCache, (req, res) => {
+  try {
+    res.json(buildBootstrapPayload(req));
+  } catch (error) {
+    console.error("Bootstrap check error:", error);
+    res.status(500).json({
+      error: "Internal server error",
+    });
+  }
 });
 
 router.post("/stream-token", noCache, (req, res) => {
@@ -46,32 +94,13 @@ router.post("/stream-token", noCache, (req, res) => {
 
 router.get("/", noCache, async (req, res) => {
   try {
-    lidarrClient.updateConfig();
     const settings = dbOps.getSettings();
-    const onboardingDone = settings.onboardingComplete;
-    const authRequired = isAuthRequiredByConfig();
-    const authUser = getAuthUser();
     const currentUser = resolveRequestUser(req);
-    const payload = {
-      status: "ok",
-      authRequired,
-      authUser: currentUser ? currentUser.username : authUser,
-      onboardingRequired: !onboardingDone,
-      timestamp: new Date().toISOString(),
-    };
+    const payload = buildBootstrapPayload(req);
     if (currentUser) {
-      const lidarrConfigured = lidarrClient.isConfigured();
       const discoveryCache = getDiscoveryCache();
       const wsStats = websocketService.getStats();
       const artistCount = getCachedArtistCount();
-      payload.appVersion = process.env.APP_VERSION || rootPackageVersion || "unknown";
-      payload.rootFolderConfigured = lidarrConfigured;
-      payload.lidarrConfigured = lidarrConfigured;
-      payload.lastfmConfigured = !!getLastfmApiKey();
-      payload.ticketmasterConfigured = !!getTicketmasterApiKey();
-      payload.musicbrainzConfigured = !!(
-        settings.integrations?.musicbrainz?.email || process.env.CONTACT_EMAIL
-      );
       payload.library = {
         artistCount: typeof artistCount === "number" ? artistCount : 0,
         lastScan: null,
@@ -86,12 +115,6 @@ router.get("/", noCache, async (req, res) => {
       payload.websocket = {
         clients: wsStats.totalClients,
         channels: wsStats.channels,
-      };
-      payload.user = {
-        id: currentUser.id,
-        username: currentUser.username,
-        role: currentUser.role,
-        permissions: currentUser.permissions,
       };
     }
     res.json(payload);

@@ -653,6 +653,7 @@ function DiscoverPage() {
 
   useEffect(() => {
     const ids = recentReleases
+      .filter((album) => !album.coverUrl)
       .map((album) => album.mbid || album.foreignAlbumId)
       .filter(Boolean);
     const missing = ids.filter(
@@ -681,6 +682,7 @@ function DiscoverPage() {
     const missingArtistCovers = recentReleases.filter((album) => {
       const artistId = album.artistMbid || album.foreignArtistId;
       if (!artistId) return false;
+      if (album.coverUrl) return false;
       const releaseId = album.mbid || album.foreignAlbumId;
       if (releaseId && releaseCovers[releaseId]) return false;
       if (artistCovers[artistId]) return false;
