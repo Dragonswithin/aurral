@@ -159,7 +159,13 @@ function AppContent() {
   }, [isAuthenticated]);
 
   return (
-    <Router basename={basePath}>
+    <Router
+      basename={basePath}
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}
+    >
       <ProtectedRoute>
         <Layout
           isHealthy={isHealthy}
