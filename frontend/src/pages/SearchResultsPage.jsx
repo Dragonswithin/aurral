@@ -11,12 +11,15 @@ import {
   Tag,
 } from "lucide-react";
 import {
+  addArtistToLibrary,
   checkHealth,
+  getBlocklist,
   getDiscovery,
   getReleaseGroupCover,
   lookupArtistsInLibraryBatch,
   requestAlbumFromSearch,
   searchCatalog,
+  updateBlocklist,
 } from "../utils/api";
 import PillToggle from "../components/PillToggle";
 import SearchAlbumResults from "../components/SearchAlbumResults";
@@ -26,6 +29,8 @@ import { useToast } from "../contexts/ToastContext";
 import { useReleaseTypeFilter } from "./ArtistDetails/hooks/useReleaseTypeFilter";
 
 const PAGE_SIZE = 24;
+const MBID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function getReleaseTypeIcon(type) {
   if (type === "Album") return <Disc className="h-4 w-4" />;
@@ -57,6 +62,45 @@ function dedupeAlbums(albums) {
   });
 }
 
+function normalizeBlocklistArtists(artists) {
+  const source = Array.isArray(artists) ? artists : [];
+  const seen = new Set();
+  const out = [];
+  for (const entry of source) {
+    if (!entry) continue;
+    const entryMbid =
+      typeof entry.mbid === "string" && MBID_REGEX.test(entry.mbid.trim())
+        ? entry.mbid.trim()
+        : null;
+    const entryName = String(entry.name || "").trim();
+    if (!entryMbid && !entryName) continue;
+    const key = entryMbid
+      ? `mbid:${entryMbid.toLowerCase()}`
+      : `name:${entryName.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ mbid: entryMbid, name: entryName || null });
+  }
+  return out;
+}
+
+function matchesBlockedArtist(target, artist) {
+  const targetId = String(target?.id || target?.mbid || target?.foreignArtistId || "")
+    .trim()
+    .toLowerCase();
+  const targetName = String(target?.name || target?.artistName || "")
+    .trim()
+    .toLowerCase();
+  const artistId = String(artist?.id || artist?.mbid || artist?.foreignArtistId || "")
+    .trim()
+    .toLowerCase();
+  const artistName = String(artist?.name || artist?.artistName || "")
+    .trim()
+    .toLowerCase();
+  return (targetId && artistId && targetId === artistId) ||
+    (targetName && artistName && targetName === artistName);
+}
+
 function SearchResultsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get("q") || "";
@@ -73,6 +117,7 @@ function SearchResultsPage() {
   const [searchTotalCount, setSearchTotalCount] = useState(0);
   const [lastfmConfigured, setLastfmConfigured] = useState(null);
   const [libraryLookup, setLibraryLookup] = useState({});
+  const [blockedArtists, setBlockedArtists] = useState([]);
   const [pendingAlbumIds, setPendingAlbumIds] = useState({});
   const [showReleaseTypeDropdown, setShowReleaseTypeDropdown] = useState(false);
   const sentinelRef = useRef(null);
@@ -98,6 +143,7 @@ function SearchResultsPage() {
   const isAlbumSearch = normalizedType === "album";
   const tagScope = searchParams.get("scope") || "recommended";
   const showAllTagResults = isTagSearch && tagScope === "all";
+  const canAddArtist = hasPermission("addArtist");
   const canAddAlbum = hasPermission("addAlbum");
   const hasActiveReleaseTypeFilters = useMemo(() => {
     if (selectedReleaseTypes.length !== allReleaseTypes.length) return true;
@@ -136,6 +182,22 @@ function SearchResultsPage() {
       }
     };
     fetchHealth();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadBlocklist = async () => {
+      try {
+        const data = await getBlocklist();
+        if (!cancelled) {
+          setBlockedArtists(normalizeBlocklistArtists(data?.artists));
+        }
+      } catch {}
+    };
+    loadBlocklist();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -437,6 +499,72 @@ function SearchResultsPage() {
           delete next[album.id];
           return next;
         });
+      }
+    },
+    [showError, showSuccess],
+  );
+
+  const handleArtistAction = useCallback(
+    async (artist) => {
+      const artistId = getArtistId(artist);
+      if (!artist?.name || !artistId) return false;
+      try {
+        await addArtistToLibrary({
+          foreignArtistId: artistId,
+          artistName: artist.name,
+        });
+        setLibraryLookup((prev) => ({
+          ...prev,
+          [artistId]: true,
+        }));
+        showSuccess(`Adding ${artist.name}...`);
+        return true;
+      } catch (err) {
+        showError(
+          err.response?.data?.message ||
+            err.response?.data?.error ||
+            err.message ||
+            "Failed to add artist to library",
+        );
+        return false;
+      }
+    },
+    [showError, showSuccess],
+  );
+
+  const handleAddArtistToBlocklist = useCallback(
+    async (artist) => {
+      const artistId = getArtistId(artist);
+      if (!artist?.name && !artistId) return false;
+      try {
+        const current = await getBlocklist();
+        const nextArtists = normalizeBlocklistArtists([
+          ...(current?.artists || []),
+          {
+            mbid: artistId,
+            name: artist.name || null,
+          },
+        ]);
+        const response = await updateBlocklist({
+          artists: nextArtists,
+          tags: current?.tags || [],
+        });
+        setBlockedArtists(
+          normalizeBlocklistArtists(response?.blocklist?.artists || nextArtists),
+        );
+        setResults((prev) => prev.filter((entry) => !matchesBlockedArtist(entry, artist)));
+        setFullList((prev) =>
+          Array.isArray(prev)
+            ? prev.filter((entry) => !matchesBlockedArtist(entry, artist))
+            : prev,
+        );
+        showSuccess("Artist added to blocklist");
+        return true;
+      } catch (err) {
+        showError(
+          err.response?.data?.message || "Failed to update blocklist",
+        );
+        return false;
       }
     },
     [showError, showSuccess],
@@ -789,6 +917,10 @@ function SearchResultsPage() {
                   artistImages={artistImages}
                   libraryLookup={libraryLookup}
                   navigate={navigate}
+                  canAddArtist={canAddArtist}
+                  blockedArtists={blockedArtists}
+                  onAddArtistToLibrary={handleArtistAction}
+                  onAddArtistToBlocklist={handleAddArtistToBlocklist}
                 />
               )}
 

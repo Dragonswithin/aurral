@@ -10,6 +10,7 @@ import {
   Pin,
   PinOff,
   Ticket,
+  Ban,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import LogoutButton from "./LogoutButton";
@@ -71,6 +72,7 @@ function Sidebar({ isOpen, onClose, appVersion, mode, onSetMode }) {
         icon: AudioWaveform,
         permission: "accessFlow",
       },
+      { path: "/blocklist", label: "Blocklist", icon: Ban },
       { path: "/requests", label: "Requests", icon: History },
       {
         path: "/settings",

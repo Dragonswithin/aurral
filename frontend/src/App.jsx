@@ -25,6 +25,7 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const ArtistDetailsPage = lazy(() => import("./pages/ArtistDetailsPage"));
 const RequestsPage = lazy(() => import("./pages/RequestsPage"));
 const FlowPage = lazy(() => import("./pages/FlowPage"));
+const BlocklistPage = lazy(() => import("./pages/BlocklistPage"));
 const DISCOVERY_MANUAL_REFRESH_KEY = "aurral.discovery.manualRefreshPending";
 
 const normalizeBasePath = (baseUrl) => {
@@ -230,6 +231,7 @@ function AppContent() {
                 }
               />
               <Route path="/requests" element={<RequestsPage />} />
+              <Route path="/blocklist" element={<BlocklistPage />} />
               <Route path="/artist/:mbid" element={<ArtistDetailsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>
