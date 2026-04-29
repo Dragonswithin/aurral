@@ -7,9 +7,9 @@ const AUTOCOMPLETE_DEBOUNCE_MS = 250;
 const AUTOCOMPLETE_LIMIT = 6;
 const TAG_SUGGESTIONS_LIMIT = 8;
 const SEARCH_SCOPES = [
-  { value: "artist", label: "Artist" },
-  { value: "album", label: "Album/Release" },
-  { value: "tag", label: "Tag" },
+  { value: "artist", label: "Artist", shortLabel: "Artist" },
+  { value: "album", label: "Album/Release", shortLabel: "Release" },
+  { value: "tag", label: "Tag", shortLabel: "Tag" },
 ];
 
 function normalizeArtistName(value) {
@@ -250,7 +250,7 @@ function GlobalSearch() {
           <button
             type="button"
             onClick={() => setScopeMenuOpen((open) => !open)}
-            className="flex h-full min-w-[132px] items-center gap-2 px-4 text-sm font-medium transition-colors hover:bg-white/[0.035] focus:outline-none"
+            className="flex h-full min-w-[96px] items-center gap-2 px-3 text-sm font-medium transition-colors hover:bg-white/[0.035] focus:outline-none sm:min-w-[132px] sm:px-4"
             style={{
               color: "#f3f3f4",
               backgroundColor: scopeMenuOpen
@@ -261,7 +261,8 @@ function GlobalSearch() {
             aria-expanded={scopeMenuOpen}
             aria-label="Search scope"
           >
-            <span>{selectedScope.label}</span>
+            <span className="sm:hidden">{selectedScope.shortLabel}</span>
+            <span className="hidden sm:inline">{selectedScope.label}</span>
             <ChevronDown
               className={`h-4 w-4 transition-transform ${
                 scopeMenuOpen ? "rotate-180" : ""
@@ -272,7 +273,7 @@ function GlobalSearch() {
 
           {scopeMenuOpen && (
             <div
-              className="absolute left-0 top-[calc(100%+8px)] z-[70] min-w-[180px] overflow-hidden rounded-xl border shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
+              className="absolute left-0 top-[calc(100%+8px)] z-[70] min-w-[152px] overflow-hidden rounded-xl border shadow-[0_18px_48px_rgba(0,0,0,0.45)] sm:min-w-[180px]"
               style={{
                 backgroundColor: "#17171c",
                 borderColor: "rgba(193,193,195,0.14)",
@@ -294,7 +295,8 @@ function GlobalSearch() {
                         role="option"
                         aria-selected={selected}
                       >
-                        <span>{scope.label}</span>
+                        <span className="sm:hidden">{scope.shortLabel}</span>
+                        <span className="hidden sm:inline">{scope.label}</span>
                         {selected && (
                           <span
                             className="h-2 w-2 rounded-full"
@@ -326,7 +328,7 @@ function GlobalSearch() {
             onChange={(event) => setSearchQuery(event.target.value)}
             onKeyDown={handleKeyDown}
             placeholder=""
-            className="block w-full bg-transparent py-3 pl-11 pr-10 text-sm focus:outline-none"
+            className="block w-full bg-transparent py-3 pl-11 pr-4 text-sm focus:outline-none sm:pr-10"
             style={{
               color: "#fff",
             }}
@@ -337,9 +339,10 @@ function GlobalSearch() {
               className="pointer-events-none absolute inset-y-0 left-0 flex items-center gap-2 pl-11 pr-4 text-[15px]"
               style={{ color: "#92929a" }}
             >
-              <span>Type</span>
+              <span className="sm:hidden">Search...</span>
+              <span className="hidden sm:inline">Type</span>
               <span
-                className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border px-1.5 text-[13px] font-medium"
+                className="hidden sm:inline-flex h-6 min-w-6 items-center justify-center rounded-md border px-1.5 text-[13px] font-medium"
                 style={{
                   borderColor: "rgba(193,193,195,0.28)",
                   backgroundColor: "rgba(255,255,255,0.03)",
@@ -349,7 +352,7 @@ function GlobalSearch() {
               >
                 /
               </span>
-              <span>to search</span>
+              <span className="hidden sm:inline">to search</span>
             </div>
           )}
           {loadingSuggestions && (

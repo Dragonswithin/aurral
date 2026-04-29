@@ -1845,10 +1845,10 @@ function FlowPage() {
         onChange={handleImportFileChange}
       />
       <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex items-end gap-2">
+        <div className="flex min-w-0 items-end gap-2">
           <h2 className="text-base font-semibold text-white">Playlists / Flows</h2>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
             onClick={handleOpenWorkerSettings}
@@ -1860,7 +1860,7 @@ function FlowPage() {
           <button
             type="button"
             onClick={handleOpenImportPicker}
-            className="btn btn-secondary btn-sm gap-2"
+            className="hidden btn btn-secondary btn-sm gap-2 sm:inline-flex"
           >
             <Upload className="w-4 h-4" />
             Import
@@ -1869,7 +1869,7 @@ function FlowPage() {
             href="https://aurral.org/aurral-convert"
             target="_blank"
             rel="noreferrer"
-            className="btn btn-secondary btn-sm gap-2"
+            className="hidden btn btn-secondary btn-sm gap-2 sm:inline-flex"
           >
             <ExternalLink className="w-4 h-4" />
             Spotify Import
@@ -1877,18 +1877,24 @@ function FlowPage() {
           <button
             type="button"
             onClick={handleOpenCreatePlaylist}
-            className="btn btn-secondary btn-sm"
+            className="btn btn-secondary btn-sm px-3 sm:px-4"
             disabled={creatingPlaylist}
           >
-            {creatingPlaylist ? "Creating..." : "New Playlist"}
+            <span className="hidden sm:inline">
+              {creatingPlaylist ? "Creating..." : "New Playlist"}
+            </span>
+            <span className="sm:hidden">Playlist</span>
           </button>
           <button
             type="button"
             onClick={handleCreateInline}
-            className="btn btn-primary btn-sm"
+            className="btn btn-primary btn-sm px-3 sm:px-4"
             disabled={creating}
           >
-            {creating ? "Creating..." : "New Flow"}
+            <span className="hidden sm:inline">
+              {creating ? "Creating..." : "New Flow"}
+            </span>
+            <span className="sm:hidden">Flow</span>
           </button>
         </div>
       </div>

@@ -75,13 +75,13 @@ function ArtistDetailsPage() {
     musicbrainzId: "",
     deezerArtistId: "",
   });
-  const [blockingArtist, setBlockingArtist] = useState(false);
-  const [artistBlocked, setArtistBlocked] = useState(false);
   const [sharedPlaylists, setSharedPlaylists] = useState([]);
   const [playlistTrackModal, setPlaylistTrackModal] = useState(null);
   const [playlistModalLoading, setPlaylistModalLoading] = useState(false);
   const [playlistModalSubmitting, setPlaylistModalSubmitting] = useState(false);
   const [playlistModalError, setPlaylistModalError] = useState("");
+  const [blockingArtist, setBlockingArtist] = useState(false);
+  const [artistBlocked, setArtistBlocked] = useState(false);
 
   const filter = useReleaseTypeFilter();
   const {
@@ -483,7 +483,7 @@ function ArtistDetailsPage() {
           </p>
           <button
             onClick={() => navigate("/search")}
-            className="btn btn-primary"
+            className="btn btn-primary hidden sm:inline-flex"
           >
             Back to Search
           </button>
@@ -500,7 +500,7 @@ function ArtistDetailsPage() {
     <div className="animate-fade-in">
       <button
         onClick={() => navigate(-1)}
-        className="btn btn-secondary mb-6 inline-flex items-center"
+        className="btn btn-secondary mb-6 hidden items-center sm:inline-flex"
       >
         <ArrowLeft className="w-5 h-5 mr-2" />
         Back

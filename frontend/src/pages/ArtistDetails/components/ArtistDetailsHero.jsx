@@ -14,9 +14,8 @@ import {
   Play,
   Pause,
   Pencil,
-  Volume2,
-  VolumeX,
   Ban,
+  ChevronUp,
 } from "lucide-react";
 import { getCoverImage, getTagColor, formatLifeSpan, getArtistType } from "../utils";
 import AddToLibraryButton from "../../../components/AddToLibraryButton";
@@ -53,8 +52,6 @@ export function ArtistDetailsHero({
   playingPreviewId,
   previewProgress,
   previewSnappingBack,
-  previewVolume,
-  setPreviewVolume,
   handlePreviewPlay,
   onEditIds,
   onToggleBlockArtist,
@@ -64,6 +61,7 @@ export function ArtistDetailsHero({
   const coverImage = getCoverImage(coverImages);
   const lifeSpan = formatLifeSpan(artist["life-span"]);
   const [showViewMenu, setShowViewMenu] = useState(false);
+  const [mobilePreviewCollapsed, setMobilePreviewCollapsed] = useState(true);
   const lidarrArtistId =
     artist?.id ||
     libraryArtist?.foreignArtistId ||
@@ -85,7 +83,64 @@ export function ArtistDetailsHero({
     <div className="card mb-8 relative">
       <div className="flex flex-col md:flex-row gap-6">
         <div
-          className="w-full md:w-64 h-64 flex-shrink-0 overflow-hidden relative"
+          className="relative w-full h-72 overflow-hidden md:hidden"
+          style={{ backgroundColor: "#211f27" }}
+        >
+          {loadingCover ? (
+            <div className="w-full h-full flex items-center justify-center">
+              <Loader
+                className="w-12 h-12 animate-spin"
+                style={{ color: "#c1c1c3" }}
+              />
+            </div>
+          ) : coverImage ? (
+            <img
+              src={coverImage}
+              alt={artist.name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <Music className="w-24 h-24" style={{ color: "#c1c1c3" }} />
+            </div>
+          )}
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                "linear-gradient(180deg, rgba(8,9,14,0.18) 0%, rgba(8,9,14,0.62) 56%, rgba(8,9,14,0.9) 100%)",
+            }}
+          />
+          <div className="absolute inset-x-0 bottom-0 p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h1
+                  className="text-4xl font-bold leading-tight"
+                  style={{ color: "#fff" }}
+                >
+                  {artist.name}
+                </h1>
+                {artist.disambiguation && (
+                  <p className="mt-2 text-sm italic line-clamp-2" style={{ color: "#d2d4da" }}>
+                    {artist.disambiguation}
+                  </p>
+                )}
+                {artist.bio && (
+                  <p
+                    className="mt-2 text-sm line-clamp-3 max-w-xl"
+                    style={{ color: "#d2d4da" }}
+                    title={artist.bio}
+                  >
+                    {artist.bio}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="hidden md:block w-full md:w-64 h-64 flex-shrink-0 overflow-hidden relative"
           style={{ backgroundColor: "#211f27" }}
         >
           {loadingCover ? (
@@ -109,8 +164,8 @@ export function ArtistDetailsHero({
         </div>
 
         <div className="flex-1">
-          <div className="flex justify-between items-start gap-4">
-            <div className="flex items-start gap-3 min-w-0">
+          <div className="hidden md:flex justify-between items-start gap-4">
+            <div className="items-start gap-3 min-w-0 flex">
               <h1
                 className="text-4xl font-bold mb-2"
                 style={{ color: "#fff" }}
@@ -164,20 +219,20 @@ export function ArtistDetailsHero({
           </div>
 
           {artist["sort-name"] && artist["sort-name"] !== artist.name && (
-            <p className="text-lg mb-4" style={{ color: "#c1c1c3" }}>
+            <p className="hidden md:block text-lg mb-4" style={{ color: "#c1c1c3" }}>
               {artist["sort-name"]}
             </p>
           )}
 
           {artist.disambiguation && (
-            <p className="italic mb-4" style={{ color: "#c1c1c3" }}>
+            <p className="hidden md:block italic mb-4" style={{ color: "#c1c1c3" }}>
               {artist.disambiguation}
             </p>
           )}
 
           {artist.bio && (
             <p
-              className="text-sm mb-4 line-clamp-6 max-w-2xl"
+              className="hidden md:block text-sm mb-4 line-clamp-6 max-w-2xl"
               style={{ color: "#c1c1c3" }}
               title={artist.bio}
             >
@@ -231,7 +286,7 @@ export function ArtistDetailsHero({
             )}
           </div>
 
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap justify-center gap-3 md:justify-start">
             {loadingLibrary ? (
               <div
                 className="btn btn-secondary inline-flex items-center"
@@ -376,7 +431,7 @@ export function ArtistDetailsHero({
                 </div>
               )
             )}
-            <div className="relative inline-flex">
+            <div className="relative hidden md:inline-flex">
               <button
                 type="button"
                 onClick={() => setShowViewMenu(!showViewMenu)}
@@ -454,41 +509,37 @@ export function ArtistDetailsHero({
 
         {((!loadingPreview && previewTracks && previewTracks.length > 0) ||
           loadingPreview) && (
-          <div className="w-full md:w-80 bg-black/20 p-2 flex-shrink-0">
+          <div className="w-full md:w-80 flex-shrink-0">
+            <div
+              className="rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3"
+            >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold" style={{ color: "#fff" }}>
+                Audio Preview
+              </h3>
+              <button
+                type="button"
+                onClick={() => setMobilePreviewCollapsed((value) => !value)}
+                className="inline-flex items-center gap-1 text-xs md:hidden"
+                style={{ color: "#c1c1c3" }}
+                aria-expanded={!mobilePreviewCollapsed}
+              >
+                <span>{mobilePreviewCollapsed ? "Show" : "Hide"}</span>
+                <ChevronUp
+                  className={`w-4 h-4 transition-transform ${
+                    mobilePreviewCollapsed ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+            </div>
             {!loadingPreview && previewTracks.length > 0 && (
               <>
                 <audio ref={previewAudioRef} />
-                <div className="flex items-center gap-2 px-2 pb-2">
-                  {previewVolume <= 0 ? (
-                    <VolumeX className="w-4 h-4 flex-shrink-0" style={{ color: "#c1c1c3" }} />
-                  ) : (
-                    <Volume2 className="w-4 h-4 flex-shrink-0" style={{ color: "#c1c1c3" }} />
-                  )}
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value={Math.round(previewVolume * 100)}
-                    onChange={(e) =>
-                      setPreviewVolume(
-                        Math.max(
-                          0,
-                          Math.min(1, Number(e.target.value) / 100),
-                        ),
-                      )
-                    }
-                    className="w-full accent-[#707e61]"
-                    aria-label="Preview volume"
-                  />
-                  <span
-                    className="text-xs tabular-nums w-8 text-right"
-                    style={{ color: "#c1c1c3" }}
-                  >
-                    {Math.round(previewVolume * 100)}
-                  </span>
-                </div>
-                <ul className="space-y-0.5">
+                <ul
+                  className={`mt-3 space-y-0.5 ${
+                    mobilePreviewCollapsed ? "hidden md:block" : "block"
+                  }`}
+                >
                   {previewTracks.map((track) => (
                     <li
                       key={track.id}
@@ -558,6 +609,7 @@ export function ArtistDetailsHero({
                 </ul>
               </>
             )}
+            </div>
           </div>
         )}
       </div>
@@ -570,7 +622,7 @@ export function ArtistDetailsHero({
           >
             Tags
           </h3>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2 overflow-x-auto whitespace-nowrap pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible">
             {artist.genres &&
               artist.genres.map((genre, idx) => {
                 const name = typeof genre === "string" ? genre : genre?.name;
@@ -677,8 +729,6 @@ ArtistDetailsHero.propTypes = {
   playingPreviewId: PropTypes.string,
   previewProgress: PropTypes.number,
   previewSnappingBack: PropTypes.bool,
-  previewVolume: PropTypes.number,
-  setPreviewVolume: PropTypes.func,
   handlePreviewPlay: PropTypes.func,
   onEditIds: PropTypes.func,
   onToggleBlockArtist: PropTypes.func,

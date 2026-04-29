@@ -89,15 +89,15 @@ export function ArtistDetailsLibraryAlbums({
         : ArrowUpWideNarrow;
 
   return (
-    <div className="card mb-4 p-4">
-      <div className="flex items-center justify-between mb-2">
-        <h2
-          className="text-lg font-semibold flex items-center"
-          style={{ color: "#fff" }}
-        >
-          Albums in Your Library ({downloadedAlbums.length})
-        </h2>
-        <div className="relative">
+    <div className="card mb-4 p-3 sm:p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex min-w-0 items-center gap-2">
+          <h2
+            className="text-lg font-semibold flex items-center"
+            style={{ color: "#fff" }}
+          >
+            Albums in Your Library ({downloadedAlbums.length})
+          </h2>
           <button
             type="button"
             onClick={() =>
@@ -117,7 +117,7 @@ export function ArtistDetailsLibraryAlbums({
           </button>
         </div>
       </div>
-      <div className="space-y-1">
+      <div className="space-y-2">
         {sortedAlbums.map((libraryAlbum, libraryAlbumIdx) => {
             const rgId =
               libraryAlbum.mbid || libraryAlbum.foreignAlbumId;
@@ -155,7 +155,7 @@ export function ArtistDetailsLibraryAlbums({
             return (
               <div
                 key={libraryAlbum.id}
-                className="transition-colors"
+                className="rounded-2xl transition-colors"
                 style={{ backgroundColor: rowBg }}
                 onMouseEnter={(e) => {
                   if (!isExpanded) {
@@ -169,12 +169,12 @@ export function ArtistDetailsLibraryAlbums({
                 }}
               >
                 <div
-                  className="flex flex-col gap-2 py-2.5 px-3 cursor-pointer sm:flex-row sm:items-center sm:justify-between"
+                  className="flex cursor-pointer flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
                   onClick={() =>
                     handleLibraryAlbumClick(rgId, libraryAlbum.id)
                   }
                 >
-                  <div className="flex-1 flex items-center gap-2 min-w-0">
+                  <div className="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
                     <button
                       type="button"
                       onClick={(e) => {
@@ -199,13 +199,13 @@ export function ArtistDetailsLibraryAlbums({
                           ]
                         }
                         alt={libraryAlbum.albumName}
-                        className="w-10 h-10 flex-shrink-0 object-cover"
+                        className="h-14 w-14 flex-shrink-0 rounded-lg object-cover sm:h-10 sm:w-10"
                         loading="lazy"
                         decoding="async"
                       />
                     ) : (
                       <div
-                        className="w-10 h-10 flex-shrink-0 flex items-center justify-center"
+                        className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-lg sm:h-10 sm:w-10"
                         style={{ backgroundColor: itemBg }}
                       >
                         <Music
@@ -215,14 +215,117 @@ export function ArtistDetailsLibraryAlbums({
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <h3
-                        className="font-semibold text-sm truncate"
-                        style={{ color: "#fff" }}
-                      >
-                        {libraryAlbum.albumName}
-                      </h3>
+                      <div className="flex items-start gap-2">
+                        <h3
+                          className="truncate text-base font-semibold sm:text-sm"
+                          style={{ color: "#fff" }}
+                        >
+                          {libraryAlbum.albumName}
+                        </h3>
+                        <div className="relative ml-auto overflow-visible sm:hidden">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAlbumDropdownOpen(
+                                albumDropdownOpen === rgId ? null : rgId
+                              );
+                            }}
+                            className="btn btn-secondary btn-sm p-2"
+                            style={{
+                              backgroundColor: itemBg,
+                              borderColor: itemBg,
+                              color: "#c1c1c3",
+                            }}
+                            title="Options"
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+                          {albumDropdownOpen === rgId && (
+                            <>
+                              <div
+                                className="fixed inset-0 z-10"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAlbumDropdownOpen(null);
+                                }}
+                              />
+                              <div
+                                className="absolute right-0 top-full mt-2 w-48 shadow-xl z-20 py-1 rounded-md border border-white/10"
+                                style={{
+                                  backgroundColor: "#2d2b35",
+                                  boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+                                }}
+                              >
+                                <a
+                                  href={`https://www.last.fm/music/${encodeURIComponent(
+                                    artist.name
+                                  )}/${encodeURIComponent(
+                                    libraryAlbum.albumName
+                                  )}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="w-full text-left px-4 py-2 text-sm hover:bg-white/10 transition-colors flex items-center"
+                                  style={{ color: "#fff" }}
+                                  onClick={() => setAlbumDropdownOpen(null)}
+                                >
+                                  <ExternalLink className="w-4 h-4 mr-2" />
+                                  View on Last.fm
+                                </a>
+                                {canReSearch && canReSearchAlbum && (
+                                  <>
+                                    <div className="my-1 border-t border-white/10" />
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleReSearchAlbum(
+                                          libraryAlbum.id,
+                                          libraryAlbum.albumName,
+                                        );
+                                        setAlbumDropdownOpen(null);
+                                      }}
+                                      className="w-full text-left px-4 py-2 text-sm hover:bg-white/10 transition-colors flex items-center"
+                                      style={{ color: "#fff" }}
+                                      disabled={reSearchingAlbum === libraryAlbum.id}
+                                    >
+                                      {reSearchingAlbum === libraryAlbum.id ? (
+                                        <Loader className="w-4 h-4 mr-2 animate-spin" />
+                                      ) : (
+                                        <RefreshCw className="w-4 h-4 mr-2" />
+                                      )}
+                                      {reSearchingAlbum === libraryAlbum.id
+                                        ? "Searching..."
+                                        : "Re-search"}
+                                    </button>
+                                  </>
+                                )}
+                                {canDeleteAlbum && (
+                                  <>
+                                    <div className="my-1 border-t border-white/10" />
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteAlbumClick(
+                                          rgId,
+                                          libraryAlbum.albumName
+                                        );
+                                      }}
+                                      className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/20 transition-colors flex items-center"
+                                    >
+                                      <Trash2 className="w-4 h-4 mr-2" />
+                                      Delete Album
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
                       <div
-                        className="flex flex-wrap items-center gap-2 mt-0.5 text-xs"
+                        className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
                         style={{ color: "#c1c1c3" }}
                       >
                         {libraryAlbum.releaseDate && (
@@ -288,13 +391,8 @@ export function ArtistDetailsLibraryAlbums({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 w-full sm:w-auto sm:justify-end">
-                    {isComplete ? (
-                      <span className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold uppercase bg-green-500/20 text-green-400 cursor-default">
-                        <CheckCircle className="w-3.5 h-3.5" />
-                        Complete
-                      </span>
-                    ) : downloadStatus ? (
+                  <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
+                    {!isComplete && downloadStatus ? (
                       downloadStatus.status === "added" ||
                       downloadStatus.status === "available" ? (
                         <span className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold uppercase bg-green-500/20 text-green-400 cursor-default">
@@ -340,7 +438,7 @@ export function ArtistDetailsLibraryAlbums({
                       </span>
                     ) : libraryAlbum.monitored ? (
                       <span
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold uppercase cursor-default"
+                        className="hidden items-center gap-1.5 px-2.5 py-1 text-xs font-bold uppercase cursor-default sm:flex"
                         style={{
                           backgroundColor: itemBg,
                           color: "#c1c1c3",
@@ -353,7 +451,7 @@ export function ArtistDetailsLibraryAlbums({
                         Unmonitored
                       </span>
                     )}
-                    <div className="relative overflow-visible">
+                    <div className="relative ml-auto hidden overflow-visible sm:block">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -459,7 +557,7 @@ export function ArtistDetailsLibraryAlbums({
 
                 {isExpanded && (
                   <div
-                    className="px-3 py-2 overflow-hidden"
+                    className="overflow-hidden px-3 py-2"
                     style={{
                       backgroundColor:
                         libraryAlbumIdx % 2 === 0
