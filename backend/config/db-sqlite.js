@@ -26,6 +26,16 @@ const db = new Database(DB_PATH);
 
 db.pragma("journal_mode = WAL");
 
+function tryAddColumn(sql) {
+  try {
+    db.exec(sql);
+  } catch (error) {
+    if (!String(error?.message || "").toLowerCase().includes("duplicate column name")) {
+      throw error;
+    }
+  }
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
@@ -68,6 +78,14 @@ db.exec(`
     id TEXT PRIMARY KEY,
     artist_name TEXT NOT NULL,
     track_name TEXT NOT NULL,
+    album_name TEXT,
+    reason TEXT,
+    artist_mbid TEXT,
+    album_mbid TEXT,
+    track_mbid TEXT,
+    release_year TEXT,
+    duration_ms INTEGER,
+    artist_aliases TEXT,
     playlist_type TEXT NOT NULL,
     status TEXT NOT NULL,
     staging_path TEXT,
@@ -111,13 +129,28 @@ const tableColumns = db
   .map((column) => column.name);
 
 if (!tableColumns.includes("album_name")) {
-  db.exec("ALTER TABLE weekly_flow_jobs ADD COLUMN album_name TEXT");
+  tryAddColumn("ALTER TABLE weekly_flow_jobs ADD COLUMN album_name TEXT");
 }
 if (!tableColumns.includes("reason")) {
-  db.exec("ALTER TABLE weekly_flow_jobs ADD COLUMN reason TEXT");
+  tryAddColumn("ALTER TABLE weekly_flow_jobs ADD COLUMN reason TEXT");
 }
 if (!tableColumns.includes("artist_mbid")) {
-  db.exec("ALTER TABLE weekly_flow_jobs ADD COLUMN artist_mbid TEXT");
+  tryAddColumn("ALTER TABLE weekly_flow_jobs ADD COLUMN artist_mbid TEXT");
+}
+if (!tableColumns.includes("album_mbid")) {
+  tryAddColumn("ALTER TABLE weekly_flow_jobs ADD COLUMN album_mbid TEXT");
+}
+if (!tableColumns.includes("track_mbid")) {
+  tryAddColumn("ALTER TABLE weekly_flow_jobs ADD COLUMN track_mbid TEXT");
+}
+if (!tableColumns.includes("release_year")) {
+  tryAddColumn("ALTER TABLE weekly_flow_jobs ADD COLUMN release_year TEXT");
+}
+if (!tableColumns.includes("duration_ms")) {
+  tryAddColumn("ALTER TABLE weekly_flow_jobs ADD COLUMN duration_ms INTEGER");
+}
+if (!tableColumns.includes("artist_aliases")) {
+  tryAddColumn("ALTER TABLE weekly_flow_jobs ADD COLUMN artist_aliases TEXT");
 }
 
 const userColumns = db
@@ -126,19 +159,19 @@ const userColumns = db
   .map((column) => column.name);
 
 if (!userColumns.includes("lastfm_username")) {
-  db.exec("ALTER TABLE users ADD COLUMN lastfm_username TEXT");
+  tryAddColumn("ALTER TABLE users ADD COLUMN lastfm_username TEXT");
 }
 if (!userColumns.includes("listen_history_provider")) {
-  db.exec("ALTER TABLE users ADD COLUMN listen_history_provider TEXT");
+  tryAddColumn("ALTER TABLE users ADD COLUMN listen_history_provider TEXT");
 }
 if (!userColumns.includes("listen_history_username")) {
-  db.exec("ALTER TABLE users ADD COLUMN listen_history_username TEXT");
+  tryAddColumn("ALTER TABLE users ADD COLUMN listen_history_username TEXT");
 }
 if (!userColumns.includes("lidarr_root_folder_path")) {
-  db.exec("ALTER TABLE users ADD COLUMN lidarr_root_folder_path TEXT");
+  tryAddColumn("ALTER TABLE users ADD COLUMN lidarr_root_folder_path TEXT");
 }
 if (!userColumns.includes("lidarr_quality_profile_id")) {
-  db.exec("ALTER TABLE users ADD COLUMN lidarr_quality_profile_id INTEGER");
+  tryAddColumn("ALTER TABLE users ADD COLUMN lidarr_quality_profile_id INTEGER");
 }
 
 db.exec(`

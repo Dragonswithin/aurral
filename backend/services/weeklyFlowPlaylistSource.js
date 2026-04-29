@@ -233,6 +233,11 @@ export class WeeklyFlowPlaylistSource {
     trackName,
     albumName,
     artistMbid,
+    albumMbid,
+    trackMbid,
+    releaseYear,
+    durationMs,
+    artistAliases,
     reason,
   }) {
     const safeArtist = String(artistName || "").trim();
@@ -240,11 +245,26 @@ export class WeeklyFlowPlaylistSource {
     if (!safeArtist || !safeTrack) return null;
     const safeAlbum = String(albumName || "").trim();
     const safeMbid = String(artistMbid || "").trim();
+    const safeAlbumMbid = String(albumMbid || "").trim();
+    const safeTrackMbid = String(trackMbid || "").trim();
+    const safeReleaseYear = String(releaseYear || "").trim();
+    const safeDuration =
+      durationMs != null && Number.isFinite(Number(durationMs))
+        ? Math.max(0, Math.round(Number(durationMs)))
+        : null;
+    const normalizedAliases = Array.isArray(artistAliases)
+      ? artistAliases.map((entry) => String(entry || "").trim()).filter(Boolean)
+      : [];
     return {
       artistName: safeArtist,
       trackName: safeTrack,
       albumName: safeAlbum || null,
       artistMbid: safeMbid || null,
+      albumMbid: safeAlbumMbid || null,
+      trackMbid: safeTrackMbid || null,
+      releaseYear: safeReleaseYear || null,
+      durationMs: safeDuration,
+      artistAliases: normalizedAliases,
       reason: this._normalizeTrackReason(reason),
     };
   }

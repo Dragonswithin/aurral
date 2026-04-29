@@ -6,6 +6,12 @@ import { playlistManager } from "./weeklyFlowPlaylistManager.js";
 import { flowPlaylistConfig } from "./weeklyFlowPlaylistConfig.js";
 import { playlistSource } from "./weeklyFlowPlaylistSource.js";
 import { dbOps } from "../config/db-helpers.js";
+import { resolveWeeklyFlowTrackContext } from "./weeklyFlowTrackResolver.js";
+import {
+  buildFlowSearchQueries,
+  rankFlowSearchResults,
+  validateDownloadedTrack,
+} from "./weeklyFlowSoulseekMatcher.js";
 
 const DEFAULT_CONCURRENCY = 3;
 const MIN_CONCURRENCY = 1;
@@ -888,14 +894,55 @@ export class WeeklyFlowWorker {
     try {
       let phaseStart = process.hrtime.bigint();
       const retryAttempt = Number(this.retryAttempts.get(job.id) || 0);
-      const initialResults = await soulseekClient.search(
-        job.artistName,
-        job.trackName,
-        { forceFresh: true },
+      const resolvedTrack = await resolveWeeklyFlowTrackContext(job);
+      downloadTracker.updateMetadata(job.id, resolvedTrack);
+      Object.assign(job, resolvedTrack);
+      const searchQueries = buildFlowSearchQueries(resolvedTrack);
+      if (searchQueries.length === 0) {
+        throw new Error("No search queries could be built");
+      }
+      const { preferredFormat, preferredFormatStrict } =
+        this.getWorkerSettings();
+      const preferredExt = preferredFormat === "mp3" ? ".mp3" : ".flac";
+      const matchLimit = this._getAdaptiveMatchLimit(
+        preferredFormatStrict,
+        retryAttempt,
       );
+      const aggregatedResults = [];
+      const seenResults = new Set();
+      let rankedMatches = [];
+      for (let queryIndex = 0; queryIndex < searchQueries.length; queryIndex += 1) {
+        this._assertJobCanContinue(job, runGeneration);
+        const query = searchQueries[queryIndex];
+        const searchResults = await soulseekClient.searchQuery(query, {
+          forceFresh: queryIndex === 0,
+        });
+        for (const result of Array.isArray(searchResults) ? searchResults : []) {
+          const file = String(result?.file || "").trim();
+          const user = String(result?.user || "").trim();
+          if (!file || !user) continue;
+          const key = `${user}\0${file}`;
+          if (seenResults.has(key)) continue;
+          seenResults.add(key);
+          aggregatedResults.push(result);
+        }
+        rankedMatches = rankFlowSearchResults(aggregatedResults, resolvedTrack, {
+          preferredFormat,
+          strictFormat: preferredFormatStrict,
+        });
+        if (
+          rankedMatches.length >= Math.min(matchLimit, 3) &&
+          rankedMatches[0]?.isLikelyMatch
+        ) {
+          break;
+        }
+        if (queryIndex >= 2 && rankedMatches.length > 0) {
+          break;
+        }
+      }
       this._assertJobCanContinue(job, runGeneration);
       timingsMs.search += Number(process.hrtime.bigint() - phaseStart) / 1e6;
-      if (!initialResults || initialResults.length === 0) {
+      if (aggregatedResults.length === 0) {
         throw new Error("No search results found");
       }
 
@@ -908,45 +955,11 @@ export class WeeklyFlowWorker {
       await fs.mkdir(stagingDir, { recursive: true });
       stagingPrepared = true;
       this._assertJobCanContinue(job, runGeneration);
-      const stagingFile = `${job.artistName} - ${job.trackName}`;
+      const stagingFile = `${resolvedTrack.artistName} - ${resolvedTrack.trackName}`;
       const stagingFilePath = path.join(stagingDir, stagingFile);
 
       phaseStart = process.hrtime.bigint();
-      const { preferredFormat, preferredFormatStrict } =
-        this.getWorkerSettings();
-      const preferredExt = preferredFormat === "mp3" ? ".mp3" : ".flac";
-      const secondaryExt = preferredFormat === "mp3" ? ".flac" : ".mp3";
-      const strictSourcePool = preferredFormatStrict
-        ? initialResults.filter((candidate) => {
-            if (typeof candidate?.file !== "string" || !candidate.file.trim()) {
-              return false;
-            }
-            return path.extname(candidate.file).toLowerCase() === preferredExt;
-          })
-        : null;
-      const sourcePool = preferredFormatStrict
-        ? strictSourcePool
-        : initialResults;
-      const matchLimit = this._getAdaptiveMatchLimit(
-        preferredFormatStrict,
-        retryAttempt,
-      );
-      const rankedCandidates = soulseekClient.pickBestMatches(
-        sourcePool,
-        job.trackName,
-        matchLimit,
-      );
-      const candidatePool =
-        Array.isArray(rankedCandidates) && rankedCandidates.length > 0
-          ? rankedCandidates
-          : Array.isArray(sourcePool)
-            ? sourcePool
-            : [];
-      const candidates = candidatePool
-        .filter((candidate) => {
-          return typeof candidate?.file === "string" && candidate.file.trim();
-        })
-        .slice(0, matchLimit);
+      const candidates = rankedMatches.slice(0, matchLimit);
       if (candidates.length === 0) {
         if (preferredFormatStrict) {
           lastError = new Error(
@@ -957,32 +970,15 @@ export class WeeklyFlowWorker {
         }
         timingsMs.search += Number(process.hrtime.bigint() - phaseStart) / 1e6;
       } else {
-        const rankedCandidates = candidates
-          .map((candidate, index) => ({
-            candidate,
-            index,
-            ext: path.extname(candidate?.file || "").toLowerCase(),
-          }))
-          .sort((a, b) => {
-            const rankA =
-              a.ext === preferredExt ? 0 : a.ext === secondaryExt ? 1 : 2;
-            const rankB =
-              b.ext === preferredExt ? 0 : b.ext === secondaryExt ? 1 : 2;
-            if (rankA !== rankB) return rankA - rankB;
-            return a.index - b.index;
-          });
-        const orderedCandidates = preferredFormatStrict
-          ? rankedCandidates.filter((entry) => entry.ext === preferredExt)
-          : rankedCandidates;
         const maxDownloadAttempts =
           retryAttempt > 0
             ? MAX_DOWNLOAD_ATTEMPTS_PER_RETRY
             : MAX_DOWNLOAD_ATTEMPTS_PER_JOB;
-        const attemptCandidates = orderedCandidates.slice(
+        const attemptCandidates = candidates.slice(
           0,
           maxDownloadAttempts,
         );
-        if (orderedCandidates.length === 0) {
+        if (attemptCandidates.length === 0) {
           lastError = new Error(
             `No ${preferredFormat.toUpperCase()} candidate files returned`,
           );
@@ -994,7 +990,7 @@ export class WeeklyFlowWorker {
         ) {
           this._assertJobCanContinue(job, runGeneration);
           const candidate = attemptCandidates[attemptIndex];
-          const extFromSoulseek = path.extname(candidate.candidate.file || "");
+          const extFromSoulseek = path.extname(candidate.raw?.file || "");
           const ext =
             extFromSoulseek &&
             /^\.(flac|mp3|m4a|ogg|wav)$/i.test(extFromSoulseek)
@@ -1003,7 +999,7 @@ export class WeeklyFlowWorker {
           try {
             const downloadStart = process.hrtime.bigint();
             downloadedSourcePath = await soulseekClient.download(
-              candidate.candidate,
+              candidate.raw,
               stagingFilePath,
               (progressPct) => {
                 if (!this.currentJob || this.currentJob.id !== job.id) return;
@@ -1025,7 +1021,20 @@ export class WeeklyFlowWorker {
             if (this.currentJob && this.currentJob.id === job.id) {
               this.currentJob.progressPct = 100;
             }
-            selectedMatch = candidate.candidate;
+            const validation = await validateDownloadedTrack(
+              downloadedSourcePath,
+              candidate,
+              resolvedTrack,
+            );
+            if (!validation.valid) {
+              await fs.rm(downloadedSourcePath, { force: true }).catch(() => {});
+              downloadedSourcePath = null;
+              lastError = new Error(
+                `Downloaded track validation failed: ${validation.reason}`,
+              );
+              continue;
+            }
+            selectedMatch = candidate;
             selectedExt = ext;
             lastError = null;
             break;
@@ -1052,11 +1061,17 @@ export class WeeklyFlowWorker {
           ? downloadedExt
           : selectedExt;
 
-      const artistDir = this._sanitizePathPart(job.artistName);
-      const albumFromApi = this._normalizeAlbumName(job.albumName);
-      const albumFromPath = this._parseAlbumFromPath(selectedMatch.file);
-      const resolvedAlbum = albumFromApi || albumFromPath || "Unknown Album";
-      const albumDir = this._sanitizePathPart(resolvedAlbum);
+      const artistDir = this._sanitizePathPart(resolvedTrack.artistName);
+      const albumFromApi = this._normalizeAlbumName(resolvedTrack.albumName);
+      const albumFromCandidate = this._normalizeAlbumName(
+        selectedMatch?.resolvedAlbumName,
+      );
+      const albumFromPath = this._parseAlbumFromPath(selectedMatch?.raw?.file);
+      const resolvedAlbum =
+        albumFromApi || albumFromCandidate || albumFromPath || "Unknown Album";
+      const albumDir = this._sanitizePathPart(
+        resolvedAlbum,
+      );
       const finalDir = path.join(
         this.weeklyFlowRoot,
         "aurral-weekly-flow",
@@ -1064,7 +1079,7 @@ export class WeeklyFlowWorker {
         artistDir,
         albumDir,
       );
-      const finalFileName = `${this._sanitizePathPart(job.trackName)}${finalExt}`;
+      const finalFileName = `${this._sanitizePathPart(resolvedTrack.trackName)}${finalExt}`;
       const finalPath = path.join(finalDir, finalFileName);
 
       phaseStart = process.hrtime.bigint();

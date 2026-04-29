@@ -722,8 +722,11 @@ export class SimpleSoulseekClient {
     }, this._getConnectionKeepAliveMs());
   }
 
-  async search(artistName, trackName, options = {}) {
-    const query = `${artistName} ${trackName}`;
+  async searchQuery(rawQuery, options = {}) {
+    const query = String(rawQuery || "").trim();
+    if (!query) {
+      return [];
+    }
     const forceFresh = options?.forceFresh === true;
     if (!forceFresh) {
       if (this._hasCachedNoResults(query)) {
@@ -764,6 +767,11 @@ export class SimpleSoulseekClient {
     } finally {
       this.releaseConnection();
     }
+  }
+
+  async search(artistName, trackName, options = {}) {
+    const query = `${artistName} ${trackName}`;
+    return this.searchQuery(query, options);
   }
 
   pickBestMatch(results, trackName) {

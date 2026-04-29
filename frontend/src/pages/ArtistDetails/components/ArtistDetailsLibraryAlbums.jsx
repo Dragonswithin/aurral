@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Trash2,
   RefreshCw,
+  Plus,
 } from "lucide-react";
 import { getPopularityScale, segmentsFromScale } from "../utils";
 
@@ -33,6 +34,7 @@ export function ArtistDetailsLibraryAlbums({
   handleDeleteAlbumClick,
   canReSearchAlbum,
   handleReSearchAlbum,
+  onAddTrackToPlaylist,
 }) {
   const [sortMode, setSortMode] = useState("date");
   const downloadedAlbums = libraryAlbums.filter((album) => {
@@ -598,6 +600,24 @@ export function ArtistDetailsLibraryAlbums({
                                 </span>
                               </div>
                               <div className="flex items-center gap-2 flex-shrink-0">
+                                {onAddTrackToPlaylist ? (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      onAddTrackToPlaylist(track, libraryAlbum, rgId);
+                                    }}
+                                    className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
+                                    style={{
+                                      backgroundColor: "rgba(255,255,255,0.06)",
+                                      color: "#fff",
+                                    }}
+                                    title="Add to playlist"
+                                    aria-label="Add to playlist"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                  </button>
+                                ) : null}
                                 {track.length && (
                                   <span
                                     className="text-xs "
@@ -664,5 +684,6 @@ ArtistDetailsLibraryAlbums.propTypes = {
   handleDeleteAlbumClick: PropTypes.func,
   canReSearchAlbum: PropTypes.bool,
   handleReSearchAlbum: PropTypes.func,
+  onAddTrackToPlaylist: PropTypes.func,
   reSearchingAlbum: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
 };

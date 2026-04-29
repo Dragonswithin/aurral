@@ -60,3 +60,16 @@ test("status snapshot includes shared playlist summaries without embedding track
   assert.equal(serialized.includes("Artist 249"), false);
   assert.equal(serialized.includes("Track 249"), false);
 });
+
+test("status snapshot includes empty manual playlists", () => {
+  const playlist = flowPlaylistConfig.createSharedPlaylist({
+    name: "Manual Empty",
+  });
+
+  const status = getWeeklyFlowStatusSnapshot();
+  const shared = (status.sharedPlaylists || []).find((p) => p.id === playlist.id);
+
+  assert.ok(shared);
+  assert.equal(shared.name, "Manual Empty");
+  assert.equal(shared.trackCount, 0);
+});

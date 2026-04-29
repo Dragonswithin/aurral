@@ -779,6 +779,11 @@ export const convertFlowToStaticPlaylist = async (flowId, payload = {}) => {
   return response.data;
 };
 
+export const createSharedPlaylist = async (payload) => {
+  const response = await api.post("/weekly-flow/shared-playlists", payload);
+  return response.data;
+};
+
 export const setFlowEnabled = async (flowId, enabled) => {
   const response = await api.put(`/weekly-flow/flows/${flowId}/enabled`, {
     enabled,
@@ -797,6 +802,14 @@ export const importSharedPlaylist = async (payload) => {
 export const updateSharedPlaylist = async (playlistId, payload) => {
   const response = await api.put(
     `/weekly-flow/shared-playlists/${playlistId}`,
+    payload,
+  );
+  return response.data;
+};
+
+export const addSharedPlaylistTracks = async (playlistId, payload) => {
+  const response = await api.post(
+    `/weekly-flow/shared-playlists/${playlistId}/tracks`,
     payload,
   );
   return response.data;
