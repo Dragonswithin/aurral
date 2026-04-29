@@ -39,7 +39,7 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: "autoUpdate",
-        includeAssets: ["arralogo.svg"],
+        includeAssets: ["arralogo.svg", "icons/*.png"],
         workbox: {
           // SPA fallback must not intercept reverse-proxy auth callbacks or API routes.
           navigateFallbackDenylist: [/^\/oidc\//, /^\/api\//, /^\/logout$/],
@@ -55,10 +55,10 @@ export default defineConfig(({ mode }) => {
           start_url: basePath,
           icons: [
             {
-              src: `${basePath}arralogo.svg`,
-              sizes: "any",
-              type: "image/svg+xml",
-              purpose: "any maskable",
+              src: `${basePath}icons/aurral-icon-iOS-Default-1024x1024@1x.png`,
+              sizes: "1024x1024",
+              type: "image/png",
+              purpose: "any",
             },
           ],
         },

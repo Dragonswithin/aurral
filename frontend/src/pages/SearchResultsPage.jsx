@@ -615,7 +615,7 @@ function SearchResultsPage() {
         {showBackButton && (
           <button
             onClick={() => navigate(-1)}
-            className="btn btn-secondary mb-6 inline-flex items-center"
+            className="btn btn-secondary mb-6 hidden items-center sm:inline-flex"
           >
             <ArrowLeft className="mr-2 h-5 w-5" />
             Back

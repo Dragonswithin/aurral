@@ -63,6 +63,7 @@ export function ArtistDetailsReleaseGroups({
   const [sortMode, setSortMode] = useState("date");
   const [playingTrackId, setPlayingTrackId] = useState(null);
   const [loadingTrackId, setLoadingTrackId] = useState(null);
+  const [showMobileFilterMenu, setShowMobileFilterMenu] = useState(false);
   const previewAudioRef = useRef(null);
   const releaseGroups = artist["release-groups"] || [];
   const sortTitle =
@@ -162,16 +163,167 @@ export function ArtistDetailsReleaseGroups({
   });
 
   return (
-    <div className="card p-4">
+    <div className="card p-3 sm:p-4">
       <audio ref={previewAudioRef} preload="none" />
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-        <div className="flex items-center gap-2">
-          <h2
-            className="text-lg font-semibold flex items-center"
-            style={{ color: "#fff" }}
-          >
-            Albums & Releases ({filteredCount}/{totalCount})
-          </h2>
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2
+              className="flex items-center text-lg font-semibold"
+              style={{ color: "#fff" }}
+            >
+              Albums & Releases ({filteredCount}/{totalCount})
+            </h2>
+            <button
+              type="button"
+              onClick={() =>
+                setSortMode((prev) =>
+                  prev === "date"
+                    ? "popularityDesc"
+                    : prev === "popularityDesc"
+                      ? "popularityAsc"
+                      : "date",
+                )
+              }
+              className="btn btn-secondary btn-sm p-2 sm:hidden"
+              title={sortTitle}
+              aria-label={sortTitle}
+            >
+              <SortIcon className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="relative sm:hidden">
+            <button
+              type="button"
+              onClick={() => setShowMobileFilterMenu((value) => !value)}
+              className="btn btn-outline-secondary btn-sm p-2"
+              aria-label="Album filters"
+              title="Album filters"
+            >
+              <MoreVertical className="w-4 h-4" />
+            </button>
+
+            {showMobileFilterMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setShowMobileFilterMenu(false)}
+                />
+                <div
+                  className="absolute right-0 top-full mt-2 z-20 min-w-[260px] rounded-md border border-white/10 p-4 shadow-xl"
+                  style={{ backgroundColor: "#211f27" }}
+                >
+                  <div className="space-y-4">
+                    <div>
+                      <h3
+                        className="mb-2 text-sm font-semibold"
+                        style={{ color: "#fff" }}
+                      >
+                        Primary Types
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {primaryReleaseTypes.map((type) => {
+                          const isSelected = selectedReleaseTypes.includes(type);
+                          return (
+                            <button
+                              key={type}
+                              type="button"
+                              onClick={() => {
+                                if (isSelected) {
+                                  setSelectedReleaseTypes(
+                                    selectedReleaseTypes.filter((t) => t !== type)
+                                  );
+                                } else {
+                                  setSelectedReleaseTypes([
+                                    ...selectedReleaseTypes,
+                                    type,
+                                  ]);
+                                }
+                              }}
+                              className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium transition-all"
+                              style={{
+                                backgroundColor: isSelected ? "#4a4a4a" : "#18171d",
+                                color: "#fff",
+                              }}
+                            >
+                              {getIcon(type)}
+                              <span>{type}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3
+                        className="mb-2 text-sm font-semibold"
+                        style={{ color: "#fff" }}
+                      >
+                        Secondary Types
+                      </h3>
+                      <div className="space-y-2">
+                        {secondaryReleaseTypes.map((type) => (
+                          <label
+                            key={type}
+                            className="flex items-center space-x-2 cursor-pointer hover:bg-gray-900/50 px-2 py-1.5 transition-colors"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedReleaseTypes.includes(type)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedReleaseTypes([
+                                    ...selectedReleaseTypes,
+                                    type,
+                                  ]);
+                                } else {
+                                  setSelectedReleaseTypes(
+                                    selectedReleaseTypes.filter((t) => t !== type)
+                                  );
+                                }
+                              }}
+                              className="form-checkbox h-4 w-4"
+                              style={{ color: "#c1c1c3" }}
+                            />
+                            <span className="text-sm" style={{ color: "#fff" }}>
+                              {type}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {existsInLibrary && canBulkAddAlbums && (
+                      <div className="border-t border-white/10 pt-3">
+                        <button
+                          onClick={() => {
+                            handleMonitorAll();
+                            setShowMobileFilterMenu(false);
+                          }}
+                          disabled={processingBulk}
+                          className="btn btn-outline-primary btn-sm flex w-full items-center justify-center gap-2 px-4 py-2"
+                        >
+                          {processingBulk ? (
+                            <>
+                              <Loader className="w-4 h-4 animate-spin" />
+                              <span className="text-sm">Processing...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-4 h-4" />
+                              <span className="text-sm">
+                                {activeFilters ? "Add All Filtered" : "Add All"}
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
           <button
             type="button"
             onClick={() =>
@@ -183,15 +335,15 @@ export function ArtistDetailsReleaseGroups({
                     : "date",
               )
             }
-            className="btn btn-secondary btn-sm p-2"
+            className="hidden btn btn-secondary btn-sm p-2 sm:inline-flex"
             title={sortTitle}
             aria-label={sortTitle}
           >
             <SortIcon className="w-4 h-4" />
           </button>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-2 rounded px-2 py-1 bg-black/20">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="hidden items-center gap-2 rounded bg-black/20 px-2 py-1 sm:flex">
             {previewVolume <= 0 ? (
               <VolumeX className="w-4 h-4 flex-shrink-0" style={{ color: "#c1c1c3" }} />
             ) : (
@@ -218,7 +370,7 @@ export function ArtistDetailsReleaseGroups({
               {Math.round(previewVolume * 100)}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex">
             {primaryReleaseTypes.map((type) => {
               const isSelected = selectedReleaseTypes.includes(type);
               return (
@@ -236,7 +388,7 @@ export function ArtistDetailsReleaseGroups({
                       ]);
                     }
                   }}
-                  className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium transition-all"
+                  className="flex shrink-0 items-center gap-1 px-2 py-1.5 text-xs font-medium transition-all"
                   style={{
                     backgroundColor: isSelected ? "#4a4a4a" : "#211f27",
                     color: "#fff",
@@ -250,7 +402,7 @@ export function ArtistDetailsReleaseGroups({
             })}
           </div>
 
-          <div className="relative">
+          <div className="relative hidden sm:block">
             <button
               onClick={() => setShowFilterDropdown(!showFilterDropdown)}
               className="btn btn-outline-secondary btn-sm flex items-center gap-2 px-3 py-2"
@@ -376,7 +528,7 @@ export function ArtistDetailsReleaseGroups({
             <button
               onClick={handleMonitorAll}
               disabled={processingBulk}
-              className="btn btn-outline-primary btn-sm flex items-center gap-2 px-4 py-2"
+              className="hidden btn btn-outline-primary btn-sm sm:flex items-center gap-2 px-4 py-2"
             >
               {processingBulk ? (
                 <>
@@ -395,7 +547,7 @@ export function ArtistDetailsReleaseGroups({
           )}
         </div>
       </div>
-      <div className="space-y-1">
+      <div className="space-y-2">
         {sortedReleaseGroups.map((releaseGroup, releaseGroupIdx) => {
             const status = getAlbumStatus(releaseGroup.id);
             const isExpanded = expandedReleaseGroup === releaseGroup.id;
@@ -507,7 +659,7 @@ export function ArtistDetailsReleaseGroups({
             return (
               <div
                 key={releaseGroup.id}
-                className="transition-colors"
+                className="overflow-hidden rounded-2xl transition-colors"
                 style={{ backgroundColor: rowBg }}
                 onMouseEnter={(e) => {
                   if (!isExpanded) {
@@ -521,7 +673,7 @@ export function ArtistDetailsReleaseGroups({
                 }}
               >
                 <div
-                  className="flex items-center justify-between py-2.5 px-3 cursor-pointer"
+                  className="flex cursor-pointer items-start justify-between gap-3 px-3 py-3 sm:items-center"
                   onClick={() =>
                     handleReleaseGroupAlbumClick(
                       releaseGroup.id,
@@ -529,7 +681,7 @@ export function ArtistDetailsReleaseGroups({
                     )
                   }
                 >
-                  <div className="flex-1 flex items-center gap-2">
+                  <div className="flex flex-1 items-start gap-3 sm:items-center">
                     <button
                       type="button"
                       onClick={(e) => {
@@ -552,13 +704,13 @@ export function ArtistDetailsReleaseGroups({
                       <img
                         src={albumCovers[releaseGroup.id]}
                         alt={releaseGroup.title}
-                        className="w-10 h-10 flex-shrink-0 object-cover"
+                        className="h-14 w-14 flex-shrink-0 rounded-lg object-cover sm:h-10 sm:w-10"
                         loading="lazy"
                         decoding="async"
                       />
                     ) : (
                       <div
-                        className="w-10 h-10 flex-shrink-0 flex items-center justify-center"
+                        className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-lg sm:h-10 sm:w-10"
                         style={{ backgroundColor: itemBg }}
                       >
                         <Music
@@ -569,13 +721,13 @@ export function ArtistDetailsReleaseGroups({
                     )}
                     <div className="flex-1 min-w-0">
                       <h3
-                        className="font-semibold text-sm truncate"
+                        className="truncate text-base font-semibold sm:text-sm"
                         style={{ color: "#fff" }}
                       >
                         {releaseGroup.title}
                       </h3>
                       <div
-                        className="flex items-center gap-2 mt-0.5 text-xs"
+                        className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
                         style={{ color: "#c1c1c3" }}
                       >
                         {releaseGroup["first-release-date"] && (
@@ -639,7 +791,7 @@ export function ArtistDetailsReleaseGroups({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
                     {status ? (
                       status.status === "available" ||
                       status.status === "added" ? (

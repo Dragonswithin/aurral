@@ -432,7 +432,7 @@ function RequestsPage() {
             return (
               <div
                 key={request.id || request.mbid}
-                className="card group hover:shadow-md transition-all relative p-3 overflow-hidden"
+                className="card group relative overflow-hidden p-3 transition-all hover:shadow-md"
               >
                 {request.inQueue && request.albumId && (
                   <button
@@ -445,9 +445,9 @@ function RequestsPage() {
                   </button>
                 )}
 
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center min-w-0">
+                <div className="grid min-w-0 grid-cols-[84px,minmax(0,1fr)] gap-3 sm:flex sm:flex-row sm:items-center">
                   <div
-                    className={`w-16 h-16 flex-shrink-0 overflow-hidden rounded ${
+                    className={`h-full min-h-[112px] w-[84px] flex-shrink-0 overflow-hidden rounded-lg sm:h-16 sm:min-h-0 sm:w-16 ${
                       hasValidMbid
                         ? "cursor-pointer"
                         : "cursor-not-allowed opacity-50"
@@ -473,14 +473,14 @@ function RequestsPage() {
                       mbid={artistMbid}
                       artistName={isAlbum ? artistName : displayName}
                       alt={displayName}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
                     />
                   </div>
 
-                  <div className="flex-1 text-left min-w-0 w-full">
-                    <div className="flex items-center gap-2 mb-0.5 min-w-0">
+                  <div className="flex min-w-0 w-full flex-col justify-between text-left sm:flex-1">
+                    <div className="min-w-0">
                       <h3
-                        className={`text-base font-semibold truncate w-full max-w-full ${
+                        className={`w-full max-w-full text-base font-semibold leading-tight sm:truncate ${
                           hasValidMbid
                             ? "hover:underline cursor-pointer"
                             : "cursor-not-allowed opacity-75"
@@ -505,50 +505,50 @@ function RequestsPage() {
                       >
                         {displayName}
                       </h3>
-                    </div>
 
-                    <div
-                      className="text-xs flex flex-wrap items-center gap-3 min-w-0"
-                      style={{ color: "#c1c1c3" }}
-                    >
-                      {isAlbum && artistName && (
-                        <span className="flex items-center gap-1 truncate max-w-full">
-                          <Music className="w-3 h-3" />
-                          {artistName}
-                        </span>
-                      )}
-                      <span className="flex items-center gap-1 truncate max-w-full">
-                        <Clock className="w-3 h-3" />
-                        {new Date(request.requestedAt).toLocaleDateString(
-                          undefined,
-                          {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          }
-                        )}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-shrink-0 sm:ml-auto">
-                    {getStatusBadge(request)}
-                    {isFailed && request.albumId && (
-                      <button
-                        type="button"
-                        onClick={() => handleReSearchRequest(request)}
-                        className="p-1.5 rounded hover:bg-white/10 transition-colors"
-                        title="Re-search"
-                        aria-label="Re-search"
-                        disabled={isReSearching}
+                      <div
+                        className="mt-2 flex flex-col gap-1.5 text-xs sm:flex-wrap sm:flex-row sm:items-center sm:gap-3"
+                        style={{ color: "#c1c1c3" }}
                       >
-                        {isReSearching ? (
-                          <Loader className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <RefreshCw className="w-3.5 h-3.5" />
+                        {isAlbum && artistName && (
+                          <span className="flex max-w-full items-center gap-1 truncate">
+                            <Music className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{artistName}</span>
+                          </span>
                         )}
-                      </button>
-                    )}
+                        <span className="flex max-w-full items-center gap-1 truncate">
+                          <Clock className="h-3 w-3 shrink-0" />
+                          {new Date(request.requestedAt).toLocaleDateString(
+                            undefined,
+                            {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            }
+                          )}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex items-center gap-2 sm:mt-0 sm:ml-auto sm:flex-shrink-0">
+                      {getStatusBadge(request)}
+                      {isFailed && request.albumId && (
+                        <button
+                          type="button"
+                          onClick={() => handleReSearchRequest(request)}
+                          className="rounded p-1.5 transition-colors hover:bg-white/10"
+                          title="Re-search"
+                          aria-label="Re-search"
+                          disabled={isReSearching}
+                        >
+                          {isReSearching ? (
+                            <Loader className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

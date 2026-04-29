@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { ChevronDown } from "lucide-react";
 import { useToast } from "../../contexts/ToastContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useSettingsData } from "./hooks/useSettingsData";
@@ -209,7 +210,31 @@ function SettingsPage() {
           </p>
         </div>
 
-        <div className="mb-8 w-full overflow-x-auto">
+        <div className="mb-5 sm:hidden">
+          <label
+            htmlFor="settings-tab-select"
+            className="mb-2 block text-xs font-medium uppercase tracking-[0.18em] text-[#8b8b90]"
+          >
+            Section
+          </label>
+          <div className="relative">
+            <select
+              id="settings-tab-select"
+              value={tabs.activeTab}
+              onChange={(event) => tabs.setActiveTab(event.target.value)}
+              className="input h-11 w-full appearance-none bg-[#141419] pr-14 text-sm text-white"
+            >
+              {tabs.tabs.map((tab) => (
+                <option key={tab.id} value={tab.id}>
+                  {tab.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#b9bac1]" />
+          </div>
+        </div>
+
+        <div className="mb-8 hidden w-full overflow-x-auto sm:block">
           <div
             ref={tabs.tabsRef}
             className="relative p-1.5 inline-flex"
