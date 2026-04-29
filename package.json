@@ -1,6 +1,6 @@
 {
   "name": "aurral",
-  "version": "1.53.0-test.5",
+  "version": "1.55.0-test.1",
   "description": "Aurral artist request manager",
   "main": "server.js",
   "type": "module",
