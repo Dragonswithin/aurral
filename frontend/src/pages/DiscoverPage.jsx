@@ -1049,7 +1049,6 @@ function DiscoverPage() {
   useEffect(() => {
     if (!authUser?.id) return;
     let cancelled = false;
-    const localLayout = readStoredDiscoverLayout(authUser.id);
     const loadDiscoverLayout = async () => {
       try {
         const response = await getMyDiscoverLayout();
@@ -1060,13 +1059,8 @@ function DiscoverPage() {
           writeStoredDiscoverLayout(serverLayout, authUser.id);
           return;
         }
-        if (localLayout) {
-          try {
-            await updateMyDiscoverLayout(localLayout);
-            writeStoredDiscoverLayout(localLayout, authUser.id);
-          } catch {}
-        }
       } catch {
+        const localLayout = readStoredDiscoverLayout(authUser.id);
         if (!cancelled && localLayout) {
           setDiscoverSections(localLayout);
         }

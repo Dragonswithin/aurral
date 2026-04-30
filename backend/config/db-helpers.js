@@ -309,6 +309,25 @@ let settingsCacheTime = 0;
 const SETTINGS_CACHE_TTL = 5000;
 
 export const dbOps = {
+  getJSONSetting(key) {
+    return dbHelpers.parseJSON(getSettingStmt.get(key)?.value) || null;
+  },
+
+  setJSONSetting(key, value) {
+    upsertSettingStmt.run(key, dbHelpers.stringifyJSON(value));
+  },
+
+  getUserDiscoverLayout(userId) {
+    return dbOps.getJSONSetting(`user:${parseInt(userId, 10)}:discoverLayout`);
+  },
+
+  setUserDiscoverLayout(userId, layout) {
+    dbOps.setJSONSetting(
+      `user:${parseInt(userId, 10)}:discoverLayout`,
+      layout,
+    );
+  },
+
   getSettings() {
     const now = Date.now();
     if (settingsCache && now - settingsCacheTime < SETTINGS_CACHE_TTL) {
