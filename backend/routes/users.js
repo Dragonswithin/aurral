@@ -302,8 +302,9 @@ router.get("/me/discover-layout", requireAuth, (req, res) => {
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
+    const storedLayout = dbOps.getUserDiscoverLayout(req.user.id);
     res.json({
-      layout: normalizeDiscoverLayout(user.discoverLayout),
+      layout: normalizeDiscoverLayout(storedLayout),
     });
   } catch (e) {
     res.status(500).json({
@@ -327,14 +328,9 @@ router.patch("/me/discover-layout", requireAuth, (req, res) => {
         field: "layout",
       });
     }
-    const updated = userOps.updateUser(req.user.id, {
-      discoverLayout: normalized,
-    });
-    if (!updated) {
-      return res.status(500).json({ error: "Failed to save discover layout" });
-    }
+    dbOps.setUserDiscoverLayout(req.user.id, normalized);
     res.json({
-      layout: normalizeDiscoverLayout(updated.discoverLayout),
+      layout: normalizeDiscoverLayout(dbOps.getUserDiscoverLayout(req.user.id)),
     });
   } catch (e) {
     res.status(500).json({
