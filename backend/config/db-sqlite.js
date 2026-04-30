@@ -60,7 +60,8 @@ db.exec(`
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
-    permissions TEXT
+    permissions TEXT,
+    discover_layout TEXT
   );
 
   CREATE TABLE IF NOT EXISTS sessions (
@@ -172,6 +173,9 @@ if (!userColumns.includes("lidarr_root_folder_path")) {
 }
 if (!userColumns.includes("lidarr_quality_profile_id")) {
   tryAddColumn("ALTER TABLE users ADD COLUMN lidarr_quality_profile_id INTEGER");
+}
+if (!userColumns.includes("discover_layout")) {
+  tryAddColumn("ALTER TABLE users ADD COLUMN discover_layout TEXT");
 }
 
 db.exec(`

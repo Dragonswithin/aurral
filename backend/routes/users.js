@@ -29,6 +29,40 @@ const normalizeQualityProfileId = (value) => {
   return Math.trunc(parsed);
 };
 
+const DEFAULT_DISCOVER_LAYOUT = [
+  { id: "recentlyAdded", enabled: true },
+  { id: "recommendedShows", enabled: true },
+  { id: "recentReleases", enabled: true },
+  { id: "recommended", enabled: true },
+  { id: "globalTop", enabled: true },
+  { id: "genreSections", enabled: true },
+  { id: "topTags", enabled: true },
+];
+
+const normalizeDiscoverLayout = (value) => {
+  if (!Array.isArray(value)) return null;
+  const defaultsById = new Map(
+    DEFAULT_DISCOVER_LAYOUT.map((item) => [item.id, item]),
+  );
+  const normalized = [];
+  for (const item of value) {
+    const id = String(item?.id || "").trim();
+    if (!id || !defaultsById.has(id)) continue;
+    normalized.push({
+      id,
+      enabled:
+        typeof item?.enabled === "boolean"
+          ? item.enabled
+          : defaultsById.get(id).enabled,
+    });
+    defaultsById.delete(id);
+  }
+  for (const item of defaultsById.values()) {
+    normalized.push({ ...item });
+  }
+  return normalized;
+};
+
 const clearOrphanedDiscoveryCache = (userId, existingProfile, nextProfile) => {
   if (
     !hasListenHistoryProfile(existingProfile) ||
@@ -89,6 +123,7 @@ router.post("/", requireAuth, requireAdmin, (req, res) => {
         permissions: created.permissions,
         lidarrRootFolderPath: created.lidarrRootFolderPath,
         lidarrQualityProfileId: created.lidarrQualityProfileId,
+        discoverLayout: created.discoverLayout,
       });
   } catch (e) {
     res
@@ -170,6 +205,7 @@ router.patch("/:id", requireAuth, (req, res) => {
           lastfmUsername: existing.lastfmUsername,
           lidarrRootFolderPath: existing.lidarrRootFolderPath,
           lidarrQualityProfileId: existing.lidarrQualityProfileId,
+          discoverLayout: existing.discoverLayout,
         });
       }
       const updated = userOps.updateUser(id, updates);
@@ -209,6 +245,7 @@ router.patch("/:id", requireAuth, (req, res) => {
         lastfmUsername: existing.lastfmUsername,
         lidarrRootFolderPath: existing.lidarrRootFolderPath,
         lidarrQualityProfileId: existing.lidarrQualityProfileId,
+        discoverLayout: existing.discoverLayout,
       });
     }
     const updated = userOps.updateUser(id, updates);
@@ -254,6 +291,54 @@ router.get("/me/lidarr-preferences", requireAuth, async (req, res) => {
   } catch (e) {
     res.status(500).json({
       error: "Failed to get Lidarr preferences",
+      message: e.message,
+    });
+  }
+});
+
+router.get("/me/discover-layout", requireAuth, (req, res) => {
+  try {
+    const user = userOps.getUserById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    res.json({
+      layout: normalizeDiscoverLayout(user.discoverLayout),
+    });
+  } catch (e) {
+    res.status(500).json({
+      error: "Failed to get discover layout",
+      message: e.message,
+    });
+  }
+});
+
+router.patch("/me/discover-layout", requireAuth, (req, res) => {
+  try {
+    const user = userOps.getUserById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    const normalized = normalizeDiscoverLayout(req.body?.layout);
+    if (!normalized) {
+      return res.status(400).json({
+        error: "Invalid discover layout",
+        message: "layout must be an array of discover section entries",
+        field: "layout",
+      });
+    }
+    const updated = userOps.updateUser(req.user.id, {
+      discoverLayout: normalized,
+    });
+    if (!updated) {
+      return res.status(500).json({ error: "Failed to save discover layout" });
+    }
+    res.json({
+      layout: normalizeDiscoverLayout(updated.discoverLayout),
+    });
+  } catch (e) {
+    res.status(500).json({
+      error: "Failed to save discover layout",
       message: e.message,
     });
   }
