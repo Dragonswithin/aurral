@@ -26,12 +26,14 @@ import {
   getBlocklist,
   getDiscovery,
   getNearbyShows,
+  getMyDiscoverLayout,
   getRecentlyAdded,
   getRecentReleases,
   getReleaseGroupCover,
   getArtistCover,
   lookupArtistsInLibraryBatch,
   readLibraryLookupCache,
+  updateMyDiscoverLayout,
   updateBlocklist,
 } from "../utils/api";
 import { useWebSocketChannel } from "../hooks/useWebSocket";
@@ -120,6 +122,54 @@ const normalizeBlocklistArtists = (artists) => {
     out.push({ mbid: entryMbid, name: entryName || null });
   }
   return out;
+};
+
+const getDiscoverLayoutStorageKey = (userId) =>
+  userId ? `${DISCOVER_LAYOUT_KEY}:${userId}` : DISCOVER_LAYOUT_KEY;
+
+const normalizeDiscoverLayout = (value) => {
+  if (!Array.isArray(value)) return null;
+  const defaultsById = new Map(
+    DEFAULT_DISCOVER_SECTIONS.map((item) => [item.id, item]),
+  );
+  const normalized = [];
+  value.forEach((item) => {
+    const id = String(item?.id || "").trim();
+    if (!id || !defaultsById.has(id)) return;
+    const base = defaultsById.get(id);
+    normalized.push({
+      ...base,
+      enabled: typeof item?.enabled === "boolean" ? item.enabled : base.enabled,
+    });
+    defaultsById.delete(id);
+  });
+  defaultsById.forEach((item) => normalized.push({ ...item }));
+  return normalized;
+};
+
+const readStoredDiscoverLayout = (userId) => {
+  try {
+    const primaryKey = getDiscoverLayoutStorageKey(userId);
+    const primary = normalizeDiscoverLayout(
+      JSON.parse(localStorage.getItem(primaryKey) || "null"),
+    );
+    if (primary) return primary;
+    if (primaryKey === DISCOVER_LAYOUT_KEY) return null;
+    return normalizeDiscoverLayout(
+      JSON.parse(localStorage.getItem(DISCOVER_LAYOUT_KEY) || "null"),
+    );
+  } catch {
+    return null;
+  }
+};
+
+const writeStoredDiscoverLayout = (layout, userId) => {
+  try {
+    localStorage.setItem(
+      getDiscoverLayoutStorageKey(userId),
+      JSON.stringify(layout),
+    );
+  } catch {}
 };
 
 const isArtistInEntries = (artist, entries) => {
@@ -803,6 +853,7 @@ function DiscoverPage() {
     DEFAULT_DISCOVER_SECTIONS.map((item) => ({ ...item })),
   );
   const [showDiscoverModal, setShowDiscoverModal] = useState(false);
+  const [isSavingDiscoverLayout, setIsSavingDiscoverLayout] = useState(false);
   const [draggingId, setDraggingId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
   const [error, setError] = useState(null);
@@ -989,28 +1040,37 @@ function DiscoverPage() {
   }, [nearbyLocationMode, appliedNearbyZip]);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(DISCOVER_LAYOUT_KEY);
-      if (!stored) return;
-      const parsed = JSON.parse(stored);
-      if (!Array.isArray(parsed)) return;
-      const byId = new Map(
-        DEFAULT_DISCOVER_SECTIONS.map((item) => [item.id, item]),
-      );
-      const normalized = [];
-      parsed.forEach((item) => {
-        if (!item?.id || !byId.has(item.id)) return;
-        const base = byId.get(item.id);
-        normalized.push({
-          ...base,
-          enabled: item.enabled ?? base.enabled,
-        });
-        byId.delete(item.id);
-      });
-      byId.forEach((item) => normalized.push({ ...item }));
-      setDiscoverSections(normalized);
-    } catch {}
-  }, []);
+    const stored = readStoredDiscoverLayout(authUser?.id);
+    if (stored) {
+      setDiscoverSections(stored);
+    }
+  }, [authUser?.id]);
+
+  useEffect(() => {
+    if (!authUser?.id) return;
+    let cancelled = false;
+    const loadDiscoverLayout = async () => {
+      try {
+        const response = await getMyDiscoverLayout();
+        if (cancelled) return;
+        const serverLayout = normalizeDiscoverLayout(response?.layout);
+        if (serverLayout) {
+          setDiscoverSections(serverLayout);
+          writeStoredDiscoverLayout(serverLayout, authUser.id);
+          return;
+        }
+      } catch {
+        const localLayout = readStoredDiscoverLayout(authUser.id);
+        if (!cancelled && localLayout) {
+          setDiscoverSections(localLayout);
+        }
+      }
+    };
+    loadDiscoverLayout();
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser?.id]);
 
   useEffect(() => {
     const ids = recentReleases
@@ -1233,14 +1293,26 @@ function DiscoverPage() {
   }, [showDiscoverModal]);
 
   const handleDiscoverSave = () => {
-    setDiscoverSections(draftSections.map((item) => ({ ...item })));
-    try {
-      localStorage.setItem(
-        DISCOVER_LAYOUT_KEY,
-        JSON.stringify(draftSections),
-      );
-    } catch {}
-    setShowDiscoverModal(false);
+    const nextLayout = draftSections.map((item) => ({ ...item }));
+    setDiscoverSections(nextLayout);
+    writeStoredDiscoverLayout(nextLayout, authUser?.id);
+    setIsSavingDiscoverLayout(true);
+    updateMyDiscoverLayout(nextLayout)
+      .then((response) => {
+        const savedLayout = normalizeDiscoverLayout(response?.layout) || nextLayout;
+        setDiscoverSections(savedLayout);
+        writeStoredDiscoverLayout(savedLayout, authUser?.id);
+        showSuccess("Discover layout saved");
+        setShowDiscoverModal(false);
+      })
+      .catch((err) => {
+        showError(
+          err.response?.data?.message || "Failed to save discover layout",
+        );
+      })
+      .finally(() => {
+        setIsSavingDiscoverLayout(false);
+      });
   };
 
   const handleDiscoverReset = () => {
@@ -2097,8 +2169,9 @@ function DiscoverPage() {
                   type="button"
                   onClick={handleDiscoverSave}
                   className="btn btn-primary"
+                  disabled={isSavingDiscoverLayout}
                 >
-                  Save Layout
+                  {isSavingDiscoverLayout ? "Saving..." : "Save Layout"}
                 </button>
               </div>
             </div>

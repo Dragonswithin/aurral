@@ -645,6 +645,11 @@ export const getMyLidarrPreferences = async () => {
   return response.data;
 };
 
+export const getMyDiscoverLayout = async () => {
+  const response = await api.get("/users/me/discover-layout");
+  return response.data;
+};
+
 export const updateMyListeningHistory = async (
   userId,
   listenHistoryProvider,
@@ -659,6 +664,11 @@ export const updateMyListeningHistory = async (
 
 export const updateMyLidarrPreferences = async (payload) => {
   const response = await api.patch("/users/me/lidarr-preferences", payload);
+  return response.data;
+};
+
+export const updateMyDiscoverLayout = async (layout) => {
+  const response = await api.patch("/users/me/discover-layout", { layout });
   return response.data;
 };
 
