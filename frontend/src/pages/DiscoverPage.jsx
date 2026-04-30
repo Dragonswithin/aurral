@@ -7,6 +7,8 @@ import {
   Music,
   Sparkles,
   Clock,
+  ChevronLeft,
+  ChevronRight,
   LayoutTemplate,
   GripVertical,
   X,
@@ -90,6 +92,8 @@ const DEFAULT_DISCOVER_SECTIONS = [
 
 const DISCOVER_NEARBY_MODE_KEY = "discoverNearbyMode";
 const DISCOVER_NEARBY_ZIP_KEY = "discoverNearbyZip";
+const DISCOVER_SHELF_CARD_CLASS =
+  "w-[148px] shrink-0 sm:w-[calc((100%-1rem*2)/3)] md:w-[calc((100%-1rem*3)/4)] lg:w-[calc((100%-1rem*5)/6)]";
 
 const getArtistId = (artist) =>
   artist?.id || artist?.mbid || artist?.foreignArtistId;
@@ -688,6 +692,18 @@ function DiscoverRail({
   style,
 }) {
   const scrollRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollState = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const maxScrollLeft = Math.max(node.scrollWidth - node.clientWidth, 0);
+    const nextCanScrollLeft = node.scrollLeft > 2;
+    const nextCanScrollRight = node.scrollLeft < maxScrollLeft - 2;
+    setCanScrollLeft(nextCanScrollLeft);
+    setCanScrollRight(nextCanScrollRight);
+  }, []);
 
   const scrollByAmount = useCallback((direction) => {
     if (!scrollRef.current) return;
@@ -697,6 +713,18 @@ function DiscoverRail({
       behavior: "smooth",
     });
   }, []);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    updateScrollState();
+    node.addEventListener("scroll", updateScrollState, { passive: true });
+    window.addEventListener("resize", updateScrollState);
+    return () => {
+      node.removeEventListener("scroll", updateScrollState);
+      window.removeEventListener("resize", updateScrollState);
+    };
+  }, [children, updateScrollState]);
 
   return (
     <section className={className} style={style}>
@@ -723,20 +751,22 @@ function DiscoverRail({
           <button
             type="button"
             onClick={() => scrollByAmount(-1)}
-            className="flex h-8 w-8 items-center justify-center border border-white/10 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
-            style={{ backgroundColor: "#17161d" }}
+            className="flex h-10 w-10 items-center justify-center transition-colors disabled:cursor-default"
+            style={{ color: canScrollLeft ? "#6f7685" : "#2d3442" }}
             aria-label={`Scroll ${title} left`}
+            disabled={!canScrollLeft}
           >
-            &lt;
+            <ChevronLeft className="h-7 w-7 stroke-[1.5]" />
           </button>
           <button
             type="button"
             onClick={() => scrollByAmount(1)}
-            className="flex h-8 w-8 items-center justify-center border border-white/10 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
-            style={{ backgroundColor: "#17161d" }}
+            className="flex h-10 w-10 items-center justify-center transition-colors disabled:cursor-default"
+            style={{ color: canScrollRight ? "#d1d5df" : "#2d3442" }}
             aria-label={`Scroll ${title} right`}
+            disabled={!canScrollRight}
           >
-            &gt;
+            <ChevronRight className="h-7 w-7 stroke-[1.5]" />
           </button>
         </div>
       </div>
@@ -1347,7 +1377,7 @@ function DiscoverPage() {
             {recentlyAdded.slice(0, 6).map((artist) => {
               const artistId = artist.foreignArtistId || artist.mbid || artist.id;
               return (
-                <div key={`artist-${artist.id}`} className="w-[148px] shrink-0 sm:w-[164px]">
+                <div key={`artist-${artist.id}`} className={DISCOVER_SHELF_CARD_CLASS}>
                   <ArtistCard
                     status="available"
                     isInLibrary={!!libraryLookup[artistId]}
@@ -1388,7 +1418,7 @@ function DiscoverPage() {
             {recentReleases.slice(0, 6).map((album) => (
               <div
                 key={album.id || album.mbid || album.foreignAlbumId}
-                className="w-[148px] shrink-0 sm:w-[164px]"
+                className={DISCOVER_SHELF_CARD_CLASS}
               >
                 <AlbumCard
                   album={album}
@@ -1413,7 +1443,7 @@ function DiscoverPage() {
           {recommendations.length > 0 ? (
             <>
               {recommendations.slice(0, 12).map((artist) => (
-                <div key={artist.id} className="w-[148px] shrink-0 sm:w-[164px]">
+                <div key={artist.id} className={DISCOVER_SHELF_CARD_CLASS}>
                   <ArtistCard
                     artist={artist}
                     isInLibrary={!!libraryLookup[getArtistId(artist)]}
@@ -1642,7 +1672,7 @@ function DiscoverPage() {
         >
           <>
             {globalTop.slice(0, 12).map((artist) => (
-              <div key={artist.id} className="w-[148px] shrink-0 sm:w-[164px]">
+              <div key={artist.id} className={DISCOVER_SHELF_CARD_CLASS}>
                 <ArtistCard
                   artist={artist}
                   isInLibrary={!!libraryLookup[getArtistId(artist)]}
@@ -1678,7 +1708,7 @@ function DiscoverPage() {
                 {section.artists.slice(0, 6).map((artist) => (
                   <div
                     key={`${section.genre}-${artist.id}`}
-                    className="w-[148px] shrink-0 sm:w-[164px]"
+                    className={DISCOVER_SHELF_CARD_CLASS}
                   >
                     <ArtistCard
                       artist={artist}
