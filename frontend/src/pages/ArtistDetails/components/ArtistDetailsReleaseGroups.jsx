@@ -10,22 +10,20 @@ import {
   ChevronDown,
   ChevronUp,
   MoreVertical,
+  Filter,
   ExternalLink,
   Trash2,
   Plus,
-  Tag,
   Disc,
   Disc3,
   FileMusic,
   RefreshCw,
   Play,
   Pause,
-  Volume2,
-  VolumeX,
 } from "lucide-react";
 import AddAlbumButton from "../../../components/AddAlbumButton";
 import { getPopularityScale, segmentsFromScale } from "../utils";
-import { matchesReleaseTypeFilter, hasActiveFilters } from "../utils";
+import { matchesReleaseTypeFilter } from "../utils";
 
 export function ArtistDetailsReleaseGroups({
   artist,
@@ -35,10 +33,6 @@ export function ArtistDetailsReleaseGroups({
   secondaryReleaseTypes,
   showFilterDropdown,
   setShowFilterDropdown,
-  existsInLibrary,
-  canBulkAddAlbums,
-  handleMonitorAll,
-  processingBulk,
   albumCovers,
   expandedReleaseGroup,
   albumTracks,
@@ -56,7 +50,6 @@ export function ArtistDetailsReleaseGroups({
   canReSearchAlbum,
   handleReSearchAlbum,
   previewVolume,
-  setPreviewVolume,
   isReleaseGroupDownloadedInLibrary,
   onAddTrackToPlaylist,
 }) {
@@ -86,7 +79,126 @@ export function ArtistDetailsReleaseGroups({
     return <Music className="w-4 h-4" />;
   };
 
-  const activeFilters = hasActiveFilters(selectedReleaseTypes);
+  const renderFilterMenuContent = (closeMenu) => (
+    <div className="space-y-4">
+      <div>
+        <h3
+          className="mb-2 text-sm font-semibold"
+          style={{ color: "#fff" }}
+        >
+          Primary Types
+        </h3>
+        <div className="flex flex-wrap gap-2">
+          {primaryReleaseTypes.map((type) => {
+            const isSelected = selectedReleaseTypes.includes(type);
+            return (
+              <button
+                key={type}
+                type="button"
+                onClick={() => {
+                  if (isSelected) {
+                    setSelectedReleaseTypes(
+                      selectedReleaseTypes.filter((t) => t !== type)
+                    );
+                  } else {
+                    setSelectedReleaseTypes([...selectedReleaseTypes, type]);
+                  }
+                }}
+                className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium transition-all"
+                style={{
+                  backgroundColor: isSelected ? "#4a4a4a" : "#18171d",
+                  color: "#fff",
+                }}
+              >
+                {getIcon(type)}
+                <span>{type}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div>
+        <h3
+          className="mb-2 text-sm font-semibold"
+          style={{ color: "#fff" }}
+        >
+          Secondary Types
+        </h3>
+        <div className="space-y-2">
+          {secondaryReleaseTypes.map((type) => (
+            <label
+              key={type}
+              className="flex cursor-pointer items-center space-x-2 px-2 py-1.5 transition-colors hover:bg-gray-900/50"
+            >
+              <input
+                type="checkbox"
+                checked={selectedReleaseTypes.includes(type)}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setSelectedReleaseTypes([...selectedReleaseTypes, type]);
+                  } else {
+                    setSelectedReleaseTypes(
+                      selectedReleaseTypes.filter((t) => t !== type)
+                    );
+                  }
+                }}
+                className="form-checkbox h-4 w-4"
+                style={{ color: "#c1c1c3" }}
+              />
+              <span className="text-sm" style={{ color: "#fff" }}>
+                {type}
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="pt-3">
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const currentPrimary = selectedReleaseTypes.filter((t) =>
+                primaryReleaseTypes.includes(t)
+              );
+              setSelectedReleaseTypes([
+                ...currentPrimary,
+                ...secondaryReleaseTypes,
+              ]);
+            }}
+            className="text-xs hover:underline"
+            style={{ color: "#c1c1c3" }}
+          >
+            Select All
+          </button>
+          <span style={{ color: "#c1c1c3" }}>|</span>
+          <button
+            type="button"
+            onClick={() => {
+              const currentPrimary = selectedReleaseTypes.filter((t) =>
+                primaryReleaseTypes.includes(t)
+              );
+              setSelectedReleaseTypes(currentPrimary);
+            }}
+            className="text-xs hover:underline"
+            style={{ color: "#c1c1c3" }}
+          >
+            Clear All
+          </button>
+          <span style={{ color: "#c1c1c3" }}>|</span>
+          <button
+            type="button"
+            onClick={closeMenu}
+            className="text-xs hover:underline"
+            style={{ color: "#c1c1c3" }}
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   useEffect(() => {
     const audio = previewAudioRef.current;
@@ -172,7 +284,7 @@ export function ArtistDetailsReleaseGroups({
               className="flex items-center text-lg font-semibold"
               style={{ color: "#fff" }}
             >
-              Albums & Releases ({filteredCount}/{totalCount})
+              Releases ({filteredCount}/{totalCount})
             </h2>
             <button
               type="button"
@@ -213,117 +325,13 @@ export function ArtistDetailsReleaseGroups({
                   className="absolute right-0 top-full mt-2 z-20 min-w-[260px] rounded-md border border-white/10 p-4 shadow-xl"
                   style={{ backgroundColor: "#211f27" }}
                 >
-                  <div className="space-y-4">
-                    <div>
-                      <h3
-                        className="mb-2 text-sm font-semibold"
-                        style={{ color: "#fff" }}
-                      >
-                        Primary Types
-                      </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {primaryReleaseTypes.map((type) => {
-                          const isSelected = selectedReleaseTypes.includes(type);
-                          return (
-                            <button
-                              key={type}
-                              type="button"
-                              onClick={() => {
-                                if (isSelected) {
-                                  setSelectedReleaseTypes(
-                                    selectedReleaseTypes.filter((t) => t !== type)
-                                  );
-                                } else {
-                                  setSelectedReleaseTypes([
-                                    ...selectedReleaseTypes,
-                                    type,
-                                  ]);
-                                }
-                              }}
-                              className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium transition-all"
-                              style={{
-                                backgroundColor: isSelected ? "#4a4a4a" : "#18171d",
-                                color: "#fff",
-                              }}
-                            >
-                              {getIcon(type)}
-                              <span>{type}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div>
-                      <h3
-                        className="mb-2 text-sm font-semibold"
-                        style={{ color: "#fff" }}
-                      >
-                        Secondary Types
-                      </h3>
-                      <div className="space-y-2">
-                        {secondaryReleaseTypes.map((type) => (
-                          <label
-                            key={type}
-                            className="flex items-center space-x-2 cursor-pointer hover:bg-gray-900/50 px-2 py-1.5 transition-colors"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedReleaseTypes.includes(type)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedReleaseTypes([
-                                    ...selectedReleaseTypes,
-                                    type,
-                                  ]);
-                                } else {
-                                  setSelectedReleaseTypes(
-                                    selectedReleaseTypes.filter((t) => t !== type)
-                                  );
-                                }
-                              }}
-                              className="form-checkbox h-4 w-4"
-                              style={{ color: "#c1c1c3" }}
-                            />
-                            <span className="text-sm" style={{ color: "#fff" }}>
-                              {type}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    {existsInLibrary && canBulkAddAlbums && (
-                      <div className="border-t border-white/10 pt-3">
-                        <button
-                          onClick={() => {
-                            handleMonitorAll();
-                            setShowMobileFilterMenu(false);
-                          }}
-                          disabled={processingBulk}
-                          className="btn btn-outline-primary btn-sm flex w-full items-center justify-center gap-2 px-4 py-2"
-                        >
-                          {processingBulk ? (
-                            <>
-                              <Loader className="w-4 h-4 animate-spin" />
-                              <span className="text-sm">Processing...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Plus className="w-4 h-4" />
-                              <span className="text-sm">
-                                {activeFilters ? "Add All Filtered" : "Add All"}
-                              </span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  {renderFilterMenuContent(() => setShowMobileFilterMenu(false))}
                 </div>
               </>
             )}
           </div>
+        </div>
+        <div className="hidden shrink-0 items-center gap-2 sm:flex sm:pr-3">
           <button
             type="button"
             onClick={() =>
@@ -335,96 +343,21 @@ export function ArtistDetailsReleaseGroups({
                     : "date",
               )
             }
-            className="hidden btn btn-secondary btn-sm p-2 sm:inline-flex"
+            className="btn btn-secondary btn-sm p-2"
             title={sortTitle}
             aria-label={sortTitle}
           >
             <SortIcon className="w-4 h-4" />
           </button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="hidden items-center gap-2 rounded bg-black/20 px-2 py-1 sm:flex">
-            {previewVolume <= 0 ? (
-              <VolumeX className="w-4 h-4 flex-shrink-0" style={{ color: "#c1c1c3" }} />
-            ) : (
-              <Volume2 className="w-4 h-4 flex-shrink-0" style={{ color: "#c1c1c3" }} />
-            )}
-            <input
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value={Math.round(previewVolume * 100)}
-              onChange={(e) =>
-                setPreviewVolume(
-                  Math.max(0, Math.min(1, Number(e.target.value) / 100)),
-                )
-              }
-              className="w-24 accent-[#707e61]"
-              aria-label="Preview volume"
-            />
-            <span
-              className="text-xs tabular-nums w-8 text-right"
-              style={{ color: "#c1c1c3" }}
-            >
-              {Math.round(previewVolume * 100)}
-            </span>
-          </div>
-          <div className="hidden items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex">
-            {primaryReleaseTypes.map((type) => {
-              const isSelected = selectedReleaseTypes.includes(type);
-              return (
-                <button
-                  key={type}
-                  onClick={() => {
-                    if (isSelected) {
-                      setSelectedReleaseTypes(
-                        selectedReleaseTypes.filter((t) => t !== type)
-                      );
-                    } else {
-                      setSelectedReleaseTypes([
-                        ...selectedReleaseTypes,
-                        type,
-                      ]);
-                    }
-                  }}
-                  className="flex shrink-0 items-center gap-1 px-2 py-1.5 text-xs font-medium transition-all"
-                  style={{
-                    backgroundColor: isSelected ? "#4a4a4a" : "#211f27",
-                    color: "#fff",
-                  }}
-                  title={type}
-                >
-                  {getIcon(type)}
-                  <span>{type}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="relative hidden sm:block">
+          <div className="relative">
             <button
+              type="button"
               onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-              className="btn btn-outline-secondary btn-sm flex items-center gap-2 px-3 py-2"
+              className="btn btn-outline-secondary btn-sm p-2"
+              aria-label="Album filters"
+              title="Album filters"
             >
-              <Tag className="w-4 h-4" />
-              <span className="text-sm">Filter</span>
-              {activeFilters && (
-                <span
-                  className="text-white text-xs px-1.5 py-0.5 min-w-[18px] h-[18px] flex items-center justify-center"
-                  style={{ backgroundColor: "#211f27" }}
-                >
-                  {secondaryReleaseTypes.length -
-                    selectedReleaseTypes.filter((t) =>
-                      secondaryReleaseTypes.includes(t)
-                    ).length}
-                </span>
-              )}
-              <ChevronDown
-                className={`w-4 h-4 transition-transform ${
-                  showFilterDropdown ? "rotate-180" : ""
-                }`}
-              />
+              <Filter className="w-4 h-4" />
             </button>
 
             {showFilterDropdown && (
@@ -437,114 +370,11 @@ export function ArtistDetailsReleaseGroups({
                   className="absolute right-0 top-full mt-2 z-20  shadow-xl  p-4 min-w-[280px]"
                   style={{ backgroundColor: "#211f27" }}
                 >
-                  <div className="space-y-4">
-                    <div>
-                      <h3
-                        className="text-sm font-semibold  mb-2"
-                        style={{ color: "#fff" }}
-                      >
-                        Secondary Types
-                      </h3>
-                      <div className="space-y-2">
-                        {secondaryReleaseTypes.map((type) => (
-                          <label
-                            key={type}
-                            className="flex items-center space-x-2 cursor-pointer hover:bg-gray-900/50 px-2 py-1.5 transition-colors"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedReleaseTypes.includes(type)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedReleaseTypes([
-                                    ...selectedReleaseTypes,
-                                    type,
-                                  ]);
-                                } else {
-                                  setSelectedReleaseTypes(
-                                    selectedReleaseTypes.filter(
-                                      (t) => t !== type
-                                    )
-                                  );
-                                }
-                              }}
-                              className="form-checkbox h-4 w-4"
-                              style={{ color: "#c1c1c3" }}
-                            />
-                            <span
-                              className="text-sm "
-                              style={{ color: "#fff" }}
-                            >
-                              {type}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className=" pt-3">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            const currentPrimary =
-                              selectedReleaseTypes.filter((t) =>
-                                primaryReleaseTypes.includes(t)
-                              );
-                            setSelectedReleaseTypes([
-                              ...currentPrimary,
-                              ...secondaryReleaseTypes,
-                            ]);
-                          }}
-                          className="text-xs hover:underline"
-                          style={{ color: "#c1c1c3" }}
-                        >
-                          Select All
-                        </button>
-                        <span className="" style={{ color: "#c1c1c3" }}>
-                          |
-                        </span>
-                        <button
-                          onClick={() => {
-                            const currentPrimary =
-                              selectedReleaseTypes.filter((t) =>
-                                primaryReleaseTypes.includes(t)
-                              );
-                            setSelectedReleaseTypes(currentPrimary);
-                          }}
-                          className="text-xs hover:underline"
-                          style={{ color: "#c1c1c3" }}
-                        >
-                          Clear All
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  {renderFilterMenuContent(() => setShowFilterDropdown(false))}
                 </div>
               </>
             )}
           </div>
-
-          {existsInLibrary && canBulkAddAlbums && (
-            <button
-              onClick={handleMonitorAll}
-              disabled={processingBulk}
-              className="hidden btn btn-outline-primary btn-sm sm:flex items-center gap-2 px-4 py-2"
-            >
-              {processingBulk ? (
-                <>
-                  <Loader className="w-4 h-4 animate-spin" />
-                  <span className="text-sm">Processing...</span>
-                </>
-              ) : (
-                <>
-                  <Plus className="w-4 h-4" />
-                  <span className="text-sm">
-                    {activeFilters ? "Add All Filtered" : "Add All"}
-                  </span>
-                </>
-              )}
-            </button>
-          )}
         </div>
       </div>
       <div className="space-y-2">
@@ -1043,7 +873,7 @@ export function ArtistDetailsReleaseGroups({
                                   {onAddTrackToPlaylist ? (
                                     <button
                                       type="button"
-                                      className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
+                                      className="group inline-flex h-7 w-7 items-center overflow-hidden rounded-full transition-all duration-200 ease-out hover:w-[118px]"
                                       style={{
                                         backgroundColor: "rgba(255,255,255,0.06)",
                                         color: "#fff",
@@ -1055,7 +885,12 @@ export function ArtistDetailsReleaseGroups({
                                       title="Add to playlist"
                                       aria-label="Add to playlist"
                                     >
-                                      <Plus className="w-3.5 h-3.5" />
+                                      <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center">
+                                        <Plus className="w-3.5 h-3.5" />
+                                      </span>
+                                      <span className="pr-3 text-xs font-medium whitespace-nowrap opacity-0 transition-all duration-150 ease-out -translate-x-2 group-hover:translate-x-0 group-hover:opacity-100">
+                                        Add to playlist
+                                      </span>
                                     </button>
                                   ) : null}
                                   {hasPreview && (
@@ -1144,10 +979,6 @@ ArtistDetailsReleaseGroups.propTypes = {
   secondaryReleaseTypes: PropTypes.arrayOf(PropTypes.string),
   showFilterDropdown: PropTypes.bool,
   setShowFilterDropdown: PropTypes.func,
-  existsInLibrary: PropTypes.bool,
-  canBulkAddAlbums: PropTypes.bool,
-  handleMonitorAll: PropTypes.func,
-  processingBulk: PropTypes.bool,
   albumCovers: PropTypes.object,
   expandedReleaseGroup: PropTypes.string,
   albumTracks: PropTypes.object,
@@ -1165,7 +996,6 @@ ArtistDetailsReleaseGroups.propTypes = {
   canReSearchAlbum: PropTypes.bool,
   handleReSearchAlbum: PropTypes.func,
   previewVolume: PropTypes.number,
-  setPreviewVolume: PropTypes.func,
   isReleaseGroupDownloadedInLibrary: PropTypes.func,
   onAddTrackToPlaylist: PropTypes.func,
 };
