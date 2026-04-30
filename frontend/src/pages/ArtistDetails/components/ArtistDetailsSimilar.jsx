@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { Loader, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
 import ArtistImage from "../../../components/ArtistImage";
@@ -17,9 +17,32 @@ export function ArtistDetailsSimilar({
   onArtistClick,
 }) {
   const [libraryLookup, setLibraryLookup] = useState({});
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
   const artistIds = useMemo(
     () => similarArtists.map(getArtistId).filter(Boolean),
     [similarArtists],
+  );
+
+  const updateScrollState = useCallback(() => {
+    const node = similarArtistsScrollRef?.current;
+    if (!node) return;
+    const maxScrollLeft = Math.max(node.scrollWidth - node.clientWidth, 0);
+    setCanScrollLeft(node.scrollLeft > 2);
+    setCanScrollRight(node.scrollLeft < maxScrollLeft - 2);
+  }, [similarArtistsScrollRef]);
+
+  const scrollByAmount = useCallback(
+    (direction) => {
+      const node = similarArtistsScrollRef?.current;
+      if (!node) return;
+      const width = node.clientWidth;
+      node.scrollBy({
+        left: direction * Math.max(width * 0.85, 280),
+        behavior: "smooth",
+      });
+    },
+    [similarArtistsScrollRef],
   );
 
   useEffect(() => {
@@ -46,22 +69,58 @@ export function ArtistDetailsSimilar({
     };
   }, [artistIds]);
 
+  useEffect(() => {
+    const node = similarArtistsScrollRef?.current;
+    if (!node) return;
+    updateScrollState();
+    node.addEventListener("scroll", updateScrollState, { passive: true });
+    window.addEventListener("resize", updateScrollState);
+    return () => {
+      node.removeEventListener("scroll", updateScrollState);
+      window.removeEventListener("resize", updateScrollState);
+    };
+  }, [similarArtists, similarArtistsScrollRef, updateScrollState]);
+
   if (!loadingSimilar && similarArtists.length === 0) return null;
 
   return (
     <div className="mt-12">
-      <h2
-        className="text-2xl font-bold  mb-6 flex items-center"
-        style={{ color: "#fff" }}
-      >
-        Similar Artists
-        {loadingSimilar && (
-          <Loader
-            className="w-4 h-4 ml-2 animate-spin"
-            style={{ color: "#c1c1c3" }}
-          />
-        )}
-      </h2>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2
+          className="flex items-center text-2xl font-bold"
+          style={{ color: "#fff" }}
+        >
+          Similar Artists
+          {loadingSimilar && (
+            <Loader
+              className="ml-2 h-4 w-4 animate-spin"
+              style={{ color: "#c1c1c3" }}
+            />
+          )}
+        </h2>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => scrollByAmount(-1)}
+            className="flex h-10 w-10 items-center justify-center transition-colors disabled:cursor-default"
+            style={{ color: canScrollLeft ? "#6f7685" : "#2d3442" }}
+            aria-label="Scroll similar artists left"
+            disabled={!canScrollLeft}
+          >
+            <ChevronLeft className="h-7 w-7 stroke-[1.5]" />
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollByAmount(1)}
+            className="flex h-10 w-10 items-center justify-center transition-colors disabled:cursor-default"
+            style={{ color: canScrollRight ? "#d1d5df" : "#2d3442" }}
+            aria-label="Scroll similar artists right"
+            disabled={!canScrollRight}
+          >
+            <ChevronRight className="h-7 w-7 stroke-[1.5]" />
+          </button>
+        </div>
+      </div>
       {loadingSimilar ? (
         <div className="flex items-center justify-center py-12">
           <Loader
@@ -70,25 +129,7 @@ export function ArtistDetailsSimilar({
           />
         </div>
       ) : similarArtists.length > 0 ? (
-        <div className="flex items-start gap-2">
-          <button
-            onClick={() => {
-              if (similarArtistsScrollRef.current) {
-                similarArtistsScrollRef.current.scrollBy({
-                  left: -320,
-                  behavior: "smooth",
-                });
-              }
-            }}
-            className="flex-shrink-0 p-2 hover:bg-black/50 transition-colors"
-            style={{
-              color: "#fff",
-              marginTop: "70px",
-            }}
-            aria-label="Scroll left"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
+        <div>
           <div
             ref={similarArtistsScrollRef}
             className="flex overflow-x-auto pb-4 gap-4 scroll-smooth similar-artists-scroll flex-1"
@@ -102,7 +143,7 @@ export function ArtistDetailsSimilar({
               return (
                 <div
                   key={similar.id}
-                  className="flex-shrink-0 w-40 group cursor-pointer"
+                  className="group w-[148px] shrink-0 cursor-pointer sm:w-[164px]"
                   onClick={() => onArtistClick(similar.id, similar.name)}
                 >
                   <div
@@ -140,24 +181,6 @@ export function ArtistDetailsSimilar({
               );
             })}
           </div>
-          <button
-            onClick={() => {
-              if (similarArtistsScrollRef.current) {
-                similarArtistsScrollRef.current.scrollBy({
-                  left: 320,
-                  behavior: "smooth",
-                });
-              }
-            }}
-            className="flex-shrink-0 p-2 hover:bg-black/50 transition-colors"
-            style={{
-              color: "#fff",
-              marginTop: "70px",
-            }}
-            aria-label="Scroll right"
-          >
-            <ChevronRight className="w-5 h-5" />
-          </button>
         </div>
       ) : null}
     </div>

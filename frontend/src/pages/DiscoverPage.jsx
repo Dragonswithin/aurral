@@ -7,6 +7,8 @@ import {
   Music,
   Sparkles,
   Clock,
+  ChevronLeft,
+  ChevronRight,
   LayoutTemplate,
   GripVertical,
   X,
@@ -64,15 +66,17 @@ const getTagColor = (name) => {
   return TAG_COLORS[Math.abs(hash) % TAG_COLORS.length];
 };
 
-const buildLetterRollSpans = (text) =>
-  ["#", ...text.split("")].map((char, index) => (
-    <span
-      key={`${text}-${index}`}
-      style={{ "--roll-delay": `${(index + 1) * 0.05}s` }}
-    >
-      {char}
-    </span>
-  ));
+const getTagCardBackground = (tag) => {
+  const base = getTagColor(tag);
+  return {
+    background: `
+      linear-gradient(135deg, rgba(255,255,255,0.18), rgba(255,255,255,0.02)),
+      linear-gradient(0deg, rgba(0,0,0,0.28), rgba(0,0,0,0.28)),
+      radial-gradient(circle at top right, rgba(255,255,255,0.16), transparent 35%),
+      linear-gradient(135deg, ${base}, #121723)
+    `,
+  };
+};
 
 const DISCOVER_LAYOUT_KEY = "discoverLayout";
 
@@ -88,6 +92,8 @@ const DEFAULT_DISCOVER_SECTIONS = [
 
 const DISCOVER_NEARBY_MODE_KEY = "discoverNearbyMode";
 const DISCOVER_NEARBY_ZIP_KEY = "discoverNearbyZip";
+const DISCOVER_SHELF_CARD_CLASS =
+  "w-[148px] shrink-0 sm:w-[calc((100%-1rem*2)/3)] md:w-[calc((100%-1rem*3)/4)] lg:w-[calc((100%-1rem*5)/6)]";
 
 const getArtistId = (artist) =>
   artist?.id || artist?.mbid || artist?.foreignArtistId;
@@ -193,9 +199,6 @@ const formatShowDate = (show) => {
     day: "numeric",
     year: "numeric",
   });
-  if (show.time) {
-    return `${dateLabel} at ${show.time}`;
-  }
   return dateLabel;
 };
 
@@ -533,72 +536,130 @@ const ShowCard = memo(({ show }) => {
   const showDate = formatShowDate(show);
   const showLocation = formatShowLocation(show);
   return (
-    <article
-      className="group flex flex-col overflow-hidden border border-white/10"
-      style={{ backgroundColor: "#191820" }}
-    >
-      <div className="relative aspect-[16/9] overflow-hidden" style={{ backgroundColor: "#211f27" }}>
-        {show.image ? (
-          <img
-            src={show.image}
-            alt={show.eventName || show.artistName}
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-            loading="lazy"
-            decoding="async"
+    <>
+      <a
+        href={show.url || "#"}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="group relative overflow-hidden rounded-[28px] border border-white/10 sm:hidden"
+        style={{ backgroundColor: "#191820" }}
+      >
+        <div className="relative aspect-[1.7/1] overflow-hidden" style={{ backgroundColor: "#211f27" }}>
+          {show.image ? (
+            <img
+              src={show.image}
+              alt={show.eventName || show.artistName}
+              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+              loading="lazy"
+              decoding="async"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <Music className="h-10 w-10" style={{ color: "#c1c1c3" }} />
+            </div>
+          )}
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                "linear-gradient(90deg, rgba(12,15,24,0.84) 0%, rgba(12,15,24,0.66) 42%, rgba(12,15,24,0.18) 100%)",
+            }}
           />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <Music className="w-10 h-10" style={{ color: "#c1c1c3" }} />
+          <div className="absolute inset-0 flex flex-col justify-between p-5">
+            <div />
+            <div className="max-w-[74%]">
+              <p className="truncate text-xs font-medium" style={{ color: "#b8bbc7" }}>
+                {show.artistName}
+              </p>
+              <h3 className="mt-1 line-clamp-2 text-[1.65rem] font-bold leading-[0.98] tracking-tight text-white">
+                {show.eventName}
+              </h3>
+              <div className="mt-3 space-y-1.5 text-xs" style={{ color: "#d7dae4" }}>
+                {showDate && (
+                  <p className="flex items-center gap-2">
+                    <Clock className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{showDate}</span>
+                  </p>
+                )}
+                {showLocation && (
+                  <p className="flex items-start gap-2">
+                    <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span className="line-clamp-2">{showLocation}</span>
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
-        )}
-        <div className="absolute left-3 top-3 flex gap-2">
-          {Number.isFinite(show.distance) && (
-            <span
-              className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide"
-              style={{ backgroundColor: "rgba(20,20,26,0.82)", color: "#fff" }}
+        </div>
+      </a>
+
+      <article
+        className="group hidden flex-col overflow-hidden border border-white/10 sm:flex"
+        style={{ backgroundColor: "#191820" }}
+      >
+        <div className="relative aspect-[16/9] overflow-hidden" style={{ backgroundColor: "#211f27" }}>
+          {show.image ? (
+            <img
+              src={show.image}
+              alt={show.eventName || show.artistName}
+              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+              loading="lazy"
+              decoding="async"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <Music className="w-10 h-10" style={{ color: "#c1c1c3" }} />
+            </div>
+          )}
+          <div className="absolute left-3 top-3 flex gap-2">
+            {Number.isFinite(show.distance) && (
+              <span
+                className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide"
+                style={{ backgroundColor: "rgba(20,20,26,0.82)", color: "#fff" }}
+              >
+                {Math.round(show.distance)} mi
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-1 flex-col gap-3 p-4">
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-[0.22em]" style={{ color: "#8a8a8f" }}>
+              {show.artistName}
+            </p>
+            <h3 className="mt-1 text-lg font-semibold leading-tight" style={{ color: "#fff" }}>
+              {show.eventName}
+            </h3>
+          </div>
+          <div className="space-y-2 text-sm" style={{ color: "#c1c1c3" }}>
+            {showDate && (
+              <p className="flex items-center gap-2">
+                <Clock className="w-4 h-4 shrink-0" />
+                <span>{showDate}</span>
+              </p>
+            )}
+            {showLocation && (
+              <p className="flex items-start gap-2">
+                <MapPin className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{showLocation}</span>
+              </p>
+            )}
+          </div>
+          <div className="mt-auto pt-2">
+            <a
+              href={show.url || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors hover:opacity-90"
+              style={{ backgroundColor: "#707e61", color: "#0b0b0c" }}
             >
-              {Math.round(show.distance)} mi
-            </span>
-          )}
+              <Ticket className="w-4 h-4" />
+              Tickets
+            </a>
+          </div>
         </div>
-      </div>
-      <div className="flex flex-1 flex-col gap-3 p-4">
-        <div className="min-w-0">
-          <p className="text-xs uppercase tracking-[0.22em]" style={{ color: "#8a8a8f" }}>
-            {show.artistName}
-          </p>
-          <h3 className="mt-1 text-lg font-semibold leading-tight" style={{ color: "#fff" }}>
-            {show.eventName}
-          </h3>
-        </div>
-        <div className="space-y-2 text-sm" style={{ color: "#c1c1c3" }}>
-          {showDate && (
-            <p className="flex items-center gap-2">
-              <Clock className="w-4 h-4 shrink-0" />
-              <span>{showDate}</span>
-            </p>
-          )}
-          {showLocation && (
-            <p className="flex items-start gap-2">
-              <MapPin className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{showLocation}</span>
-            </p>
-          )}
-        </div>
-        <div className="mt-auto pt-2">
-          <a
-            href={show.url || "#"}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors hover:opacity-90"
-            style={{ backgroundColor: "#707e61", color: "#0b0b0c" }}
-          >
-            <Ticket className="w-4 h-4" />
-            Tickets
-          </a>
-        </div>
-      </div>
-    </article>
+      </article>
+    </>
   );
 });
 
@@ -619,6 +680,114 @@ ShowCard.propTypes = {
     region: PropTypes.string,
     distance: PropTypes.number,
   }).isRequired,
+};
+
+function DiscoverRail({
+  title,
+  mobileTitle,
+  onViewAll,
+  children,
+  className = "",
+  headerClassName = "",
+  style,
+}) {
+  const scrollRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollState = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const maxScrollLeft = Math.max(node.scrollWidth - node.clientWidth, 0);
+    const nextCanScrollLeft = node.scrollLeft > 2;
+    const nextCanScrollRight = node.scrollLeft < maxScrollLeft - 2;
+    setCanScrollLeft(nextCanScrollLeft);
+    setCanScrollRight(nextCanScrollRight);
+  }, []);
+
+  const scrollByAmount = useCallback((direction) => {
+    if (!scrollRef.current) return;
+    const width = scrollRef.current.clientWidth;
+    scrollRef.current.scrollBy({
+      left: direction * Math.max(width * 0.85, 280),
+      behavior: "smooth",
+    });
+  }, []);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    updateScrollState();
+    node.addEventListener("scroll", updateScrollState, { passive: true });
+    window.addEventListener("resize", updateScrollState);
+    return () => {
+      node.removeEventListener("scroll", updateScrollState);
+      window.removeEventListener("resize", updateScrollState);
+    };
+  }, [children, updateScrollState]);
+
+  return (
+    <section className={className} style={style}>
+      <div
+        className={`mb-4 flex items-center justify-between gap-3 ${headerClassName}`}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="truncate text-2xl font-bold text-white">
+            <span className="sm:hidden">{mobileTitle || title}</span>
+            <span className="hidden sm:inline">{title}</span>
+          </h2>
+          {onViewAll && (
+            <button
+              type="button"
+              onClick={onViewAll}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-base font-medium text-white/70 transition-colors hover:text-white"
+              aria-label={`Open ${title}`}
+            >
+              →
+            </button>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => scrollByAmount(-1)}
+            className="flex h-10 w-10 items-center justify-center transition-colors disabled:cursor-default"
+            style={{ color: canScrollLeft ? "#6f7685" : "#2d3442" }}
+            aria-label={`Scroll ${title} left`}
+            disabled={!canScrollLeft}
+          >
+            <ChevronLeft className="h-7 w-7 stroke-[1.5]" />
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollByAmount(1)}
+            className="flex h-10 w-10 items-center justify-center transition-colors disabled:cursor-default"
+            style={{ color: canScrollRight ? "#d1d5df" : "#2d3442" }}
+            aria-label={`Scroll ${title} right`}
+            disabled={!canScrollRight}
+          >
+            <ChevronRight className="h-7 w-7 stroke-[1.5]" />
+          </button>
+        </div>
+      </div>
+      <div
+        ref={scrollRef}
+        className="flex gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {children}
+      </div>
+    </section>
+  );
+}
+
+DiscoverRail.propTypes = {
+  title: PropTypes.string.isRequired,
+  mobileTitle: PropTypes.string,
+  onViewAll: PropTypes.func,
+  children: PropTypes.node.isRequired,
+  className: PropTypes.string,
+  headerClassName: PropTypes.string,
+  style: PropTypes.object,
 };
 
 function DiscoverPage() {
@@ -973,7 +1142,6 @@ function DiscoverPage() {
     nearbyShowsData?.location?.label ||
     nearbyShowsData?.location?.postalCode ||
     "your area";
-
   const sectionAvailability = useMemo(
     () => ({
       recentlyAdded: recentlyAdded.length > 0,
@@ -1199,121 +1367,102 @@ function DiscoverPage() {
     if (id === "recentlyAdded") {
       if (!sectionAvailability.recentlyAdded) return null;
       return (
-        <section
+        <DiscoverRail
           key="recentlyAdded"
           className="animate-slide-up"
+          title="Recently Added"
           style={{ animationDelay: "0.1s" }}
         >
-          <div className="flex items-center justify-between mb-6">
-            <h2
-              className="text-2xl font-bold flex items-center"
-              style={{ color: "#fff" }}
-            >
-              Recently Added
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+          <>
             {recentlyAdded.slice(0, 6).map((artist) => {
               const artistId = artist.foreignArtistId || artist.mbid || artist.id;
               return (
-                <ArtistCard
-                  key={`artist-${artist.id}`}
-                  status="available"
-                  isInLibrary={!!libraryLookup[artistId]}
-                  isBlocked={isArtistInEntries(
-                    { id: artistId, name: artist.artistName },
-                    blockedArtists,
-                  )}
-                  canAddArtist={false}
-                  onNavigate={navigate}
-                  artist={{
-                    id: artistId,
-                    name: artist.artistName,
-                    image: getLibraryArtistImage(artist),
-                    type: "Artist",
-                    subtitle: `Added ${new Date(
-                      artist.added || artist.addedAt,
-                    ).toLocaleDateString()}`,
-                  }}
-                />
+                <div key={`artist-${artist.id}`} className={DISCOVER_SHELF_CARD_CLASS}>
+                  <ArtistCard
+                    status="available"
+                    isInLibrary={!!libraryLookup[artistId]}
+                    isBlocked={isArtistInEntries(
+                      { id: artistId, name: artist.artistName },
+                      blockedArtists,
+                    )}
+                    canAddArtist={false}
+                    onNavigate={navigate}
+                    artist={{
+                      id: artistId,
+                      name: artist.artistName,
+                      image: getLibraryArtistImage(artist),
+                      type: "Artist",
+                      subtitle: `Added ${new Date(
+                        artist.added || artist.addedAt,
+                      ).toLocaleDateString()}`,
+                    }}
+                  />
+                </div>
               );
             })}
-          </div>
-        </section>
+          </>
+        </DiscoverRail>
       );
     }
 
     if (id === "recentReleases") {
       if (!sectionAvailability.recentReleases) return null;
       return (
-        <section
+        <DiscoverRail
           key="recentReleases"
           className="animate-slide-up"
+          title="Recent & Upcoming Releases"
           style={{ animationDelay: "0.15s" }}
         >
-          <div className="flex items-center justify-between mb-6">
-            <h2
-              className="text-2xl font-bold flex items-center"
-              style={{ color: "#fff" }}
-            >
-              Recent & Upcoming Releases
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+          <>
             {recentReleases.slice(0, 6).map((album) => (
-              <AlbumCard
+              <div
                 key={album.id || album.mbid || album.foreignAlbumId}
-                album={album}
-                releaseCovers={releaseCovers}
-                artistCovers={artistCovers}
-                onNavigate={navigate}
-              />
+                className={DISCOVER_SHELF_CARD_CLASS}
+              >
+                <AlbumCard
+                  album={album}
+                  releaseCovers={releaseCovers}
+                  artistCovers={artistCovers}
+                  onNavigate={navigate}
+                />
+              </div>
             ))}
-          </div>
-        </section>
+          </>
+        </DiscoverRail>
       );
     }
 
     if (id === "recommended") {
       return (
-        <section key="recommended">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-white flex items-center">
-              Recommended for You
-            </h2>
-            <button
-              onClick={() => navigate("/search?type=recommended")}
-              className="text-sm font-medium hover:underline"
-              style={{ color: "#c1c1c3" }}
-            >
-              View All
-            </button>
-          </div>
-
+        <DiscoverRail
+          key="recommended"
+          title="Recommended for You"
+          onViewAll={() => navigate("/search?type=recommended")}
+        >
           {recommendations.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+            <>
               {recommendations.slice(0, 12).map((artist) => (
-                <ArtistCard
-                  key={artist.id}
-                  artist={artist}
-                  isInLibrary={!!libraryLookup[getArtistId(artist)]}
-                  isBlocked={isArtistInEntries(artist, blockedArtists)}
-                  canAddArtist={canAddArtist}
-                  onNavigate={navigate}
-                  onAddToLibrary={handleAddArtistToLibrary}
-                  onAddToBlocklist={handleAddArtistToBlocklist}
-                />
+                <div key={artist.id} className={DISCOVER_SHELF_CARD_CLASS}>
+                  <ArtistCard
+                    artist={artist}
+                    isInLibrary={!!libraryLookup[getArtistId(artist)]}
+                    isBlocked={isArtistInEntries(artist, blockedArtists)}
+                    canAddArtist={canAddArtist}
+                    onNavigate={navigate}
+                    onAddToLibrary={handleAddArtistToLibrary}
+                    onAddToBlocklist={handleAddArtistToBlocklist}
+                  />
+                </div>
               ))}
-            </div>
+            </>
           ) : (
             <div
-              className="text-center py-12 px-4"
+              className="w-full py-12 px-4 text-center"
               style={{ backgroundColor: "#211f27" }}
             >
               <Music
-                className="w-12 h-12 mx-auto mb-3"
+                className="mx-auto mb-3 h-12 w-12"
                 style={{ color: "#c1c1c3" }}
               />
               <p className="mb-1" style={{ color: "#c1c1c3" }}>
@@ -1325,7 +1474,7 @@ function DiscoverPage() {
               </p>
             </div>
           )}
-        </section>
+        </DiscoverRail>
       );
     }
 
@@ -1333,17 +1482,17 @@ function DiscoverPage() {
       const zipModeActive = nearbyLocationMode === "zip";
       return (
         <section key="recommendedShows">
-          <div className="flex items-center justify-between mb-6">
+          <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <h2 className="text-2xl font-bold text-white">Shows Near You</h2>
               {nearbyShowsData?.configured !== false && (
-                <span className="hidden sm:inline-block px-2.5 py-1 text-xs font-medium rounded-full bg-white/5 text-white/60">
+                <span className="hidden rounded-full bg-white/5 px-2.5 py-1 text-xs font-medium text-white/60 sm:inline-block">
                   {nearbyLocationLabel}
                 </span>
               )}
             </div>
             <div className="flex items-center gap-2">
-              <div className="inline-flex p-1 border border-white/10" style={{ backgroundColor: "#17161d" }}>
+              <div className="inline-flex border border-white/10 p-1" style={{ backgroundColor: "#17161d" }}>
                 <button
                   type="button"
                   onClick={() => {
@@ -1386,30 +1535,30 @@ function DiscoverPage() {
                       setNearbyZipDraft(appliedNearbyZip);
                       setShowNearbyZipEditor((value) => !value);
                     }}
-                    className="inline-flex items-center justify-center w-8 h-8 border border-white/10 transition-colors"
+                    className="inline-flex h-8 w-8 items-center justify-center border border-white/10 transition-colors"
                     style={{ backgroundColor: "#17161d", color: "#c1c1c3" }}
                     aria-label="Edit ZIP"
                     title="Edit ZIP"
                   >
-                    <Pencil className="w-3.5 h-3.5" />
+                    <Pencil className="h-3.5 w-3.5" />
                   </button>
                   {showNearbyZipEditor && (
                     <div
-                      className="absolute right-0 top-10 z-20 w-52 p-2 border border-white/10"
+                      className="absolute right-0 top-10 z-20 w-52 border border-white/10 p-2"
                       style={{ backgroundColor: "#17161d" }}
                     >
                       <input
                         type="text"
                         value={nearbyZipDraft}
                         onChange={(event) => setNearbyZipDraft(event.target.value)}
-                        className="input w-full mb-2"
+                        className="input mb-2 w-full"
                         placeholder="ZIP or postal code"
                       />
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
                           onClick={() => setShowNearbyZipEditor(false)}
-                          className="px-2 py-1 text-xs border border-white/10"
+                          className="border border-white/10 px-2 py-1 text-xs"
                           style={{ color: "#c1c1c3" }}
                         >
                           Cancel
@@ -1446,11 +1595,11 @@ function DiscoverPage() {
           </div>
 
           {nearbyShowsData?.configured === false ? (
-            <div className="p-6 border border-white/10" style={{ backgroundColor: "#191820" }}>
+            <div className="border border-white/10 p-6" style={{ backgroundColor: "#191820" }}>
               <h3 className="text-lg font-semibold" style={{ color: "#fff" }}>
                 Ticketmaster not configured
               </h3>
-              <p className="mt-2 text-sm max-w-2xl" style={{ color: "#c1c1c3" }}>
+              <p className="mt-2 max-w-2xl text-sm" style={{ color: "#c1c1c3" }}>
                 Add a Ticketmaster Consumer Key in Settings to enable local show
                 discovery on this page.
               </p>
@@ -1464,10 +1613,10 @@ function DiscoverPage() {
             </div>
           ) : nearbyShowsLoading ? (
             <div className="flex items-center justify-center py-20" style={{ backgroundColor: "#191820" }}>
-              <Loader className="w-8 h-8 animate-spin" style={{ color: "#c1c1c3" }} />
+              <Loader className="h-8 w-8 animate-spin" style={{ color: "#c1c1c3" }} />
             </div>
           ) : nearbyShowsError ? (
-            <div className="p-6 border border-white/10" style={{ backgroundColor: "#191820" }}>
+            <div className="border border-white/10 p-6" style={{ backgroundColor: "#191820" }}>
               <h3 className="text-lg font-semibold" style={{ color: "#fff" }}>
                 Unable to load nearby shows
               </h3>
@@ -1476,26 +1625,34 @@ function DiscoverPage() {
               </p>
             </div>
           ) : zipModeActive && !appliedNearbyZip.trim() ? (
-            <div className="p-6 border border-white/10" style={{ backgroundColor: "#191820" }}>
+            <div className="border border-white/10 p-6" style={{ backgroundColor: "#191820" }}>
               <h3 className="text-lg font-semibold" style={{ color: "#fff" }}>
                 ZIP not set
               </h3>
-              <p className="mt-2 text-sm max-w-2xl" style={{ color: "#c1c1c3" }}>
+              <p className="mt-2 max-w-2xl text-sm" style={{ color: "#c1c1c3" }}>
                 Set a ZIP code from the Shows page area settings to use ZIP mode here.
               </p>
             </div>
           ) : nearbyShows.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
-              {nearbyShows.slice(0, 5).map((show) => (
-                <ShowCard key={`${show.id}-${show.artistName}`} show={show} />
-              ))}
-            </div>
+            <DiscoverRail
+              title="Shows Near You"
+              onViewAll={() => navigate("/shows")}
+              headerClassName="hidden"
+            >
+              <>
+                {nearbyShows.slice(0, 8).map((show) => (
+                  <div key={`${show.id}-${show.artistName}`} className="w-[288px] shrink-0">
+                    <ShowCard show={show} />
+                  </div>
+                ))}
+              </>
+            </DiscoverRail>
           ) : (
-            <div className="p-6 border border-white/10" style={{ backgroundColor: "#191820" }}>
+            <div className="border border-white/10 p-6" style={{ backgroundColor: "#191820" }}>
               <h3 className="text-lg font-semibold" style={{ color: "#fff" }}>
                 No upcoming nearby matches
               </h3>
-              <p className="mt-2 text-sm max-w-2xl" style={{ color: "#c1c1c3" }}>
+              <p className="mt-2 max-w-2xl text-sm" style={{ color: "#c1c1c3" }}>
                 We could not find local Ticketmaster shows for artists from your
                 library around {nearbyLocationLabel}.
               </p>
@@ -1508,38 +1665,27 @@ function DiscoverPage() {
     if (id === "globalTop") {
       if (!sectionAvailability.globalTop) return null;
       return (
-        <section key="globalTop">
-          <div className="flex items-center justify-between mb-6">
-            <h2
-              className="text-2xl font-bold flex items-center"
-              style={{ color: "#fff" }}
-            >
-              Global Trending
-            </h2>
-            <button
-              onClick={() => navigate("/search?type=trending")}
-              className="text-sm font-medium hover:underline"
-              style={{ color: "#c1c1c3" }}
-            >
-              View All
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+        <DiscoverRail
+          key="globalTop"
+          title="Global Trending"
+          onViewAll={() => navigate("/search?type=trending")}
+        >
+          <>
             {globalTop.slice(0, 12).map((artist) => (
-              <ArtistCard
-                key={artist.id}
-                artist={artist}
-                isInLibrary={!!libraryLookup[getArtistId(artist)]}
-                isBlocked={isArtistInEntries(artist, blockedArtists)}
-                canAddArtist={canAddArtist}
-                onNavigate={navigate}
-                onAddToLibrary={handleAddArtistToLibrary}
-                onAddToBlocklist={handleAddArtistToBlocklist}
-              />
+              <div key={artist.id} className={DISCOVER_SHELF_CARD_CLASS}>
+                <ArtistCard
+                  artist={artist}
+                  isInLibrary={!!libraryLookup[getArtistId(artist)]}
+                  isBlocked={isArtistInEntries(artist, blockedArtists)}
+                  canAddArtist={canAddArtist}
+                  onNavigate={navigate}
+                  onAddToLibrary={handleAddArtistToLibrary}
+                  onAddToBlocklist={handleAddArtistToBlocklist}
+                />
+              </div>
             ))}
-          </div>
-        </section>
+          </>
+        </DiscoverRail>
       );
     }
 
@@ -1548,51 +1694,35 @@ function DiscoverPage() {
       return (
         <div key="genreSections" className="space-y-10">
           {genreSections.map((section) => (
-            <section key={section.genre}>
-              <div className="flex items-center justify-between mb-2 pb-2">
-                <h2
-                  className="text-xl font-bold flex items-center"
-                  style={{ color: "#fff" }}
-                >
-                  <span style={{ color: "#c1c1c3" }}>
-                    Because you like{"\u00A0"}
-                  </span>
-                  <a
-                    className="letter-roll"
-                    href={`/search?q=${encodeURIComponent(section.genre)}&type=tag`}
-                    aria-label={`View tag ${section.genre}`}
-                  >
-                    {buildLetterRollSpans(section.genre)}
-                  </a>
-                </h2>
-                <button
-                  onClick={() =>
-                    navigate(
-                      `/search?q=${encodeURIComponent(`#${section.genre}`)}&type=tag`,
-                    )
-                  }
-                  className="text-sm font-medium hover:underline"
-                  style={{ color: "#c1c1c3" }}
-                >
-                  See All
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+            <DiscoverRail
+              key={section.genre}
+              title={`Because You Like ${section.genre}`}
+              mobileTitle={section.genre}
+              onViewAll={() =>
+                navigate(
+                  `/search?q=${encodeURIComponent(`#${section.genre}`)}&type=tag`,
+                )
+              }
+            >
+              <>
                 {section.artists.slice(0, 6).map((artist) => (
-                  <ArtistCard
+                  <div
                     key={`${section.genre}-${artist.id}`}
-                    artist={artist}
-                    isInLibrary={!!libraryLookup[getArtistId(artist)]}
-                    isBlocked={isArtistInEntries(artist, blockedArtists)}
-                    canAddArtist={canAddArtist}
-                    onNavigate={navigate}
-                    onAddToLibrary={handleAddArtistToLibrary}
-                    onAddToBlocklist={handleAddArtistToBlocklist}
-                  />
+                    className={DISCOVER_SHELF_CARD_CLASS}
+                  >
+                    <ArtistCard
+                      artist={artist}
+                      isInLibrary={!!libraryLookup[getArtistId(artist)]}
+                      isBlocked={isArtistInEntries(artist, blockedArtists)}
+                      canAddArtist={canAddArtist}
+                      onNavigate={navigate}
+                      onAddToLibrary={handleAddArtistToLibrary}
+                      onAddToBlocklist={handleAddArtistToBlocklist}
+                    />
+                  </div>
                 ))}
-              </div>
-            </section>
+              </>
+            </DiscoverRail>
           ))}
         </div>
       );
@@ -1601,33 +1731,57 @@ function DiscoverPage() {
     if (id === "topTags") {
       if (!sectionAvailability.topTags) return null;
       return (
-        <section
+        <DiscoverRail
           key="topTags"
-          className="p-8"
+          className="px-4 py-6 sm:px-6"
+          title="Explore by Tag"
           style={{ backgroundColor: "#211f27" }}
         >
-          <div className="flex items-center mb-6">
-            <h3 className="text-lg font-semibold" style={{ color: "#fff" }}>
-              Explore by Tag
-            </h3>
-          </div>
-          <div className="flex flex-wrap gap-2">
+          <>
             {topTags.map((tag, i) => (
-              <button
-                key={i}
-                onClick={() =>
-                  navigate(
-                    `/search?q=${encodeURIComponent(`#${tag}`)}&type=tag`,
-                  )
-                }
-                className="genre-tag-pill px-3 py-1.5 text-sm"
-                style={{ backgroundColor: getTagColor(tag), color: "#fff" }}
-              >
-                #{tag}
-              </button>
+              <div key={i} className="shrink-0">
+                <button
+                  onClick={() =>
+                    navigate(
+                      `/search?q=${encodeURIComponent(`#${tag}`)}&type=tag`,
+                    )
+                  }
+                  className="relative h-[128px] w-[248px] overflow-hidden rounded-3xl border border-white/10 text-left sm:hidden"
+                  style={{
+                    ...getTagCardBackground(tag),
+                    color: "#fff",
+                  }}
+                >
+                  <div className="absolute inset-0 opacity-30 mix-blend-screen">
+                    <div
+                      className="h-full w-full"
+                      style={{
+                        background:
+                          "repeating-linear-gradient(135deg, rgba(255,255,255,0.22) 0 2px, transparent 2px 18px)",
+                      }}
+                    />
+                  </div>
+                  <div className="absolute inset-0 flex items-center justify-center px-6">
+                    <span className="text-4xl font-bold tracking-tight text-white">
+                      {tag}
+                    </span>
+                  </div>
+                </button>
+                <button
+                  onClick={() =>
+                    navigate(
+                      `/search?q=${encodeURIComponent(`#${tag}`)}&type=tag`,
+                    )
+                  }
+                  className="genre-tag-pill hidden px-3 py-1.5 text-sm sm:block"
+                  style={{ backgroundColor: getTagColor(tag), color: "#fff" }}
+                >
+                  #{tag}
+                </button>
+              </div>
             ))}
-          </div>
-        </section>
+          </>
+        </DiscoverRail>
       );
     }
 
@@ -1737,40 +1891,54 @@ function DiscoverPage() {
   }
 
   return (
-    <div className="space-y-10 pb-12">
+    <div className="space-y-4 pb-12 sm:space-y-10">
       <LastfmBanner />
       <section
-        className="relative overflow-hidden"
+        className="relative hidden overflow-hidden border border-white/10 md:block"
         style={{
           color: "#fff",
           background:
-            "linear-gradient(90deg, rgba(33,31,39,0.5) 50%, transparent 100%), linear-gradient(90deg, rgba(33,31,39,0.2) 0%, transparent 100%)",
+            "linear-gradient(180deg, rgba(24,23,30,0.96), rgba(16,16,21,0.96))",
         }}
       >
-        <div className="relative p-6 md:p-8 flex flex-col gap-6">
-          <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center gap-3">
-                <h1 className="text-3xl md:text-4xl font-bold" style={{ color: "#fff" }}>
+        <div className="relative flex flex-col gap-5 p-5 md:p-6">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+            <div className="flex max-w-2xl flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-3xl font-bold md:text-4xl" style={{ color: "#fff" }}>
                   Discover
                 </h1>
                 {lastUpdated && (
-                  <span className="flex items-center text-xs font-medium mt-1.5 px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.05)", color: "#8a8a8f" }}>
-                    <Clock className="w-3 h-3 mr-1.5" />
+                  <span className="flex items-center rounded-full px-2 py-1 text-xs font-medium" style={{ backgroundColor: "rgba(255,255,255,0.05)", color: "#8a8a8f" }}>
+                    <Clock className="mr-1.5 h-3 w-3" />
                     Updated {new Date(lastUpdated).toLocaleDateString()}
-                    {isUpdating && <Loader className="w-3 h-3 ml-2 animate-spin" />}
+                    {isUpdating && <Loader className="ml-2 h-3 w-3 animate-spin" />}
                   </span>
                 )}
               </div>
-              <p className="max-w-xl text-base" style={{ color: "#c1c1c3" }}>
+              <p className="text-sm md:text-base" style={{ color: "#c1c1c3" }}>
                 Your daily mix, curated from your library.
               </p>
+              {heroBasedOn.length > 0 && (
+                <p className="text-xs md:text-sm" style={{ color: "#8a8a8f" }}>
+                  Based on{" "}
+                  {heroBasedOn.length === 1
+                    ? heroBasedOn[0].name
+                    : heroBasedOn.length === 2
+                      ? `${heroBasedOn[0].name} and ${heroBasedOn[1].name}`
+                      : heroBasedOn
+                          .slice(0, 2)
+                          .map((a) => a.name)
+                          .join(", ") +
+                        ` and ${heroBasedOn.length - 2} more`}
+                </p>
+              )}
             </div>
 
             <button
               type="button"
               onClick={openDiscoverModal}
-              className="flex items-center gap-2 px-3 py-2 mt-1.5 rounded-md transition-colors hover:bg-white/5 border border-white/10 shrink-0"
+              className="mt-1 inline-flex shrink-0 items-center gap-2 rounded-md border border-white/10 px-3 py-2 transition-colors hover:bg-white/5"
               style={{ color: "#c1c1c3" }}
             >
               <LayoutTemplate className="w-4 h-4" />
@@ -1778,20 +1946,18 @@ function DiscoverPage() {
             </button>
           </div>
 
-          <div className="flex flex-col gap-3 pt-4 border-t border-white/5">
+          <div className="flex flex-col gap-3 border-t border-white/5 pt-4">
             {topGenres.length > 0 && (
-              <div className="flex flex-col gap-2.5">
-                <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#8a8a8f" }}>
+              <div className="flex flex-col gap-2">
+                <h3 className="text-[11px] font-semibold uppercase tracking-[0.22em]" style={{ color: "#8a8a8f" }}>
                   Top Tags
                 </h3>
-                <div 
-                  className="flex flex-wrap gap-2 max-h-[4rem] overflow-hidden"
-                >
+                <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {topGenres.map((genre, i) => (
                     <button
                       key={i}
                       onClick={() => navigate(`/search?q=${encodeURIComponent(`#${genre}`)}&type=tag`)}
-                      className="genre-tag-pill px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
+                      className="genre-tag-pill shrink-0 px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
                       style={{ backgroundColor: getTagColor(genre), color: "#fff" }}
                     >
                       #{genre}
@@ -1801,22 +1967,6 @@ function DiscoverPage() {
               </div>
             )}
 
-            {heroBasedOn.length > 0 && (
-              <p className="text-xs" style={{ color: "#8a8a8f" }}>
-                Based on{" "}
-                {heroBasedOn.length === 1
-                  ? heroBasedOn[0].name
-                  : heroBasedOn.length === 2
-                    ? `${heroBasedOn[0].name} and ${heroBasedOn[1].name}`
-                    : heroBasedOn.length === 3
-                      ? `${heroBasedOn[0].name}, ${heroBasedOn[1].name} and ${heroBasedOn[2].name}`
-                      : heroBasedOn
-                          .slice(0, 2)
-                          .map((a) => a.name)
-                          .join(", ") +
-                        ` and ${heroBasedOn.length - 2} other artist${heroBasedOn.length - 2 === 1 ? "" : "s"}`}
-              </p>
-            )}
           </div>
         </div>
       </section>

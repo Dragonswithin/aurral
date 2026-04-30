@@ -43,75 +43,149 @@ const ShowCard = memo(({ show }) => {
   const showLocation = formatShowLocation(show);
 
   return (
-    <article
-      className="group flex flex-col overflow-hidden border border-white/10"
-      style={{ backgroundColor: "#191820" }}
-    >
-      <div
-        className="relative aspect-[16/9] overflow-hidden"
-        style={{ backgroundColor: "#211f27" }}
+    <>
+      <article
+        className="group overflow-hidden rounded-2xl border border-white/10 md:hidden"
+        style={{ backgroundColor: "#191820" }}
       >
-        {show.image ? (
-          <img
-            src={show.image}
-            alt={show.eventName || show.artistName}
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-            loading="lazy"
-            decoding="async"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <Music className="w-10 h-10" style={{ color: "#c1c1c3" }} />
-          </div>
-        )}
-        <div className="absolute left-3 top-3 flex gap-2">
-          {Number.isFinite(show.distance) && (
-            <span
-              className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide"
-              style={{ backgroundColor: "rgba(20,20,26,0.82)", color: "#fff" }}
-            >
-              {Math.round(show.distance)} mi
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="flex flex-1 flex-col gap-3 p-4">
-        <div className="min-w-0">
-          <p className="text-xs uppercase tracking-[0.22em]" style={{ color: "#8a8a8f" }}>
-            {show.artistName}
-          </p>
-          <h3 className="mt-1 text-lg font-semibold leading-tight" style={{ color: "#fff" }}>
-            {show.eventName}
-          </h3>
-        </div>
-        <div className="space-y-2 text-sm" style={{ color: "#c1c1c3" }}>
-          {showDate && (
-            <p className="flex items-center gap-2">
-              <Clock className="w-4 h-4 shrink-0" />
-              <span>{showDate}</span>
-            </p>
-          )}
-          {showLocation && (
-            <p className="flex items-start gap-2">
-              <MapPin className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{showLocation}</span>
-            </p>
-          )}
-        </div>
-        <div className="mt-auto pt-2">
-          <a
-            href={show.url || "#"}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors hover:opacity-90"
-            style={{ backgroundColor: "#707e61", color: "#0b0b0c" }}
+        <div className="flex min-h-[120px]">
+          <div
+            className="relative w-[112px] shrink-0 overflow-hidden"
+            style={{ backgroundColor: "#211f27" }}
           >
-            <Ticket className="w-4 h-4" />
-            Tickets
-          </a>
+            {show.image ? (
+              <img
+                src={show.image}
+                alt={show.eventName || show.artistName}
+                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                loading="lazy"
+                decoding="async"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center">
+                <Music className="w-8 h-8" style={{ color: "#c1c1c3" }} />
+              </div>
+            )}
+            {Number.isFinite(show.distance) && (
+              <div className="absolute left-2 top-2">
+                <span
+                  className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                  style={{ backgroundColor: "rgba(20,20,26,0.82)", color: "#fff" }}
+                >
+                  {Math.round(show.distance)} mi
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-2 p-3">
+            <div className="min-w-0">
+              <p className="truncate text-[11px] uppercase tracking-[0.22em]" style={{ color: "#8a8a8f" }}>
+                {show.artistName}
+              </p>
+              <h3 className="mt-1 line-clamp-2 text-base font-semibold leading-tight" style={{ color: "#fff" }}>
+                {show.eventName}
+              </h3>
+            </div>
+            <div className="space-y-1.5 text-xs" style={{ color: "#c1c1c3" }}>
+              {showDate && (
+                <p className="flex items-center gap-2">
+                  <Clock className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{showDate}</span>
+                </p>
+              )}
+              {showLocation && (
+                <p className="flex items-start gap-2">
+                  <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span className="line-clamp-2">{showLocation}</span>
+                </p>
+              )}
+            </div>
+            <div className="mt-auto pt-1">
+              <a
+                href={show.url || "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-3 py-2 text-xs font-medium transition-colors hover:opacity-90"
+                style={{ backgroundColor: "#707e61", color: "#0b0b0c" }}
+              >
+                <Ticket className="h-3.5 w-3.5" />
+                Tickets
+              </a>
+            </div>
+          </div>
         </div>
-      </div>
-    </article>
+      </article>
+
+      <article
+        className="group hidden flex-col overflow-hidden border border-white/10 md:flex"
+        style={{ backgroundColor: "#191820" }}
+      >
+        <div
+          className="relative aspect-[16/9] overflow-hidden"
+          style={{ backgroundColor: "#211f27" }}
+        >
+          {show.image ? (
+            <img
+              src={show.image}
+              alt={show.eventName || show.artistName}
+              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+              loading="lazy"
+              decoding="async"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <Music className="w-10 h-10" style={{ color: "#c1c1c3" }} />
+            </div>
+          )}
+          <div className="absolute left-3 top-3 flex gap-2">
+            {Number.isFinite(show.distance) && (
+              <span
+                className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide"
+                style={{ backgroundColor: "rgba(20,20,26,0.82)", color: "#fff" }}
+              >
+                {Math.round(show.distance)} mi
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-1 flex-col gap-3 p-4">
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-[0.22em]" style={{ color: "#8a8a8f" }}>
+              {show.artistName}
+            </p>
+            <h3 className="mt-1 text-lg font-semibold leading-tight" style={{ color: "#fff" }}>
+              {show.eventName}
+            </h3>
+          </div>
+          <div className="space-y-2 text-sm" style={{ color: "#c1c1c3" }}>
+            {showDate && (
+              <p className="flex items-center gap-2">
+                <Clock className="w-4 h-4 shrink-0" />
+                <span>{showDate}</span>
+              </p>
+            )}
+            {showLocation && (
+              <p className="flex items-start gap-2">
+                <MapPin className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{showLocation}</span>
+              </p>
+            )}
+          </div>
+          <div className="mt-auto pt-2">
+            <a
+              href={show.url || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors hover:opacity-90"
+              style={{ backgroundColor: "#707e61", color: "#0b0b0c" }}
+            >
+              <Ticket className="w-4 h-4" />
+              Tickets
+            </a>
+          </div>
+        </div>
+      </article>
+    </>
   );
 });
 

@@ -360,8 +360,8 @@ export function FlowFormFields({
   return (
     <div className="grid gap-6">
       <div className="grid gap-4 rounded-lg border border-white/10 bg-white/5 p-4">
-        <div className="flex flex-wrap items-start gap-6">
-          <div className="grid gap-1.5 w-24 shrink-0">
+        <div className="-mx-1 flex items-end gap-3 overflow-x-auto px-1 pb-1 sm:mx-0 sm:flex-wrap sm:gap-6 sm:overflow-visible sm:px-0 sm:pb-0">
+          <div className="grid w-[4.75rem] shrink-0 gap-1.5 sm:w-24">
             <label className="text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
               Tracks
             </label>
@@ -377,17 +377,17 @@ export function FlowFormFields({
               }}
             />
           </div>
-          <div className="grid gap-1.5 shrink-0">
+          <div className="grid shrink-0 gap-1.5">
             <label className="text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
               Update Days
             </label>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               {WEEKDAY_OPTIONS.map((day) => {
                 const checked = scheduleDays.includes(day.id);
                 return (
                   <label
                     key={day.id}
-                    className={`inline-flex items-center justify-center rounded w-10 h-10 text-xs font-semibold transition-colors cursor-pointer ${
+                    className={`inline-flex h-9 w-9 items-center justify-center rounded text-xs font-semibold transition-colors cursor-pointer sm:h-10 sm:w-10 ${
                       checked
                         ? "bg-[#718062] text-[#f4f1eb]"
                         : "bg-[#15161a] text-[#a7aab5] hover:bg-[#202229] hover:text-[#dde1ea]"
@@ -426,7 +426,7 @@ export function FlowFormFields({
               })}
             </div>
           </div>
-          <div className="grid gap-1.5 w-36 shrink-0">
+          <div className="grid w-[6.75rem] shrink-0 gap-1.5 sm:w-36">
               <label className="text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
               Update Hour
               </label>
@@ -778,7 +778,7 @@ export function MoreMenu({ children }) {
       <button 
         type="button" 
         onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }} 
-        className={`btn btn-sm gap-2 ${isOpen ? "btn-primary" : "btn-secondary"}`}
+        className={`btn btn-sm gap-2 px-2.5 ${isOpen ? "btn-primary" : "btn-secondary"}`}
         aria-label="More options"
       >
         <MoreHorizontal className="w-4 h-4" />
@@ -823,7 +823,7 @@ function buildEditableTrackRows(tracks) {
   }));
 }
 
-function TrackStatusBadge({ status, pendingDelete = false }) {
+function TrackStatusBadge({ status, pendingDelete = false, compact = false }) {
   const isDownloaded = status === "done";
   const label = pendingDelete
     ? "Pending Delete"
@@ -832,7 +832,9 @@ function TrackStatusBadge({ status, pendingDelete = false }) {
       : "Not Downloaded";
   return (
     <span
-      className={`inline-flex h-6 w-6 items-center justify-center rounded-full border ${
+      className={`inline-flex h-6 w-6 items-center justify-center rounded-full border sm:h-6 sm:w-6 ${
+        compact ? "h-4 w-4" : ""
+      } ${
         pendingDelete
           ? "border-[#6f5941] bg-[#3a3025] text-[#ddb98b]"
           : isDownloaded
@@ -843,11 +845,11 @@ function TrackStatusBadge({ status, pendingDelete = false }) {
       aria-label={label}
     >
       {pendingDelete ? (
-        <X className="w-3.5 h-3.5" />
+        <X className={compact ? "w-2.5 h-2.5" : "w-3.5 h-3.5"} />
       ) : isDownloaded ? (
-        <Check className="w-3.5 h-3.5" />
+        <Check className={compact ? "w-2.5 h-2.5" : "w-3.5 h-3.5"} />
       ) : (
-        <CircleDashed className="w-3.5 h-3.5" />
+        <CircleDashed className={compact ? "w-2.5 h-2.5" : "w-3.5 h-3.5"} />
       )}
     </span>
   );
@@ -1091,116 +1093,216 @@ export const SharedPlaylistTrackEditor = forwardRef(function SharedPlaylistTrack
             {missingOnly ? "No missing tracks right now." : "No tracks in this playlist yet."}
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 z-20 bg-[#1c1b22]">
-              <tr className="text-left text-[#8b8b90] uppercase text-xs tracking-wider">
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Song</th>
-                <th className="px-3 py-2">Artist</th>
-                <th className="px-3 py-2">Album</th>
-                <th className="px-3 py-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleTracks.map((track, index) => {
+          <>
+            <div className="grid gap-2 p-3 sm:hidden">
+              <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 px-2.5 text-[10px] font-medium uppercase tracking-[0.16em] text-[#8b8b90]">
+                <div>Song</div>
+                <div>Artist</div>
+                <div>Album</div>
+                <div />
+              </div>
+              {visibleTracks.map((track) => {
                 const isLocked = track.status === "done";
                 const isMarkedForDeletion = track.isMarkedForDeletion === true;
                 const showStaticValues = isLocked || isMarkedForDeletion;
                 return (
-                  <tr
-                    key={track.rowId}
-                    className={`border-t border-white/5 text-[#d6d6d8] ${
-                      index % 2 === 0 ? "bg-[#211f27]" : "bg-[#1c1b22]"
-                    } ${isMarkedForDeletion ? "opacity-50" : ""}`}
-                  >
-                    <td className="px-3 py-2 align-top">
-                      <TrackStatusBadge
-                        status={track.status}
-                        pendingDelete={isMarkedForDeletion}
-                      />
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      {showStaticValues ? (
-                        <div className={`min-w-[180px] ${isMarkedForDeletion ? "line-through" : ""}`}>
-                          {track.trackName || "Untitled Song"}
+                  <div key={track.rowId} className={isMarkedForDeletion ? "opacity-50" : ""}>
+                    <div className="rounded-lg border border-white/8 bg-[#1c1b22] p-2.5 text-[#d6d6d8]">
+                      <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-2">
+                        <div className="min-w-0">
+                          {showStaticValues ? (
+                            <div className={`truncate text-sm ${isMarkedForDeletion ? "line-through" : ""}`}>
+                              {track.trackName || "Untitled Song"}
+                            </div>
+                          ) : (
+                            <div className="grid gap-1">
+                              <input
+                                type="text"
+                                className="input input-xs h-8 w-full min-w-0 bg-[#141419] px-2 text-sm"
+                                value={track.trackName}
+                                onChange={(event) =>
+                                  updateTrack(track.rowId, "trackName", event.target.value)
+                                }
+                                placeholder="Song name"
+                              />
+                              {track.error ? (
+                                <span className="text-[11px] text-[#d49c9c]">
+                                  {track.error}
+                                </span>
+                              ) : null}
+                            </div>
+                          )}
                         </div>
-                      ) : (
-                        <div className="grid gap-1 min-w-[180px]">
-                          <input
-                            type="text"
-                            className="input input-xs bg-[#141419]"
-                            value={track.trackName}
-                            onChange={(event) =>
-                              updateTrack(track.rowId, "trackName", event.target.value)
-                            }
-                            placeholder="Song name"
-                          />
-                          {track.error ? (
-                            <span className="text-[11px] text-[#d49c9c]">
-                              {track.error}
-                            </span>
-                          ) : null}
+                        <div className="min-w-0">
+                          {showStaticValues ? (
+                            <div className={`truncate text-sm ${isMarkedForDeletion ? "line-through" : ""}`}>
+                              {track.artistName || "Unknown Artist"}
+                            </div>
+                          ) : (
+                            <input
+                              type="text"
+                              className="input input-xs h-8 w-full min-w-0 bg-[#141419] px-2 text-sm"
+                              value={track.artistName}
+                              onChange={(event) =>
+                                updateTrack(track.rowId, "artistName", event.target.value)
+                              }
+                              placeholder="Artist name"
+                            />
+                          )}
                         </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      {showStaticValues ? (
-                        <div className={`min-w-[180px] ${isMarkedForDeletion ? "line-through" : ""}`}>
-                          {track.artistName || "Unknown Artist"}
+                        <div className="min-w-0">
+                          {showStaticValues ? (
+                            <div className={`truncate text-sm ${isMarkedForDeletion ? "line-through" : ""}`}>
+                              {track.albumName || "Unknown Album"}
+                            </div>
+                          ) : (
+                            <input
+                              type="text"
+                              className="input input-xs h-8 w-full min-w-0 bg-[#141419] px-2 text-sm"
+                              value={track.albumName}
+                              onChange={(event) =>
+                                updateTrack(track.rowId, "albumName", event.target.value)
+                              }
+                              placeholder="Album name"
+                            />
+                          )}
                         </div>
-                      ) : (
-                        <input
-                          type="text"
-                          className="input input-xs min-w-[180px] bg-[#141419]"
-                          value={track.artistName}
-                          onChange={(event) =>
-                            updateTrack(track.rowId, "artistName", event.target.value)
-                          }
-                          placeholder="Artist name"
-                        />
-                      )}
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      {showStaticValues ? (
-                        <div className={`min-w-[180px] ${isMarkedForDeletion ? "line-through" : ""}`}>
-                          {track.albumName || "Unknown Album"}
+                        <div className="flex justify-end">
+                          {isMarkedForDeletion ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleTrackDeletion(track.rowId)}
+                              className="btn btn-secondary btn-xs px-2"
+                            >
+                              Undo
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => toggleTrackDeletion(track.rowId)}
+                              className="btn btn-ghost btn-xs px-2 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
-                      ) : (
-                        <input
-                          type="text"
-                          className="input input-xs min-w-[180px] bg-[#141419]"
-                          value={track.albumName}
-                          onChange={(event) =>
-                            updateTrack(track.rowId, "albumName", event.target.value)
-                          }
-                          placeholder="Album name"
-                        />
-                      )}
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      {isMarkedForDeletion ? (
-                        <button
-                          type="button"
-                          onClick={() => toggleTrackDeletion(track.rowId)}
-                          className="btn btn-secondary btn-xs px-2"
-                        >
-                          Undo
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => toggleTrackDeletion(track.rowId)}
-                          className="btn btn-ghost btn-xs px-2 text-red-400 hover:bg-red-500/10 hover:text-red-300"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
+                      </div>
+                    </div>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+            <table className="hidden w-full text-sm sm:table">
+              <thead className="sticky top-0 z-20 bg-[#1c1b22]">
+                <tr className="text-left text-[#8b8b90] uppercase text-xs tracking-wider">
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Song</th>
+                  <th className="px-3 py-2">Artist</th>
+                  <th className="px-3 py-2">Album</th>
+                  <th className="px-3 py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleTracks.map((track, index) => {
+                  const isLocked = track.status === "done";
+                  const isMarkedForDeletion = track.isMarkedForDeletion === true;
+                  const showStaticValues = isLocked || isMarkedForDeletion;
+                  return (
+                    <tr
+                      key={track.rowId}
+                      className={`border-t border-white/5 text-[#d6d6d8] ${
+                        index % 2 === 0 ? "bg-[#211f27]" : "bg-[#1c1b22]"
+                      } ${isMarkedForDeletion ? "opacity-50" : ""}`}
+                    >
+                      <td className="px-3 py-2 align-top">
+                        <TrackStatusBadge
+                          status={track.status}
+                          pendingDelete={isMarkedForDeletion}
+                        />
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        {showStaticValues ? (
+                          <div className={`min-w-[180px] ${isMarkedForDeletion ? "line-through" : ""}`}>
+                            {track.trackName || "Untitled Song"}
+                          </div>
+                        ) : (
+                          <div className="grid gap-1 min-w-[180px]">
+                            <input
+                              type="text"
+                              className="input input-xs bg-[#141419]"
+                              value={track.trackName}
+                              onChange={(event) =>
+                                updateTrack(track.rowId, "trackName", event.target.value)
+                              }
+                              placeholder="Song name"
+                            />
+                            {track.error ? (
+                              <span className="text-[11px] text-[#d49c9c]">
+                                {track.error}
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        {showStaticValues ? (
+                          <div className={`min-w-[180px] ${isMarkedForDeletion ? "line-through" : ""}`}>
+                            {track.artistName || "Unknown Artist"}
+                          </div>
+                        ) : (
+                          <input
+                            type="text"
+                            className="input input-xs min-w-[180px] bg-[#141419]"
+                            value={track.artistName}
+                            onChange={(event) =>
+                              updateTrack(track.rowId, "artistName", event.target.value)
+                            }
+                            placeholder="Artist name"
+                          />
+                        )}
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        {showStaticValues ? (
+                          <div className={`min-w-[180px] ${isMarkedForDeletion ? "line-through" : ""}`}>
+                            {track.albumName || "Unknown Album"}
+                          </div>
+                        ) : (
+                          <input
+                            type="text"
+                            className="input input-xs min-w-[180px] bg-[#141419]"
+                            value={track.albumName}
+                            onChange={(event) =>
+                              updateTrack(track.rowId, "albumName", event.target.value)
+                            }
+                            placeholder="Album name"
+                          />
+                        )}
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        {isMarkedForDeletion ? (
+                          <button
+                            type="button"
+                            onClick={() => toggleTrackDeletion(track.rowId)}
+                            className="btn btn-secondary btn-xs px-2"
+                          >
+                            Undo
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => toggleTrackDeletion(track.rowId)}
+                            className="btn btn-ghost btn-xs px-2 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </>
         )}
       </div>
       {editorError ? (
@@ -1222,7 +1324,7 @@ function PlaylistArtworkThumb({ artworkUrl, name }) {
   const fallbackLabel = String(name || "?").trim().charAt(0).toUpperCase() || "?";
 
   return (
-    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-[1.25rem] border border-white/10 bg-[#1c1b22]">
+    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-[#1c1b22] min-[360px]:h-16 min-[360px]:w-16 sm:h-20 sm:w-20 sm:rounded-[1.25rem]">
       {!imageFailed && artworkUrl ? (
         <img
           src={artworkUrl}
@@ -1363,38 +1465,152 @@ export function FlowCard({
     );
   }
   const typeLabel = enabled ? "Flow" : "Flow Draft";
-  const statusSummary = enabled
-    ? "Flow refreshed weekly"
-    : "Flow ready when enabled";
+  const statusSummary = enabled ? "" : "Flow ready when enabled";
 
   return (
     <div className="bg-card rounded-lg border border-white/5 overflow-visible">
-      <div className="p-4 flex flex-col md:flex-row md:items-start justify-between gap-4">
-        <div className={`min-w-0 flex-1 flex gap-4 ${enabled ? "" : "opacity-50"}`}>
+      <div className="p-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
+        <div className={`min-w-0 flex-1 flex gap-3 sm:gap-4 ${enabled ? "" : "opacity-50"}`}>
           <PlaylistArtworkThumb artworkUrl={artworkUrl} name={flow.name} />
-          <div className="min-w-0 flex-1 grid gap-2.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-black/25 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[#d2dac9]">
-                {typeLabel}
-              </span>
-              <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-[#c6c6cb]">
-                {flow.size} tracks
-              </span>
-              {state === "running" && (
-                <span className="badge badge-success badge-sm gap-1.5 pl-1.5 pr-2">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  Running
+          <div className="min-w-0 flex-1 grid gap-2">
+            <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+                <span className="rounded-full bg-black/25 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[#d2dac9]">
+                  {typeLabel}
                 </span>
-              )}
-              {togglingId === flow.id && (
-                <span className="badge badge-secondary badge-sm gap-1.5 pl-1.5 pr-2">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  Updating
+                <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-[#c6c6cb]">
+                  {flow.size} tracks
                 </span>
-              )}
+                {state === "running" && (
+                  <span className="badge badge-success badge-sm gap-1.5 pl-1.5 pr-2">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Running
+                  </span>
+                )}
+                {togglingId === flow.id && (
+                  <span className="badge badge-secondary badge-sm gap-1.5 pl-1.5 pr-2">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Updating
+                  </span>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center justify-end gap-1 self-end min-[420px]:self-start">
+                <button
+                  onClick={onViewTracks}
+                  className={`hidden sm:inline-flex btn ${isTracksOpen ? "btn-primary" : "btn-secondary"} btn-sm gap-2 px-2.5`}
+                  aria-label={isTracksOpen ? `Close ${flow.name} tracks` : `View ${flow.name} tracks`}
+                  title={isTracksOpen ? `Close ${flow.name} tracks` : `View ${flow.name} tracks`}
+                  aria-pressed={isTracksOpen}
+                  disabled={!enabled && !isTracksOpen}
+                >
+                  <ListMusic className="w-4 h-4" />
+                  <span className="hidden md:inline">Tracks</span>
+                </button>
+                <button
+                  onClick={onToggleEditing}
+                  className={`hidden sm:inline-flex btn ${isEditing ? "btn-primary" : "btn-secondary"} btn-sm gap-2 px-2.5`}
+                  aria-label={isEditing ? "Close editor" : "Edit flow"}
+                  title={isEditing ? `Close ${flow.name} editor` : `Edit ${flow.name}`}
+                  aria-pressed={isEditing}
+                >
+                  <Pencil className="w-4 h-4" />
+                  <span className="hidden md:inline">Manage</span>
+                </button>
+                <MoreMenu>
+                  <button
+                    onClick={onViewTracks}
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-pressed={isTracksOpen}
+                    disabled={!enabled && !isTracksOpen}
+                  >
+                    <ListMusic className="w-4 h-4" />
+                    {isTracksOpen ? "Hide Tracks" : "View Tracks"}
+                  </button>
+                  <button
+                    onClick={onToggleEditing}
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden"
+                    aria-pressed={isEditing}
+                  >
+                    <Pencil className="w-4 h-4" />
+                    {isEditing ? "Close Manage View" : "Manage Flow"}
+                  </button>
+                  {isNameEditing ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={isNameDirty ? onNameApply : onNameCancel}
+                        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={isNameApplying}
+                      >
+                        {isNameApplying ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Check className="w-4 h-4" />
+                        )}
+                        Save Title
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onNameCancel}
+                        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={isNameApplying}
+                      >
+                        <X className="w-4 h-4" />
+                        Cancel Rename
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={onToggleNameEditing}
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden"
+                    >
+                      <Pencil className="w-4 h-4" />
+                      Rename Title
+                    </button>
+                  )}
+                  <div className="my-1 border-t border-white/10 sm:hidden" />
+                  <button
+                    onClick={onConvertToStatic}
+                    className="w-full text-left px-3 py-2.5 text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!canConvertToStatic || convertingId === flow.id}
+                  >
+                    {convertingId === flow.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <FilePlus2 className="w-4 h-4" />}
+                    Convert to Static
+                  </button>
+                  <button
+                    onClick={onExport}
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!canExport}
+                  >
+                    <Download className="w-4 h-4" />
+                    Download JSON
+                  </button>
+                  <div className="my-1 border-t border-white/10" />
+                  <button
+                    onClick={onDelete}
+                    className="w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={deletingId === flow.id}
+                  >
+                    {deletingId === flow.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    Delete Flow
+                  </button>
+                </MoreMenu>
+                <div className="flex items-center rounded-md bg-black/20 px-1.5 py-1 min-[420px]:px-2 min-[420px]:py-1.5">
+                  {togglingId === flow.id && (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-white/50" />
+                  )}
+                  <PillToggle
+                    checked={enabled}
+                    className={enabled ? "max-[420px]:[--w:38px]" : "is-off max-[420px]:[--w:38px]"}
+                    onChange={(event) => onToggleEnabled(event.target.checked)}
+                    disabled={togglingId === flow.id}
+                  />
+                </div>
+              </div>
             </div>
             <div className="space-y-1">
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex min-w-0 items-start gap-2">
                 {isNameEditing ? (
                   <input
                     type="text"
@@ -1424,11 +1640,11 @@ export function FlowCard({
                     aria-label={`Edit ${flow.name} name`}
                   />
                 ) : (
-                  <h3 className="text-base font-medium text-white truncate">
+                  <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-white sm:text-base">
                     {flow.name}
                   </h3>
                 )}
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="hidden shrink-0 items-center gap-1 sm:flex">
                   <button
                     type="button"
                     onClick={
@@ -1463,18 +1679,18 @@ export function FlowCard({
                   ) : null}
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#b5b5bc]">
-                <span>{statusSummary}</span>
-                {metaItems.length > 0 ? (
+              <div className="hidden flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[#b5b5bc] sm:gap-x-3 sm:text-xs md:flex">
+                {statusSummary ? <span>{statusSummary}</span> : null}
+                {statusSummary && metaItems.length > 0 ? (
                   <>
                     <span className="text-white/25">•</span>
-                    <span>{metaItems.join(" • ")}</span>
                   </>
                 ) : null}
+                {metaItems.length > 0 ? <span>{metaItems.join(" • ")}</span> : null}
               </div>
             </div>
             {flowWorkerMessage ? (
-              <div className="truncate text-xs text-[#9aa886]">
+              <div className="hidden truncate text-xs text-[#9aa886] sm:block">
                 {flowWorkerMessage}
               </div>
             ) : null}
@@ -1488,7 +1704,8 @@ export function FlowCard({
                     style={{ width: `${progressPct}%` }}
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#d3d3d8]">
+                <div className="text-[11px] text-[#d3d3d8] sm:hidden">{progressPct}% complete</div>
+                <div className="hidden flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#d3d3d8] sm:flex">
                   <span>{progressPct}% complete</span>
                   <span className="text-white/25">•</span>
                   <span>Pending {pendingCount}</span>
@@ -1499,73 +1716,6 @@ export function FlowCard({
                 </div>
               </div>
             ) : null}
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-3 shrink-0">
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={onViewTracks}
-              className={`btn ${isTracksOpen ? "btn-primary" : "btn-secondary"} btn-sm gap-2`}
-              aria-label={isTracksOpen ? `Close ${flow.name} tracks` : `View ${flow.name} tracks`}
-              title={isTracksOpen ? `Close ${flow.name} tracks` : `View ${flow.name} tracks`}
-              aria-pressed={isTracksOpen}
-              disabled={!enabled && !isTracksOpen}
-            >
-              <ListMusic className="w-4 h-4" />
-              <span className="hidden sm:inline">Tracks</span>
-            </button>
-            <button
-              onClick={onToggleEditing}
-              className={`btn ${isEditing ? "btn-primary" : "btn-secondary"} btn-sm gap-2`}
-              aria-label={isEditing ? "Close editor" : "Edit flow"}
-              title={isEditing ? `Close ${flow.name} editor` : `Edit ${flow.name}`}
-              aria-pressed={isEditing}
-            >
-              <Pencil className="w-4 h-4" />
-              <span className="hidden sm:inline">Manage</span>
-            </button>
-            <MoreMenu>
-              <button
-                onClick={onConvertToStatic}
-                className="w-full text-left px-3 py-2.5 text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={!canConvertToStatic || convertingId === flow.id}
-              >
-                {convertingId === flow.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <FilePlus2 className="w-4 h-4" />}
-                Convert to Static
-              </button>
-              <button
-                onClick={onExport}
-                className="w-full text-left px-3 py-2.5 text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={!canExport}
-              >
-                <Download className="w-4 h-4" />
-                Download JSON
-              </button>
-              <div className="my-1 border-t border-white/10" />
-              <button
-                onClick={onDelete}
-                className="w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={deletingId === flow.id}
-              >
-                {deletingId === flow.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                Delete Flow
-              </button>
-            </MoreMenu>
-          </div>
-          
-          <div className="hidden sm:block w-px h-6 bg-white/10" />
-          
-          <div className="flex items-center gap-1.5 rounded-md bg-black/20 px-2 py-1.5">
-            {togglingId === flow.id && (
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-white/50" />
-            )}
-            <PillToggle
-              checked={enabled}
-              className={enabled ? "" : "is-off"}
-              onChange={(event) => onToggleEnabled(event.target.checked)}
-              disabled={togglingId === flow.id}
-            />
           </div>
         </div>
       </div>
@@ -1927,7 +2077,7 @@ export function FlowTracksPanel({
             max="100"
             value={volume}
             onChange={(event) => handleVolumeChange(event.target.value)}
-            className="w-24 accent-[#9aa886]"
+            className="hidden w-24 accent-[#9aa886] sm:block"
             aria-label="Track volume"
           />
         </div>
@@ -1952,7 +2102,7 @@ export function FlowTracksPanel({
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-20 bg-[#1c1b22]">
               <tr className="text-left text-[#8b8b90] uppercase text-xs tracking-wider">
-                {showStatus ? <th className="px-3 py-2">Status</th> : null}
+                {showStatus ? <th className="hidden px-3 py-2 sm:table-cell">Status</th> : null}
                 <th className="px-3 py-2">Song</th>
                 <th className="px-3 py-2">Artist</th>
                 <th className="px-3 py-2">Album</th>
@@ -1985,7 +2135,7 @@ export function FlowTracksPanel({
                     }
                   >
                     {showStatus ? (
-                      <td className="px-3 py-2 align-top">
+                      <td className="hidden px-3 py-2 align-top sm:table-cell">
                         <TrackStatusBadge status={track.status} />
                       </td>
                     ) : null}
@@ -2132,20 +2282,116 @@ export function SharedPlaylistCard({
 
   return (
     <div className="overflow-visible rounded-lg border border-white/5 bg-card">
-      <div className="flex flex-col gap-4 px-4 py-4 md:flex-row md:items-start md:justify-between">
-        <div className="min-w-0 flex-1 flex gap-4">
+      <div className="flex flex-col gap-3 px-4 py-4 md:flex-row md:items-start md:justify-between md:gap-4">
+        <div className="min-w-0 flex-1 flex gap-3 sm:gap-4">
           <PlaylistArtworkThumb artworkUrl={artworkUrl} name={playlist.name} />
           <div className="min-w-0 flex-1 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-black/25 px-3.5 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[#d6e5c8]">
-                Playlist
-              </span>
-              <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-[#c6c6cb]">
-                {playlist.trackCount} tracks
-              </span>
+            <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+                <span className="rounded-full bg-black/25 px-3.5 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[#d6e5c8]">
+                  Playlist
+                </span>
+                <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-[#c6c6cb]">
+                  {playlist.trackCount} tracks
+                </span>
+              </div>
+              <div className="flex shrink-0 items-center justify-end gap-1 self-end min-[420px]:self-start">
+                <button
+                  type="button"
+                  onClick={onViewTracks}
+                  className={`hidden sm:inline-flex btn ${isTracksOpen ? "btn-primary" : "btn-secondary"} btn-sm gap-2 px-2.5`}
+                  aria-label={isTracksOpen ? `Close ${playlist.name} tracks` : `View ${playlist.name} tracks`}
+                  title={isTracksOpen ? `Close ${playlist.name} tracks` : `View ${playlist.name} tracks`}
+                  aria-pressed={isTracksOpen}
+                >
+                  <ListMusic className="w-4 h-4" />
+                  <span className="hidden md:inline">Tracks</span>
+                </button>
+                <MoreMenu>
+                  <button
+                    type="button"
+                    onClick={onViewTracks}
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden"
+                    aria-pressed={isTracksOpen}
+                  >
+                    <ListMusic className="w-4 h-4" />
+                    {isTracksOpen ? "Hide Tracks" : "View Tracks"}
+                  </button>
+                  {isEditing ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={onApplyEdit}
+                        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={isApplyingName}
+                      >
+                        {isApplyingName ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Check className="w-4 h-4" />
+                        )}
+                        Save Title
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onCancelEdit}
+                        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={isApplyingName}
+                      >
+                        <X className="w-4 h-4" />
+                        Cancel Rename
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={onToggleEditing}
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden"
+                    >
+                      <Pencil className="w-4 h-4" />
+                      Rename Title
+                    </button>
+                  )}
+                  <div className="my-1 border-t border-white/10 sm:hidden" />
+                  <button
+                    type="button"
+                    onClick={onExport}
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download JSON
+                  </button>
+                  <div className="my-1 border-t border-white/10" />
+                  <button
+                    type="button"
+                    onClick={() => onSetRetryCyclePaused?.(!retryCyclePaused)}
+                    className="w-full text-left px-3 py-2.5 text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={retryActionInFlight}
+                  >
+                    {retryActionInFlight ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : retryCyclePaused ? (
+                      <Play className="w-4 h-4" />
+                    ) : (
+                      <Pause className="w-4 h-4" />
+                    )}
+                    {retryCyclePaused ? "Resume Retry Cycle" : "Pause Retry Cycle"}
+                  </button>
+                  <div className="my-1 border-t border-white/10" />
+                  <button
+                    type="button"
+                    onClick={onDelete}
+                    className="w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={deletingId === playlist.id}
+                  >
+                    {deletingId === playlist.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    Delete Playlist
+                  </button>
+                </MoreMenu>
+              </div>
             </div>
             <div className="space-y-1">
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex min-w-0 items-start gap-2">
                 {isEditing ? (
                   <input
                     type="text"
@@ -2165,11 +2411,11 @@ export function SharedPlaylistCard({
                     aria-label={`Edit ${playlist.name} name`}
                   />
                 ) : (
-                  <h3 className="truncate text-base font-medium text-white">
+                  <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-white sm:text-base">
                     {playlist.name}
                   </h3>
                 )}
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="hidden shrink-0 items-center gap-1 sm:flex">
                   <button
                     type="button"
                     onClick={isEditing ? onApplyEdit : onToggleEditing}
@@ -2223,7 +2469,8 @@ export function SharedPlaylistCard({
                   style={{ width: `${progressPct}%` }}
                 />
               </div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#c7ccc7]">
+              <div className="text-[11px] text-[#c7ccc7] sm:hidden">{progressPct}% complete</div>
+              <div className="hidden flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#c7ccc7] sm:flex">
                 <span>{progressPct}% complete</span>
                 <span className="text-white/25">•</span>
                 <span>Pending {pending}</span>
@@ -2235,58 +2482,6 @@ export function SharedPlaylistCard({
                 <span>Stalled {failed}</span>
               </div>
             </div>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-3 shrink-0">
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={onViewTracks}
-              className={`btn ${isTracksOpen ? "btn-primary" : "btn-secondary"} btn-sm gap-2`}
-              aria-label={isTracksOpen ? `Close ${playlist.name} tracks` : `View ${playlist.name} tracks`}
-              title={isTracksOpen ? `Close ${playlist.name} tracks` : `View ${playlist.name} tracks`}
-              aria-pressed={isTracksOpen}
-            >
-              <ListMusic className="w-4 h-4" />
-              <span className="hidden sm:inline">Tracks</span>
-            </button>
-            <MoreMenu>
-              <button
-                type="button"
-                onClick={onExport}
-                className="w-full text-left px-3 py-2.5 text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white flex items-center gap-2.5"
-              >
-                <Download className="w-4 h-4" />
-                Download JSON
-              </button>
-              <div className="my-1 border-t border-white/10" />
-              <button
-                type="button"
-                onClick={() => onSetRetryCyclePaused?.(!retryCyclePaused)}
-                className="w-full text-left px-3 py-2.5 text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={retryActionInFlight}
-              >
-                {retryActionInFlight ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : retryCyclePaused ? (
-                  <Play className="w-4 h-4" />
-                ) : (
-                  <Pause className="w-4 h-4" />
-                )}
-                {retryCyclePaused ? "Resume Retry Cycle" : "Pause Retry Cycle"}
-              </button>
-              <div className="my-1 border-t border-white/10" />
-              <button
-                type="button"
-                onClick={onDelete}
-                className="w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={deletingId === playlist.id}
-              >
-                {deletingId === playlist.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                Delete Playlist
-              </button>
-            </MoreMenu>
           </div>
         </div>
       </div>
