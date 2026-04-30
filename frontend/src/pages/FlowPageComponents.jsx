@@ -1324,7 +1324,7 @@ function PlaylistArtworkThumb({ artworkUrl, name }) {
   const fallbackLabel = String(name || "?").trim().charAt(0).toUpperCase() || "?";
 
   return (
-    <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-[#1c1b22] sm:h-20 sm:w-20 sm:rounded-[1.25rem]">
+    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-[#1c1b22] min-[360px]:h-16 min-[360px]:w-16 sm:h-20 sm:w-20 sm:rounded-[1.25rem]">
       {!imageFailed && artworkUrl ? (
         <img
           src={artworkUrl}
@@ -1473,7 +1473,7 @@ export function FlowCard({
         <div className={`min-w-0 flex-1 flex gap-3 sm:gap-4 ${enabled ? "" : "opacity-50"}`}>
           <PlaylistArtworkThumb artworkUrl={artworkUrl} name={flow.name} />
           <div className="min-w-0 flex-1 grid gap-2">
-            <div className="flex items-start justify-between gap-2">
+            <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
                 <span className="rounded-full bg-black/25 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[#d2dac9]">
                   {typeLabel}
@@ -1494,10 +1494,10 @@ export function FlowCard({
                   </span>
                 )}
               </div>
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="flex shrink-0 items-center justify-end gap-1 self-end min-[420px]:self-start">
                 <button
                   onClick={onViewTracks}
-                  className={`btn ${isTracksOpen ? "btn-primary" : "btn-secondary"} btn-sm gap-2 px-2.5`}
+                  className={`hidden sm:inline-flex btn ${isTracksOpen ? "btn-primary" : "btn-secondary"} btn-sm gap-2 px-2.5`}
                   aria-label={isTracksOpen ? `Close ${flow.name} tracks` : `View ${flow.name} tracks`}
                   title={isTracksOpen ? `Close ${flow.name} tracks` : `View ${flow.name} tracks`}
                   aria-pressed={isTracksOpen}
@@ -1508,7 +1508,7 @@ export function FlowCard({
                 </button>
                 <button
                   onClick={onToggleEditing}
-                  className={`btn ${isEditing ? "btn-primary" : "btn-secondary"} btn-sm gap-2 px-2.5`}
+                  className={`hidden sm:inline-flex btn ${isEditing ? "btn-primary" : "btn-secondary"} btn-sm gap-2 px-2.5`}
                   aria-label={isEditing ? "Close editor" : "Edit flow"}
                   title={isEditing ? `Close ${flow.name} editor` : `Edit ${flow.name}`}
                   aria-pressed={isEditing}
@@ -1517,6 +1517,59 @@ export function FlowCard({
                   <span className="hidden md:inline">Manage</span>
                 </button>
                 <MoreMenu>
+                  <button
+                    onClick={onViewTracks}
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-pressed={isTracksOpen}
+                    disabled={!enabled && !isTracksOpen}
+                  >
+                    <ListMusic className="w-4 h-4" />
+                    {isTracksOpen ? "Hide Tracks" : "View Tracks"}
+                  </button>
+                  <button
+                    onClick={onToggleEditing}
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden"
+                    aria-pressed={isEditing}
+                  >
+                    <Pencil className="w-4 h-4" />
+                    {isEditing ? "Close Manage View" : "Manage Flow"}
+                  </button>
+                  {isNameEditing ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={isNameDirty ? onNameApply : onNameCancel}
+                        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={isNameApplying}
+                      >
+                        {isNameApplying ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Check className="w-4 h-4" />
+                        )}
+                        Save Title
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onNameCancel}
+                        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={isNameApplying}
+                      >
+                        <X className="w-4 h-4" />
+                        Cancel Rename
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={onToggleNameEditing}
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden"
+                    >
+                      <Pencil className="w-4 h-4" />
+                      Rename Title
+                    </button>
+                  )}
+                  <div className="my-1 border-t border-white/10 sm:hidden" />
                   <button
                     onClick={onConvertToStatic}
                     className="w-full text-left px-3 py-2.5 text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1527,13 +1580,13 @@ export function FlowCard({
                   </button>
                   <button
                     onClick={onExport}
-                    className="hidden w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:flex"
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!canExport}
                   >
                     <Download className="w-4 h-4" />
                     Download JSON
                   </button>
-                  <div className="my-1 hidden border-t border-white/10 sm:block" />
+                  <div className="my-1 border-t border-white/10" />
                   <button
                     onClick={onDelete}
                     className="w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1543,13 +1596,13 @@ export function FlowCard({
                     Delete Flow
                   </button>
                 </MoreMenu>
-                <div className="flex items-center rounded-md bg-black/20 px-2 py-1.5">
+                <div className="flex items-center rounded-md bg-black/20 px-1.5 py-1 min-[420px]:px-2 min-[420px]:py-1.5">
                   {togglingId === flow.id && (
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-white/50" />
                   )}
                   <PillToggle
                     checked={enabled}
-                    className={enabled ? "" : "is-off"}
+                    className={enabled ? "max-[420px]:[--w:38px]" : "is-off max-[420px]:[--w:38px]"}
                     onChange={(event) => onToggleEnabled(event.target.checked)}
                     disabled={togglingId === flow.id}
                   />
@@ -2233,7 +2286,7 @@ export function SharedPlaylistCard({
         <div className="min-w-0 flex-1 flex gap-3 sm:gap-4">
           <PlaylistArtworkThumb artworkUrl={artworkUrl} name={playlist.name} />
           <div className="min-w-0 flex-1 space-y-2">
-            <div className="flex items-start justify-between gap-2">
+            <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
                 <span className="rounded-full bg-black/25 px-3.5 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[#d6e5c8]">
                   Playlist
@@ -2242,11 +2295,11 @@ export function SharedPlaylistCard({
                   {playlist.trackCount} tracks
                 </span>
               </div>
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="flex shrink-0 items-center justify-end gap-1 self-end min-[420px]:self-start">
                 <button
                   type="button"
                   onClick={onViewTracks}
-                  className={`btn ${isTracksOpen ? "btn-primary" : "btn-secondary"} btn-sm gap-2 px-2.5`}
+                  className={`hidden sm:inline-flex btn ${isTracksOpen ? "btn-primary" : "btn-secondary"} btn-sm gap-2 px-2.5`}
                   aria-label={isTracksOpen ? `Close ${playlist.name} tracks` : `View ${playlist.name} tracks`}
                   title={isTracksOpen ? `Close ${playlist.name} tracks` : `View ${playlist.name} tracks`}
                   aria-pressed={isTracksOpen}
@@ -2257,13 +2310,58 @@ export function SharedPlaylistCard({
                 <MoreMenu>
                   <button
                     type="button"
+                    onClick={onViewTracks}
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden"
+                    aria-pressed={isTracksOpen}
+                  >
+                    <ListMusic className="w-4 h-4" />
+                    {isTracksOpen ? "Hide Tracks" : "View Tracks"}
+                  </button>
+                  {isEditing ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={onApplyEdit}
+                        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={isApplyingName}
+                      >
+                        {isApplyingName ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Check className="w-4 h-4" />
+                        )}
+                        Save Title
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onCancelEdit}
+                        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={isApplyingName}
+                      >
+                        <X className="w-4 h-4" />
+                        Cancel Rename
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={onToggleEditing}
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden"
+                    >
+                      <Pencil className="w-4 h-4" />
+                      Rename Title
+                    </button>
+                  )}
+                  <div className="my-1 border-t border-white/10 sm:hidden" />
+                  <button
+                    type="button"
                     onClick={onExport}
-                    className="hidden w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:flex"
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white"
                   >
                     <Download className="w-4 h-4" />
                     Download JSON
                   </button>
-                  <div className="my-1 hidden border-t border-white/10 sm:block" />
+                  <div className="my-1 border-t border-white/10" />
                   <button
                     type="button"
                     onClick={() => onSetRetryCyclePaused?.(!retryCyclePaused)}
