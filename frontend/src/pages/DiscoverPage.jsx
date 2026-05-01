@@ -382,7 +382,10 @@ const ArtistCard = memo(
             </div>
           </div>
           {(canAddArtist || onAddToBlocklist) && (
-            <div ref={menuRef} className="relative shrink-0">
+            <div
+              ref={menuRef}
+              className={`relative shrink-0 ${showMenu ? "z-40" : ""}`}
+            >
               <button
                 type="button"
                 onClick={(event) => {
@@ -397,7 +400,7 @@ const ArtistCard = memo(
               </button>
               {showMenu && (
                 <div
-                  className="absolute right-0 top-full mt-1 w-44 z-30 py-1 border border-white/10 shadow-xl"
+                  className="absolute right-0 bottom-full mb-2 w-44 z-30 py-1 border border-white/10 shadow-xl"
                   style={{ backgroundColor: "#2a2830" }}
                   onClick={(event) => event.stopPropagation()}
                 >
