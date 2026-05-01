@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { Loader, Music, ArrowLeft, X } from "lucide-react";
+import { Loader, Music, X } from "lucide-react";
 import { useToast } from "../../contexts/ToastContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useArtistDetailsStream } from "./hooks/useArtistDetailsStream";
@@ -494,14 +494,6 @@ function ArtistDetailsPage() {
 
   return (
     <div className="animate-fade-in">
-      <button
-        onClick={() => navigate(-1)}
-        className="btn btn-secondary mb-6 hidden items-center sm:inline-flex"
-      >
-        <ArrowLeft className="w-5 h-5 mr-2" />
-        Back
-      </button>
-
       <ArtistDetailsHero
         artist={artist}
         libraryArtist={libraryArtist}

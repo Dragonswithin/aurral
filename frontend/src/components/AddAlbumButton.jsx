@@ -10,7 +10,7 @@ const AddAlbumButton = ({ onClick, isLoading, disabled, className, style }) => {
       disabled={disabled || isLoading}
       className={`add-album-btn ${className || ''}`}
       style={style}
-      title="Add Album"
+      title="Add to Lidarr"
     >
       <div className="icon-container">
         {isLoading ? (
@@ -19,7 +19,7 @@ const AddAlbumButton = ({ onClick, isLoading, disabled, className, style }) => {
           <Plus className="w-4 h-4" />
         )}
       </div>
-      <span className="label">Add Album</span>
+      <span className="label">Add to Lidarr</span>
     </button>
   );
 };

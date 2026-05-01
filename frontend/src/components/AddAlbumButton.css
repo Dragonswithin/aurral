@@ -17,7 +17,7 @@
 }
 
 .add-album-btn:hover:not(:disabled) {
-  width: 110px;
+  width: 126px;
   background-color: #2a2830;
   border-color: #2a2830;
   color: #fff;
