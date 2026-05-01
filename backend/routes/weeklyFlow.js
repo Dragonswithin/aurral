@@ -121,6 +121,84 @@ const sortJobsForTrackReuse = (jobs) =>
     return Number(a?.createdAt || 0) - Number(b?.createdAt || 0);
   });
 
+const getPlaylistLibraryRoot = (playlistType) =>
+  path.resolve(
+    weeklyFlowWorker.weeklyFlowRoot,
+    "aurral-weekly-flow",
+    String(playlistType || "").trim(),
+  );
+
+const buildReusableJobsByIdentity = (jobs) => {
+  const reusableJobsByIdentity = new Map();
+  for (const job of Array.isArray(jobs) ? jobs : []) {
+    if (job?.status !== "done" || typeof job?.finalPath !== "string") continue;
+    const identity = buildTrackIdentity(job);
+    const current = reusableJobsByIdentity.get(identity) || [];
+    current.push(job);
+    reusableJobsByIdentity.set(identity, current);
+  }
+  for (const [identity, jobsForIdentity] of reusableJobsByIdentity.entries()) {
+    reusableJobsByIdentity.set(identity, sortJobsForTrackReuse(jobsForIdentity));
+  }
+  return reusableJobsByIdentity;
+};
+
+const buildUniqueReuseTargetPath = async (sourceJob, targetPlaylistId) => {
+  const safeSourcePath = path.resolve(sourceJob.finalPath);
+  const sourceRoot = getPlaylistLibraryRoot(sourceJob.playlistType);
+  if (!isPathInsideRoot(safeSourcePath, sourceRoot)) {
+    throw new Error(`Track path is outside the playlist library: ${sourceJob.finalPath}`);
+  }
+  const sourceStat = await fsp.stat(safeSourcePath);
+  if (!sourceStat.isFile()) {
+    throw new Error(`Track file is missing: ${sourceJob.finalPath}`);
+  }
+
+  const relativePath = path.relative(sourceRoot, safeSourcePath);
+  const targetRoot = getPlaylistLibraryRoot(targetPlaylistId);
+  let targetPath = path.resolve(targetRoot, relativePath);
+  if (!isPathInsideRoot(targetPath, targetRoot)) {
+    throw new Error(`Target path is outside the playlist library: ${targetPath}`);
+  }
+
+  const parsed = path.parse(targetPath);
+  let suffix = 1;
+  while (true) {
+    try {
+      await fsp.access(targetPath);
+      targetPath = path.resolve(
+        parsed.dir,
+        `${parsed.name}-${suffix}${parsed.ext}`,
+      );
+      suffix += 1;
+    } catch {
+      break;
+    }
+  }
+
+  await fsp.mkdir(path.dirname(targetPath), { recursive: true });
+  return { safeSourcePath, targetPath };
+};
+
+const reuseCompletedTrackForPlaylist = async (track, targetPlaylistId, sourceJob) => {
+  const { safeSourcePath, targetPath } = await buildUniqueReuseTargetPath(
+    sourceJob,
+    targetPlaylistId,
+  );
+  await fsp.copyFile(safeSourcePath, targetPath);
+  const jobId = downloadTracker.addJob(track, targetPlaylistId);
+  if (!jobId) {
+    await fsp.rm(targetPath, { force: true });
+    return null;
+  }
+  downloadTracker.setDone(
+    jobId,
+    targetPath,
+    sourceJob.albumName || track.albumName || null,
+  );
+  return jobId;
+};
+
 router.get("/stream/:jobId", noCache, async (req, res) => {
   if (!verifyTokenAuth(req)) {
     return res
@@ -948,10 +1026,45 @@ router.post("/shared-playlists/:playlistId/tracks", async (req, res) => {
       playlistId,
       normalizedTracks,
     );
-    const jobIds = downloadTracker.addJobs(normalizedTracks, playlistId);
+    const reusableJobsByIdentity = buildReusableJobsByIdentity(
+      downloadTracker
+        .getAll()
+        .filter((job) => String(job?.playlistType || "") !== String(playlistId)),
+    );
+    const reusedJobIds = [];
+    const tracksToQueue = [];
+    for (const track of normalizedTracks) {
+      const reusableJob = (reusableJobsByIdentity.get(buildTrackIdentity(track)) || [])[0];
+      if (!reusableJob) {
+        tracksToQueue.push(track);
+        continue;
+      }
+      try {
+        const reusedJobId = await reuseCompletedTrackForPlaylist(
+          track,
+          playlistId,
+          reusableJob,
+        );
+        if (reusedJobId) {
+          reusedJobIds.push(reusedJobId);
+        } else {
+          tracksToQueue.push(track);
+        }
+      } catch (error) {
+        console.warn(
+          `[WeeklyFlow] Failed to reuse completed track for ${playlistId}:`,
+          error.message,
+        );
+        tracksToQueue.push(track);
+      }
+    }
+    const jobIds = downloadTracker.addJobs(tracksToQueue, playlistId);
 
     playlistManager.updateConfig(false);
     await playlistManager.ensureSmartPlaylists();
+    if (reusedJobIds.length > 0) {
+      await playlistManager.scanLibrary();
+    }
     if (jobIds.length > 0) {
       if (!weeklyFlowWorker.running) {
         await weeklyFlowWorker.start();
@@ -964,7 +1077,8 @@ router.post("/shared-playlists/:playlistId/tracks", async (req, res) => {
       success: true,
       playlist: updatedPlaylist,
       tracksQueued: jobIds.length,
-      jobIds,
+      tracksReused: reusedJobIds.length,
+      jobIds: [...reusedJobIds, ...jobIds],
     });
   } catch (error) {
     res.status(500).json({

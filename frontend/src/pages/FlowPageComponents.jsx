@@ -23,7 +23,6 @@ import {
   Shuffle,
   SkipBack,
   SkipForward,
-  ExternalLink,
   Volume2,
   VolumeX,
   Plus,
@@ -98,6 +97,13 @@ export function MixSlider({ mix, onChange, normalizeMixPercent }) {
   const normalized = normalizeMixPercent(mix);
   const barRef = useRef(null);
   const dragRef = useRef(null);
+
+  const startDrag = (event, handle) => {
+    event.preventDefault();
+    dragRef.current = { handle };
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+    updateFromClientX(event.clientX, handle);
+  };
 
   const updateFromClientX = useCallback(
     (clientX, handle) => {
@@ -182,6 +188,7 @@ export function MixSlider({ mix, onChange, normalizeMixPercent }) {
       <div
         ref={barRef}
         className="relative h-9 rounded-full border border-white/10 bg-white/5 select-none"
+        style={{ touchAction: "none" }}
       >
         <div className="absolute inset-0 flex overflow-hidden rounded-full">
           <div
@@ -214,10 +221,7 @@ export function MixSlider({ mix, onChange, normalizeMixPercent }) {
         </div>
         <button
           type="button"
-          onPointerDown={(event) => {
-            dragRef.current = { handle: "left" };
-            updateFromClientX(event.clientX, "left");
-          }}
+          onPointerDown={(event) => startDrag(event, "left")}
           className="absolute top-0 h-full w-4 -ml-2 cursor-ew-resize z-10"
           style={{ left: `${displayLeft}%` }}
           aria-label="Adjust discover and library mix"
@@ -226,10 +230,7 @@ export function MixSlider({ mix, onChange, normalizeMixPercent }) {
         </button>
         <button
           type="button"
-          onPointerDown={(event) => {
-            dragRef.current = { handle: "right" };
-            updateFromClientX(event.clientX, "right");
-          }}
+          onPointerDown={(event) => startDrag(event, "right")}
           className="absolute top-0 h-full w-4 -ml-2 cursor-ew-resize z-10"
           style={{ left: `${displayRight}%` }}
           aria-label="Adjust library and trending mix"
@@ -1342,6 +1343,21 @@ function PlaylistArtworkThumb({ artworkUrl, name }) {
   );
 }
 
+const MOBILE_CARD_MEDIA_QUERY = "(max-width: 639px)";
+
+const shouldHandleMobileCardTap = (event) => {
+  if (
+    typeof window === "undefined" ||
+    !window.matchMedia(MOBILE_CARD_MEDIA_QUERY).matches
+  ) {
+    return false;
+  }
+  const interactiveTarget = event.target?.closest(
+    'button, a, input, textarea, select, label, [role="button"], [data-no-card-toggle="true"]',
+  );
+  return !interactiveTarget;
+};
+
 export function FlowCard({
   flow,
   artworkUrl,
@@ -1467,10 +1483,18 @@ export function FlowCard({
   const typeLabel = enabled ? "Flow" : "Flow Draft";
   const statusSummary = enabled ? "" : "Flow ready when enabled";
 
+  const handleMobileTrackToggle = (event) => {
+    if (!shouldHandleMobileCardTap(event)) return;
+    onViewTracks?.();
+  };
+
   return (
-    <div className="bg-card rounded-lg border border-white/5 overflow-visible">
+    <div className="bg-card overflow-visible border border-white/5 -mx-4 rounded-none sm:mx-0 sm:rounded-lg">
       <div className="p-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
-        <div className={`min-w-0 flex-1 flex gap-3 sm:gap-4 ${enabled ? "" : "opacity-50"}`}>
+        <div
+          className={`min-w-0 flex-1 flex gap-3 sm:gap-4 ${enabled ? "" : "opacity-50"} cursor-pointer sm:cursor-default`}
+          onClick={handleMobileTrackToggle}
+        >
           <PlaylistArtworkThumb artworkUrl={artworkUrl} name={flow.name} />
           <div className="min-w-0 flex-1 grid gap-2">
             <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
@@ -1689,11 +1713,14 @@ export function FlowCard({
                 {metaItems.length > 0 ? <span>{metaItems.join(" • ")}</span> : null}
               </div>
             </div>
-            {flowWorkerMessage ? (
+              {flowWorkerMessage ? (
               <div className="hidden truncate text-xs text-[#9aa886] sm:block">
                 {flowWorkerMessage}
               </div>
             ) : null}
+            <div className="text-[11px] text-[#9aa886] sm:hidden">
+              {isTracksOpen ? "Tap card to hide tracks" : "Tap card to view tracks"}
+            </div>
             {(state === "running" || state === "completed") && total > 0 ? (
               <div className="grid gap-1.5">
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
@@ -1752,8 +1779,8 @@ export function FlowCard({
       )}
 
       {isTracksOpen && (
-        <div className="px-4 pb-4">
-          <div className="card-separator mb-4" />
+        <div className="pb-4 sm:px-4">
+          <div className="card-separator mx-4 mb-4 sm:mx-0" />
           <FlowTracksPanel
             tracks={tracks}
             loading={tracksLoading}
@@ -2018,7 +2045,7 @@ export function FlowTracksPanel({
   }, []);
 
   return (
-    <div className="rounded-lg border border-white/10 bg-[#211f27] overflow-hidden">
+    <div className="overflow-hidden border border-white/10 bg-[#211f27] rounded-none sm:rounded-lg">
       <div className="relative bg-[#211f27] px-3 py-2.5 border-b border-white/10 flex items-center">
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center gap-2">
           <button
@@ -2140,7 +2167,19 @@ export function FlowTracksPanel({
                       </td>
                     ) : null}
                     <td className="px-3 py-2">{track.trackName}</td>
-                    <td className="px-3 py-2">{track.artistName}</td>
+                    <td className="px-3 py-2">
+                      {track.artistMbid ? (
+                        <button
+                          type="button"
+                          onClick={() => onNavigateArtist(track)}
+                          className="text-left text-[#d6d6d8] transition-colors hover:text-white hover:underline"
+                        >
+                          {track.artistName}
+                        </button>
+                      ) : (
+                        track.artistName
+                      )}
+                    </td>
                     <td className="px-3 py-2">
                       <div className="grid gap-1">
                         <span>{track.albumName || "Unknown Album"}</span>
@@ -2164,15 +2203,6 @@ export function FlowTracksPanel({
                             <Play className="w-3.5 h-3.5" />
                           )}
                         </button>
-                        {track.artistMbid ? (
-                          <button
-                            onClick={() => onNavigateArtist(track)}
-                            className="btn btn-secondary btn-xs px-2"
-                            aria-label={`Open artist details for ${track.artistName}`}
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </button>
-                        ) : null}
                         {onAddTrackToPlaylist ? (
                           <button
                             onClick={() => onAddTrackToPlaylist(track)}
@@ -2280,10 +2310,18 @@ export function SharedPlaylistCard({
     currentJob?.artistName &&
     currentJob?.trackName;
 
+  const handleMobileTrackToggle = (event) => {
+    if (!shouldHandleMobileCardTap(event)) return;
+    onViewTracks?.();
+  };
+
   return (
-    <div className="overflow-visible rounded-lg border border-white/5 bg-card">
+    <div className="overflow-visible border border-white/5 bg-card -mx-4 rounded-none sm:mx-0 sm:rounded-lg">
       <div className="flex flex-col gap-3 px-4 py-4 md:flex-row md:items-start md:justify-between md:gap-4">
-        <div className="min-w-0 flex-1 flex gap-3 sm:gap-4">
+        <div
+          className="min-w-0 flex-1 flex gap-3 sm:gap-4 cursor-pointer sm:cursor-default"
+          onClick={handleMobileTrackToggle}
+        >
           <PlaylistArtworkThumb artworkUrl={artworkUrl} name={playlist.name} />
           <div className="min-w-0 flex-1 space-y-2">
             <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
@@ -2461,6 +2499,9 @@ export function SharedPlaylistCard({
                   Waiting for next retry cycle
                 </p>
               ) : null}
+              <p className="text-[11px] text-[#9aa886] sm:hidden">
+                {isTracksOpen ? "Tap card to hide tracks" : "Tap card to view tracks"}
+              </p>
             </div>
             <div className="grid gap-1.5">
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
@@ -2487,8 +2528,8 @@ export function SharedPlaylistCard({
       </div>
 
       {isTracksOpen && (
-        <div className="px-4 pb-4">
-          <div className="card-separator mb-4" />
+        <div className="pb-4 sm:px-4">
+          <div className="card-separator mx-4 mb-4 sm:mx-0" />
           {isTrackEditing ? (
             <SharedPlaylistTrackEditor
               ref={trackEditorRef}

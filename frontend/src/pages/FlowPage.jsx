@@ -1836,7 +1836,7 @@ function FlowPage() {
       currentWorkerSettings.retryCycleMinutes;
 
   return (
-    <div className="flow-page max-w-6xl mx-auto px-4 pb-10">
+    <div className="flow-page max-w-6xl mx-auto pb-10 sm:px-4">
       <input
         ref={importInputRef}
         type="file"
@@ -1844,7 +1844,7 @@ function FlowPage() {
         className="hidden"
         onChange={handleImportFileChange}
       />
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex items-center justify-between gap-3 px-4 sm:px-0">
         <div className="flex min-w-0 items-end gap-2">
           <h2 className="text-base font-semibold text-white">Playlists / Flows</h2>
         </div>
