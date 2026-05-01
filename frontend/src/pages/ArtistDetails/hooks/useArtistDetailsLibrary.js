@@ -20,6 +20,22 @@ import { deduplicateAlbums } from "../utils";
 import { matchesReleaseTypeFilter } from "../utils";
 import { useWebSocketChannel } from "../../../hooks/useWebSocket";
 
+const DELETE_FILES_PREFERENCE_KEY = "aurral:library-delete-files";
+
+const readDeleteFilesPreference = () => {
+  try {
+    return localStorage.getItem(DELETE_FILES_PREFERENCE_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+
+const writeDeleteFilesPreference = (value) => {
+  try {
+    localStorage.setItem(DELETE_FILES_PREFERENCE_KEY, value ? "1" : "0");
+  } catch {}
+};
+
 export function useArtistDetailsLibrary({
   artist,
   libraryArtist,
@@ -37,7 +53,9 @@ export function useArtistDetailsLibrary({
   const [removingAlbum, setRemovingAlbum] = useState(null);
   const [albumDropdownOpen, setAlbumDropdownOpen] = useState(null);
   const [showDeleteAlbumModal, setShowDeleteAlbumModal] = useState(null);
-  const [deleteAlbumFiles, setDeleteAlbumFiles] = useState(false);
+  const [deleteAlbumFiles, setDeleteAlbumFilesState] = useState(() =>
+    readDeleteFilesPreference(),
+  );
   const [processingBulk, setProcessingBulk] = useState(false);
   const [expandedLibraryAlbum, setExpandedLibraryAlbum] = useState(null);
   const [expandedReleaseGroup, setExpandedReleaseGroup] = useState(null);
@@ -45,7 +63,9 @@ export function useArtistDetailsLibrary({
   const [loadingTracks, setLoadingTracks] = useState({});
   const [showRemoveDropdown, setShowRemoveDropdown] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleteFiles, setDeleteFiles] = useState(false);
+  const [deleteFiles, setDeleteFilesState] = useState(() =>
+    readDeleteFilesPreference(),
+  );
   const [deletingArtist, setDeletingArtist] = useState(false);
   const [addingToLibrary, setAddingToLibrary] = useState(false);
   const [showMonitorOptionMenu, setShowMonitorOptionMenu] = useState(false);
@@ -71,6 +91,12 @@ export function useArtistDetailsLibrary({
       .map((album) => String(album.id))
       .filter(Boolean);
   }, [libraryAlbums]);
+
+  const updateDeleteFilesPreference = (value) => {
+    writeDeleteFilesPreference(value);
+    setDeleteFilesState(value);
+    setDeleteAlbumFilesState(value);
+  };
 
   useWebSocketChannel("downloads", (msg) => {
     if (msg?.type !== "download_statuses") return;
@@ -137,12 +163,10 @@ export function useArtistDetailsLibrary({
 
   const handleDeleteClick = () => {
     setShowDeleteModal(true);
-    setDeleteFiles(false);
   };
 
   const handleDeleteCancel = () => {
     setShowDeleteModal(false);
-    setDeleteFiles(false);
   };
 
   const handleDeleteConfirm = async () => {
@@ -159,7 +183,6 @@ export function useArtistDetailsLibrary({
         }`,
       );
       setShowDeleteModal(false);
-      setDeleteFiles(false);
     } catch (err) {
       showError(
         `Failed to delete artist: ${err.response?.data?.message || err.message}`,
@@ -776,13 +799,11 @@ export function useArtistDetailsLibrary({
 
   const handleDeleteAlbumClick = (albumId, title) => {
     setShowDeleteAlbumModal({ id: albumId, title });
-    setDeleteAlbumFiles(false);
     setAlbumDropdownOpen(null);
   };
 
   const handleDeleteAlbumCancel = () => {
     setShowDeleteAlbumModal(null);
-    setDeleteAlbumFiles(false);
   };
 
   const handleDeleteAlbumConfirm = async () => {
@@ -811,7 +832,6 @@ export function useArtistDetailsLibrary({
         showSuccess(`Successfully unmonitored ${title}`);
       }
       setShowDeleteAlbumModal(null);
-      setDeleteAlbumFiles(false);
     } catch (err) {
       showError(
         `Failed to ${deleteAlbumFiles ? "delete" : "unmonitor"} album: ${
@@ -1070,7 +1090,7 @@ export function useArtistDetailsLibrary({
     setAlbumDropdownOpen,
     showDeleteAlbumModal,
     deleteAlbumFiles,
-    setDeleteAlbumFiles,
+    setDeleteAlbumFiles: updateDeleteFilesPreference,
     processingBulk,
     expandedLibraryAlbum,
     setExpandedLibraryAlbum,
@@ -1082,7 +1102,7 @@ export function useArtistDetailsLibrary({
     setShowRemoveDropdown,
     showDeleteModal,
     deleteFiles,
-    setDeleteFiles,
+    setDeleteFiles: updateDeleteFilesPreference,
     deletingArtist,
     addingToLibrary,
     showAddCustomizeModal,
