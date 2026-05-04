@@ -73,6 +73,8 @@ export function useArtistDetailsLibrary({
   const [refreshingArtist, setRefreshingArtist] = useState(false);
   const [downloadStatuses, setDownloadStatuses] = useState({});
   const [reSearchingAlbum, setReSearchingAlbum] = useState(null);
+  const [reSearchingMissingAlbums, setReSearchingMissingAlbums] =
+    useState(false);
   const [reSearchOverrides, setReSearchOverrides] = useState({});
   const [showAddCustomizeModal, setShowAddCustomizeModal] = useState(false);
   const [loadingLidarrPreferences, setLoadingLidarrPreferences] =
@@ -741,6 +743,79 @@ export function useArtistDetailsLibrary({
     }
   };
 
+  const handleReSearchMissingDownloads = async () => {
+    if (!libraryAlbums.length) return;
+    setReSearchingMissingAlbums(true);
+    try {
+      const eligibleAlbums = libraryAlbums.filter((album) => {
+        const albumId = String(album.id ?? "");
+        if (!albumId || albumId.startsWith("pending-")) return false;
+        const percentOfTracks = album.statistics?.percentOfTracks ?? 0;
+        const sizeOnDisk = album.statistics?.sizeOnDisk ?? 0;
+        const isComplete = percentOfTracks >= 100 || sizeOnDisk > 0;
+        if (isComplete) return false;
+        const downloadStatus = downloadStatuses[album.id];
+        const isActiveSearch =
+          downloadStatus &&
+          ["adding", "searching", "downloading", "moving", "processing"].includes(
+            downloadStatus.status,
+          );
+        if (isActiveSearch) return false;
+        return downloadStatus?.status === "failed" || album.monitored;
+      });
+
+      if (eligibleAlbums.length === 0) {
+        showSuccess("No missing downloads to re-search.");
+        return;
+      }
+
+      const overrideAt = Date.now();
+      const overrideNext = { ...reSearchOverridesRef.current };
+      const nextStatuses = { ...downloadStatuses };
+
+      for (const album of eligibleAlbums) {
+        overrideNext[String(album.id)] = overrideAt;
+        nextStatuses[album.id] = { status: "searching" };
+      }
+
+      reSearchOverridesRef.current = overrideNext;
+      setReSearchOverrides(overrideNext);
+      setDownloadStatuses(nextStatuses);
+
+      for (const album of eligibleAlbums) {
+        if (!album.monitored) {
+          await updateLibraryAlbum(album.id, { ...album, monitored: true });
+        }
+      }
+
+      setLibraryAlbums((prev) =>
+        prev.map((album) =>
+          eligibleAlbums.some((candidate) => candidate.id === album.id)
+            ? { ...album, monitored: true }
+            : album,
+        ),
+      );
+
+      await Promise.all(
+        eligibleAlbums.map((album) => triggerAlbumSearch(album.id)),
+      );
+
+      showSuccess(
+        `Triggered search for ${eligibleAlbums.length} missing download${
+          eligibleAlbums.length === 1 ? "" : "s"
+        }`,
+      );
+    } catch (err) {
+      showError(
+        `Failed to re-search missing downloads: ${
+          err.response?.data?.message || err.message
+        }`,
+      );
+    } finally {
+      setReSearchingMissingAlbums(false);
+    }
+  };
+
   const handleLibraryAlbumClick = async (releaseGroupId, libraryAlbumId) => {
     if (expandedLibraryAlbum === releaseGroupId) {
       setExpandedLibraryAlbum(null);
@@ -1116,6 +1191,7 @@ export function useArtistDetailsLibrary({
     updatingMonitor,
     refreshingArtist,
     reSearchingAlbum,
+    reSearchingMissingAlbums,
     downloadStatuses,
     handleRefreshArtist,
     handleDeleteClick,
@@ -1128,6 +1204,7 @@ export function useArtistDetailsLibrary({
     handleCustomizeAddToLibrary,
     handleRequestAlbum,
     handleReSearchAlbum,
+    handleReSearchMissingDownloads,
     handleLibraryAlbumClick,
     handleReleaseGroupAlbumClick,
     handleDeleteAlbumClick,

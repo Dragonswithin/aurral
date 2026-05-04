@@ -22,6 +22,7 @@ export function ArtistDetailsLibraryAlbums({
   downloadStatuses,
   requestingAlbum,
   reSearchingAlbum,
+  reSearchingMissingAlbums,
   albumCovers,
   expandedLibraryAlbum,
   albumTracks,
@@ -33,11 +34,13 @@ export function ArtistDetailsLibraryAlbums({
   handleDeleteAlbumClick,
   canReSearchAlbum,
   handleReSearchAlbum,
+  handleReSearchMissingDownloads,
   onAddTrackToPlaylist,
 }) {
   const railRef = useRef(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const [completionFilter, setCompletionFilter] = useState("all");
   const downloadedAlbums = libraryAlbums.filter((album) => {
     if (String(album.id ?? "").startsWith("pending-")) return false;
     return (
@@ -67,6 +70,92 @@ export function ArtistDetailsLibraryAlbums({
     const dateB = b.releaseDate || "";
     return dateB.localeCompare(dateA);
   });
+  const getAlbumState = (libraryAlbum) => {
+    const downloadStatus = downloadStatuses[libraryAlbum.id];
+    const isComplete =
+      (libraryAlbum.statistics?.percentOfTracks ?? 0) >= 100 ||
+      (libraryAlbum.statistics?.sizeOnDisk ?? 0) > 0;
+    const isActiveSearch =
+      downloadStatus &&
+      ["adding", "searching", "downloading", "moving", "processing"].includes(
+        downloadStatus.status
+      );
+    const canReSearch =
+      !isComplete &&
+      !String(libraryAlbum.id ?? "").startsWith("pending-") &&
+      !isActiveSearch &&
+      (downloadStatus?.status === "failed" || libraryAlbum.monitored);
+    return { downloadStatus, isComplete, canReSearch };
+  };
+  const visibleAlbums = sortedAlbums.filter((album) => {
+    const { isComplete } = getAlbumState(album);
+    if (completionFilter === "complete") return isComplete;
+    if (completionFilter === "incomplete") return !isComplete;
+    return true;
+  });
+  const incompleteAlbumCount = sortedAlbums.filter(
+    (album) => !getAlbumState(album).isComplete
+  ).length;
+  const filterTitle =
+    completionFilter === "all"
+      ? "Showing all library albums"
+      : completionFilter === "incomplete"
+        ? "Showing incomplete downloads"
+        : "Showing completed downloads";
+
+  const filterOptions = [
+    {
+      value: "all",
+      label: "Show all library albums",
+      title: "Show all library albums",
+      renderIcon: () => (
+        <span className="flex items-center gap-1.5">
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: "#22c55e" }}
+          />
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: "#eab308" }}
+          />
+        </span>
+      ),
+    },
+    {
+      value: "incomplete",
+      label: "Show incomplete downloads",
+      title: "Show incomplete downloads",
+      renderIcon: () => (
+        <span className="flex items-center gap-1">
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: "#eab308" }}
+          />
+          <span
+            className="h-2 w-2 rounded-full border border-white/10"
+            style={{ backgroundColor: "rgba(255,255,255,0.08)" }}
+          />
+        </span>
+      ),
+    },
+    {
+      value: "complete",
+      label: "Show completed downloads",
+      title: "Show completed downloads",
+      renderIcon: () => (
+        <span className="flex items-center gap-1">
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: "#22c55e" }}
+          />
+          <span
+            className="h-2 w-2 rounded-full border border-white/10"
+            style={{ backgroundColor: "rgba(255,255,255,0.08)" }}
+          />
+        </span>
+      ),
+    },
+  ];
 
   const updateScrollState = useCallback(() => {
     const node = railRef.current;
@@ -96,7 +185,7 @@ export function ArtistDetailsLibraryAlbums({
       node.removeEventListener("scroll", updateScrollState);
       window.removeEventListener("resize", updateScrollState);
     };
-  }, [sortedAlbums, updateScrollState]);
+  }, [visibleAlbums, updateScrollState]);
 
   if (downloadedAlbums.length === 0) return null;
 
@@ -107,6 +196,61 @@ export function ArtistDetailsLibraryAlbums({
           In your library
         </h2>
         <div className="flex shrink-0 items-center gap-2">
+          <div
+            className="flex items-center rounded-full border border-white/10 p-1"
+            style={{ backgroundColor: "rgba(255,255,255,0.03)" }}
+            role="group"
+            aria-label="Library download completion filter"
+            title={filterTitle}
+          >
+            {filterOptions.map((option) => {
+              const isActive = completionFilter === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setCompletionFilter(option.value)}
+                  className="flex h-7 min-w-7 items-center justify-center rounded-full px-2 transition-colors hover:bg-white/5"
+                  style={{
+                    backgroundColor: isActive
+                      ? "rgba(255,255,255,0.08)"
+                      : "transparent",
+                    boxShadow: isActive
+                      ? "inset 0 0 0 1px rgba(255,255,255,0.06)"
+                      : "none",
+                  }}
+                  aria-pressed={isActive}
+                  aria-label={option.label}
+                  title={option.title}
+                >
+                  {option.renderIcon()}
+                </button>
+              );
+            })}
+          </div>
+          {canReSearchAlbum && (
+            <button
+              type="button"
+              onClick={handleReSearchMissingDownloads}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 transition-colors hover:bg-white/5 disabled:cursor-default disabled:opacity-50"
+              style={{ color: "#d1d5df" }}
+              aria-label="Re-search all missing downloads"
+              title={
+                incompleteAlbumCount > 0
+                  ? `Re-search ${incompleteAlbumCount} missing download${
+                      incompleteAlbumCount === 1 ? "" : "s"
+                    }`
+                  : "No missing downloads to re-search"
+              }
+              disabled={reSearchingMissingAlbums || incompleteAlbumCount === 0}
+            >
+              {reSearchingMissingAlbums ? (
+                <Loader className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => scrollByAmount(-1)}
@@ -134,21 +278,11 @@ export function ArtistDetailsLibraryAlbums({
         ref={railRef}
         className="flex gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {sortedAlbums.map((libraryAlbum) => {
+        {visibleAlbums.map((libraryAlbum) => {
           const rgId = libraryAlbum.mbid || libraryAlbum.foreignAlbumId;
           const isExpanded = expandedLibraryAlbum === rgId;
-          const downloadStatus = downloadStatuses[libraryAlbum.id];
-          const isComplete = libraryAlbum.statistics?.percentOfTracks === 100;
-          const isActiveSearch =
-            downloadStatus &&
-            ["adding", "searching", "downloading", "moving", "processing"].includes(
-              downloadStatus.status
-            );
-          const canReSearch =
-            !isComplete &&
-            !String(libraryAlbum.id ?? "").startsWith("pending-") &&
-            !isActiveSearch &&
-            (downloadStatus?.status === "failed" || libraryAlbum.monitored);
+          const { downloadStatus, isComplete, canReSearch } =
+            getAlbumState(libraryAlbum);
           const coverUrl = albumCovers[rgId];
           const hasDownloadedStatus =
             isComplete ||
@@ -333,7 +467,20 @@ export function ArtistDetailsLibraryAlbums({
         })}
       </div>
 
-      {sortedAlbums.map((libraryAlbum, libraryAlbumIdx) => {
+      {visibleAlbums.length === 0 && (
+        <div
+          className="rounded-2xl border border-dashed border-white/10 px-4 py-5 text-sm"
+          style={{ color: "#9aa3b2", backgroundColor: "#1c1a22" }}
+        >
+          {completionFilter === "incomplete"
+            ? "No incomplete downloads in your library."
+            : completionFilter === "complete"
+              ? "No completed downloads in your library."
+              : "No library albums match this filter."}
+        </div>
+      )}
+
+      {visibleAlbums.map((libraryAlbum, libraryAlbumIdx) => {
         const rgId = libraryAlbum.mbid || libraryAlbum.foreignAlbumId;
         if (expandedLibraryAlbum !== rgId) return null;
         const trackKey = libraryAlbum.id;
@@ -467,6 +614,7 @@ ArtistDetailsLibraryAlbums.propTypes = {
   downloadStatuses: PropTypes.object,
   requestingAlbum: PropTypes.string,
   reSearchingAlbum: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  reSearchingMissingAlbums: PropTypes.bool,
   albumCovers: PropTypes.object,
   expandedLibraryAlbum: PropTypes.string,
   albumTracks: PropTypes.object,
@@ -478,5 +626,6 @@ ArtistDetailsLibraryAlbums.propTypes = {
   handleDeleteAlbumClick: PropTypes.func,
   canReSearchAlbum: PropTypes.bool,
   handleReSearchAlbum: PropTypes.func,
+  handleReSearchMissingDownloads: PropTypes.func,
   onAddTrackToPlaylist: PropTypes.func,
 };
