@@ -6,6 +6,7 @@ import {
   MUSICBRAINZ_API,
   AURRAL_MUSICBRAINZ_API,
   COVER_ART_ARCHIVE_API,
+  OFFICIAL_COVER_ART_ARCHIVE_API,
   LASTFM_API,
   LISTENBRAINZ_API,
   APP_NAME,
@@ -81,6 +82,19 @@ const normalizeMusicbrainzApiBaseUrl = (value) => {
   return parsed.toString().replace(/\/+$/, "");
 };
 
+const normalizeBaseUrl = (value, fallback) => {
+  const raw = String(value || "").trim();
+  if (!raw) return fallback;
+
+  try {
+    const parsed = new URL(raw);
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "";
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return fallback;
+  }
+};
+
 export const getMusicbrainzApiBaseUrl = () => {
   const settings = dbOps.getSettings();
   const provider = settings.integrations?.musicbrainz?.provider || "aurralHosted";
@@ -93,6 +107,22 @@ export const getMusicbrainzApiBaseUrl = () => {
     );
   }
   return AURRAL_MUSICBRAINZ_API;
+};
+
+export const getCoverArtArchiveApiBaseUrl = () => {
+  const settings = dbOps.getSettings();
+  const provider =
+    settings.integrations?.coverArtArchive?.provider || "aurralHosted";
+  if (provider === "official") {
+    return OFFICIAL_COVER_ART_ARCHIVE_API;
+  }
+  if (provider === "custom") {
+    return normalizeBaseUrl(
+      settings.integrations?.coverArtArchive?.customUrl,
+      OFFICIAL_COVER_ART_ARCHIVE_API,
+    );
+  }
+  return COVER_ART_ARCHIVE_API;
 };
 
 const requestMusicbrainz = async (
@@ -265,7 +295,8 @@ export const musicbrainzRequest = async (endpoint, params = {}) => {
 
 export async function fetchCoverArtArchiveReleaseGroup(releaseGroupMbid) {
   if (!releaseGroupMbid) return null;
-  const directUrl = `${COVER_ART_ARCHIVE_API}/release-group/${releaseGroupMbid}/front-250`;
+  const baseUrl = getCoverArtArchiveApiBaseUrl();
+  const directUrl = `${baseUrl}/release-group/${releaseGroupMbid}/front-250`;
   try {
     const response = await axios.head(directUrl, {
       timeout: 2000,
@@ -284,7 +315,7 @@ export async function fetchCoverArtArchiveReleaseGroup(releaseGroupMbid) {
 
   try {
     const response = await axios.get(
-      `${COVER_ART_ARCHIVE_API}/release-group/${releaseGroupMbid}`,
+      `${baseUrl}/release-group/${releaseGroupMbid}`,
       {
         headers: { Accept: "application/json" },
         timeout: 2000,

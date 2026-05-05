@@ -46,6 +46,10 @@ const defaultSettings = {
       provider: "aurralHosted",
       customUrl: "",
     },
+    coverArtArchive: {
+      provider: "aurralHosted",
+      customUrl: "",
+    },
     general: { authUser: "", authPassword: "" },
     gotify: {
       url: "",
