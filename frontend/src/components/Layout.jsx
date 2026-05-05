@@ -3,7 +3,7 @@ import PropTypes from "prop-types";
 import { Link, useLocation } from "react-router-dom";
 import {
   Menu,
-  Github,
+  GitBranch,
   Heart,
   Sparkles,
   Library,
@@ -147,7 +147,7 @@ function Layout({ children, appVersion }) {
               style={{ color: "#c1c1c3" }}
               aria-label="GitHub Repository"
             >
-              <Github className="w-5 h-5 transition-colors group-hover:text-white" />
+              <GitBranch className="w-5 h-5 transition-colors group-hover:text-white" />
             </a>
             <a
               href="https://github.com/sponsors/lklynet/"
