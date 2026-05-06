@@ -9,7 +9,6 @@ import { useSettingsUsers } from "./hooks/useSettingsUsers";
 import { UnsavedModal } from "./components/UnsavedModal";
 import { CommunityGuideModal } from "./components/CommunityGuideModal";
 import { SettingsIntegrationsTab } from "./components/SettingsIntegrationsTab";
-import { SettingsMetadataTab } from "./components/SettingsMetadataTab";
 import { SettingsDiscoverTab } from "./components/SettingsDiscoverTab";
 import { SettingsNotificationsTab } from "./components/SettingsNotificationsTab";
 import { SettingsUsersTab } from "./components/SettingsUsersTab";
@@ -32,10 +31,10 @@ function SettingsPage() {
   );
 
   useEffect(() => {
-    if (tabs.activeTab === "metadata" || tabs.activeTab === "discover") {
+    if (tabs.activeTab === "discover") {
       data.refreshHealth();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- only run when switching to metadata tab
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only run when switching to discover tab
   }, [tabs.activeTab]);
 
   const renderTabContent = () => {
@@ -71,17 +70,6 @@ function SettingsPage() {
             showSuccess={showSuccess}
             showError={showError}
             showInfo={showInfo}
-          />
-        );
-      case "metadata":
-        return (
-          <SettingsMetadataTab
-            settings={data.settings}
-            updateSettings={data.updateSettings}
-            health={data.health}
-            hasUnsavedChanges={data.hasUnsavedChanges}
-            saving={data.saving}
-            handleSaveSettings={data.handleSaveSettings}
           />
         );
       case "discover":

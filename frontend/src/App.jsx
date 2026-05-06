@@ -22,6 +22,9 @@ const DiscoverPage = lazy(() => import("./pages/DiscoverPage"));
 const ShowsPage = lazy(() => import("./pages/ShowsPage"));
 const LibraryPage = lazy(() => import("./pages/LibraryPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const MetadataProvidersPage = lazy(
+  () => import("./pages/Settings/MetadataProvidersPage")
+);
 const ArtistDetailsPage = lazy(() => import("./pages/ArtistDetailsPage"));
 const RequestsPage = lazy(() => import("./pages/RequestsPage"));
 const FlowPage = lazy(() => import("./pages/FlowPage"));
@@ -240,6 +243,10 @@ function AppContent() {
               <Route path="/blocklist" element={<BlocklistPage />} />
               <Route path="/artist/:mbid" element={<ArtistDetailsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route
+                path="/settings/metadata"
+                element={<MetadataProvidersPage />}
+              />
             </Routes>
           </Suspense>
         </Layout>

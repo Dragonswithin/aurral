@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Server, TrendingUp, Compass, Bell, Users, User } from "lucide-react";
+import { Server, Compass, Bell, Users, User } from "lucide-react";
 
 export function useSettingsTabs(authUser) {
   const isAdmin = authUser?.role === "admin";
@@ -13,7 +13,6 @@ export function useSettingsTabs(authUser) {
   const tabs = useMemo(() => {
     const adminTabs = [
       { id: "integrations", label: "Integrations", icon: Server },
-      { id: "metadata", label: "Metadata", icon: TrendingUp },
       { id: "discover", label: "Discover", icon: Compass },
       { id: "notifications", label: "Notifications", icon: Bell },
       { id: "users", label: "Users", icon: Users },

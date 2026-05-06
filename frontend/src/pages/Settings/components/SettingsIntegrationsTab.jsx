@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CheckCircle, Pencil, RefreshCw } from "lucide-react";
+import { CheckCircle, ChevronDown, Pencil, RefreshCw } from "lucide-react";
 import FlipSaveButton from "../../../components/FlipSaveButton";
 import {
   getLidarrMetadataProfiles,
@@ -38,6 +38,15 @@ export function SettingsIntegrationsTab({
   const [lidarrEditing, setLidarrEditing] = useState(false);
   const [ticketmasterEditing, setTicketmasterEditing] = useState(false);
   const [navidromeEditing, setNavidromeEditing] = useState(false);
+  const [lastfmEditing, setLastfmEditing] = useState(false);
+  const [musicbrainzContactEditing, setMusicbrainzContactEditing] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState({
+    lidarr: false,
+    lastfm: true,
+    ticketmaster: true,
+    musicbrainzContact: true,
+    navidrome: true,
+  });
   const [lidarrTestLatencyMs, setLidarrTestLatencyMs] = useState(null);
   const safeLidarrProfiles = Array.isArray(lidarrProfiles)
     ? lidarrProfiles
@@ -46,6 +55,12 @@ export function SettingsIntegrationsTab({
     ? lidarrMetadataProfiles
     : [];
   const safeLidarrTags = Array.isArray(lidarrTags) ? lidarrTags : [];
+  const toggleSection = (section) => {
+    setCollapsedSections((current) => ({
+      ...current,
+      [section]: !current[section],
+    }));
+  };
 
   const handleTestLidarr = async () => {
     const url = settings.integrations?.lidarr?.url;
@@ -231,7 +246,20 @@ export function SettingsIntegrationsTab({
               className="text-lg font-medium flex items-center"
               style={{ color: "#fff" }}
             >
-              Lidarr
+              <button
+                type="button"
+                onClick={() => toggleSection("lidarr")}
+                className="flex items-center gap-2 text-left"
+                style={{ color: "#fff" }}
+                aria-expanded={!collapsedSections.lidarr}
+              >
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${
+                    collapsedSections.lidarr ? "-rotate-90" : ""
+                  }`}
+                />
+                <span>Lidarr</span>
+              </button>
             </h3>
             <div className="flex items-center gap-2">
               {health?.lidarrConfigured && (
@@ -254,6 +282,7 @@ export function SettingsIntegrationsTab({
               </button>
             </div>
           </div>
+          {!collapsedSections.lidarr && (
           <fieldset
             disabled={!lidarrEditing}
             className={`grid grid-cols-1 gap-4 ${
@@ -677,6 +706,7 @@ export function SettingsIntegrationsTab({
               </p>
             </div>
           </fieldset>
+          )}
         </div>
         <div
           className="p-6 rounded-lg space-y-4"
@@ -690,7 +720,136 @@ export function SettingsIntegrationsTab({
               className="text-lg font-medium flex items-center"
               style={{ color: "#fff" }}
             >
-              Ticketmaster
+              <button
+                type="button"
+                onClick={() => toggleSection("lastfm")}
+                className="flex items-center gap-2 text-left"
+                style={{ color: "#fff" }}
+                aria-expanded={!collapsedSections.lastfm}
+              >
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${
+                    collapsedSections.lastfm ? "-rotate-90" : ""
+                  }`}
+                />
+                <span>Last.fm</span>
+              </button>
+            </h3>
+            <div className="flex items-center gap-2">
+              {health?.lastfmConfigured && (
+                <span className="flex items-center text-sm text-green-400">
+                  <CheckCircle className="w-4 h-4 mr-1" />
+                  Configured
+                </span>
+              )}
+              <button
+                type="button"
+                className={`btn ${
+                  lastfmEditing ? "btn-primary" : "btn-secondary"
+                } px-2 py-1`}
+                onClick={() => setLastfmEditing((value) => !value)}
+                aria-label={
+                  lastfmEditing
+                    ? "Lock Last.fm settings"
+                    : "Edit Last.fm settings"
+                }
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          {!collapsedSections.lastfm && (
+          <fieldset
+            disabled={!lastfmEditing}
+            className={`space-y-4 ${lastfmEditing ? "" : "opacity-60"}`}
+          >
+            <div>
+              <label
+                className="block text-sm font-medium mb-1"
+                style={{ color: "#fff" }}
+              >
+                API Key
+              </label>
+              <input
+                type="password"
+                className="input"
+                placeholder="Last.fm API Key"
+                autoComplete="off"
+                value={settings.integrations?.lastfm?.apiKey || ""}
+                onChange={(e) =>
+                  updateSettings({
+                    ...settings,
+                    integrations: {
+                      ...settings.integrations,
+                      lastfm: {
+                        ...(settings.integrations?.lastfm || {}),
+                        apiKey: e.target.value,
+                      },
+                    },
+                  })
+                }
+              />
+            </div>
+            <div>
+              <label
+                className="block text-sm font-medium mb-1"
+                style={{ color: "#fff" }}
+              >
+                Default Username
+              </label>
+              <input
+                type="text"
+                className="input"
+                placeholder="Your Last.fm username"
+                autoComplete="off"
+                value={settings.integrations?.lastfm?.username || ""}
+                onChange={(e) =>
+                  updateSettings({
+                    ...settings,
+                    integrations: {
+                      ...settings.integrations,
+                      lastfm: {
+                        ...(settings.integrations?.lastfm || {}),
+                        username: e.target.value,
+                      },
+                    },
+                  })
+                }
+              />
+              <p className="mt-1 text-xs" style={{ color: "#c1c1c3" }}>
+                Used as the app-wide fallback for users who have not set their
+                own Last.fm or ListenBrainz account in Account settings.
+              </p>
+            </div>
+          </fieldset>
+          )}
+        </div>
+        <div
+          className="p-6 rounded-lg space-y-4"
+          style={{
+            backgroundColor: "#1a1a1e",
+            border: "1px solid #2a2a2e",
+          }}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <h3
+              className="text-lg font-medium flex items-center"
+              style={{ color: "#fff" }}
+            >
+              <button
+                type="button"
+                onClick={() => toggleSection("ticketmaster")}
+                className="flex items-center gap-2 text-left"
+                style={{ color: "#fff" }}
+                aria-expanded={!collapsedSections.ticketmaster}
+              >
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${
+                    collapsedSections.ticketmaster ? "-rotate-90" : ""
+                  }`}
+                />
+                <span>Ticketmaster</span>
+              </button>
             </h3>
             <div className="flex items-center gap-2">
               {health?.ticketmasterConfigured && (
@@ -715,6 +874,7 @@ export function SettingsIntegrationsTab({
               </button>
             </div>
           </div>
+          {!collapsedSections.ticketmaster && (
           <fieldset
             disabled={!ticketmasterEditing}
             className={`space-y-4 ${ticketmasterEditing ? "" : "opacity-60"}`}
@@ -807,6 +967,7 @@ export function SettingsIntegrationsTab({
               </p>
             </div>
           </fieldset>
+          )}
         </div>
         <div
           className="p-6 rounded-lg space-y-4"
@@ -820,7 +981,111 @@ export function SettingsIntegrationsTab({
               className="text-lg font-medium flex items-center"
               style={{ color: "#fff" }}
             >
-              Subsonic / Navidrome
+              <button
+                type="button"
+                onClick={() => toggleSection("musicbrainzContact")}
+                className="flex items-center gap-2 text-left"
+                style={{ color: "#fff" }}
+                aria-expanded={!collapsedSections.musicbrainzContact}
+              >
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${
+                    collapsedSections.musicbrainzContact ? "-rotate-90" : ""
+                  }`}
+                />
+                <span>MusicBrainz Contact</span>
+              </button>
+            </h3>
+            <div className="flex items-center gap-2">
+              {health?.musicbrainzConfigured && (
+                <span className="flex items-center text-sm text-green-400">
+                  <CheckCircle className="w-4 h-4 mr-1" />
+                  Configured
+                </span>
+              )}
+              <button
+                type="button"
+                className={`btn ${
+                  musicbrainzContactEditing ? "btn-primary" : "btn-secondary"
+                } px-2 py-1`}
+                onClick={() => setMusicbrainzContactEditing((value) => !value)}
+                aria-label={
+                  musicbrainzContactEditing
+                    ? "Lock MusicBrainz contact settings"
+                    : "Edit MusicBrainz contact settings"
+                }
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          {!collapsedSections.musicbrainzContact && (
+          <fieldset
+            disabled={!musicbrainzContactEditing}
+            className={`space-y-4 ${
+              musicbrainzContactEditing ? "" : "opacity-60"
+            }`}
+          >
+            <div>
+              <label
+                className="block text-sm font-medium mb-1"
+                style={{ color: "#fff" }}
+              >
+                Contact Email
+              </label>
+              <input
+                type="email"
+                className="input"
+                placeholder="contact@example.com"
+                autoComplete="off"
+                value={settings.integrations?.musicbrainz?.email || ""}
+                onChange={(e) =>
+                  updateSettings({
+                    ...settings,
+                    integrations: {
+                      ...settings.integrations,
+                      musicbrainz: {
+                        ...(settings.integrations?.musicbrainz || {}),
+                        email: e.target.value,
+                      },
+                    },
+                  })
+                }
+              />
+              <p className="mt-1 text-xs" style={{ color: "#c1c1c3" }}>
+                Used for the MusicBrainz user agent. This is needed if the app
+                falls back to the public MusicBrainz API.
+              </p>
+            </div>
+          </fieldset>
+          )}
+        </div>
+        <div
+          className="p-6 rounded-lg space-y-4"
+          style={{
+            backgroundColor: "#1a1a1e",
+            border: "1px solid #2a2a2e",
+          }}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <h3
+              className="text-lg font-medium flex items-center"
+              style={{ color: "#fff" }}
+            >
+              <button
+                type="button"
+                onClick={() => toggleSection("navidrome")}
+                className="flex items-center gap-2 text-left"
+                style={{ color: "#fff" }}
+                aria-expanded={!collapsedSections.navidrome}
+              >
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${
+                    collapsedSections.navidrome ? "-rotate-90" : ""
+                  }`}
+                />
+                <span>Subsonic / Navidrome</span>
+              </button>
             </h3>
             <div className="flex items-center gap-2">
               {settings.integrations?.navidrome?.url && (
@@ -845,6 +1110,7 @@ export function SettingsIntegrationsTab({
               </button>
             </div>
           </div>
+          {!collapsedSections.navidrome && (
           <fieldset
             disabled={!navidromeEditing}
             className={`${navidromeEditing ? "" : "opacity-60"}`}
@@ -938,6 +1204,7 @@ export function SettingsIntegrationsTab({
               removes those tracks from the library.
             </p>
           </fieldset>
+          )}
         </div>
       </form>
     </div>
