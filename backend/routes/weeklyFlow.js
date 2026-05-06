@@ -44,62 +44,64 @@ const normalizeImportedTrackList = (value) => {
   if (!Array.isArray(value)) return [];
   return dedupeSharedTracks(
     value
-    .map((track) => {
-      if (!track || typeof track !== "object" || Array.isArray(track))
-        return null;
-      const artistName = String(
-        track.artistName ??
-          track.artist ??
-          track.artist_name ??
-          track["Artist Name(s)"] ??
-          "",
-      ).trim();
-      const trackName = String(
-        track.trackName ??
-          track.title ??
-          track.name ??
-          track.track ??
-          track["Track Name"] ??
-          "",
-      ).trim();
-      if (!artistName || !trackName) return null;
-      const albumName = String(
-        track.albumName ?? track.album ?? track["Album Name"] ?? "",
-      ).trim();
-      const artistMbid = String(
-        track.artistMbid ?? track.artistId ?? track.mbid ?? "",
-      ).trim();
-      const albumMbid = String(
-        track.albumMbid ?? track.releaseGroupMbid ?? track.albumId ?? "",
-      ).trim();
-      const trackMbid = String(
-        track.trackMbid ?? track.recordingMbid ?? track.recordingId ?? "",
-      ).trim();
-      const releaseYear = String(track.releaseYear ?? track.year ?? "").trim();
-      const durationMs =
-        track.durationMs != null && Number.isFinite(Number(track.durationMs))
-          ? Math.max(0, Math.round(Number(track.durationMs)))
-          : null;
-      const artistAliases = Array.isArray(track.artistAliases)
-        ? track.artistAliases
-            .map((entry) => String(entry || "").trim())
-            .filter(Boolean)
-        : [];
-      const reason = String(track.reason ?? "").trim();
-      return {
-        artistName,
-        trackName,
-        albumName: albumName || null,
-        artistMbid: artistMbid || null,
-        albumMbid: albumMbid || null,
-        trackMbid: trackMbid || null,
-        releaseYear: releaseYear || null,
-        durationMs,
-        artistAliases,
-        reason: reason || null,
-      };
-    })
-    .filter(Boolean),
+      .map((track) => {
+        if (!track || typeof track !== "object" || Array.isArray(track))
+          return null;
+        const artistName = String(
+          track.artistName ??
+            track.artist ??
+            track.artist_name ??
+            track["Artist Name(s)"] ??
+            "",
+        ).trim();
+        const trackName = String(
+          track.trackName ??
+            track.title ??
+            track.name ??
+            track.track ??
+            track["Track Name"] ??
+            "",
+        ).trim();
+        if (!artistName || !trackName) return null;
+        const albumName = String(
+          track.albumName ?? track.album ?? track["Album Name"] ?? "",
+        ).trim();
+        const artistMbid = String(
+          track.artistMbid ?? track.artistId ?? track.mbid ?? "",
+        ).trim();
+        const albumMbid = String(
+          track.albumMbid ?? track.releaseGroupMbid ?? track.albumId ?? "",
+        ).trim();
+        const trackMbid = String(
+          track.trackMbid ?? track.recordingMbid ?? track.recordingId ?? "",
+        ).trim();
+        const releaseYear = String(
+          track.releaseYear ?? track.year ?? "",
+        ).trim();
+        const durationMs =
+          track.durationMs != null && Number.isFinite(Number(track.durationMs))
+            ? Math.max(0, Math.round(Number(track.durationMs)))
+            : null;
+        const artistAliases = Array.isArray(track.artistAliases)
+          ? track.artistAliases
+              .map((entry) => String(entry || "").trim())
+              .filter(Boolean)
+          : [];
+        const reason = String(track.reason ?? "").trim();
+        return {
+          artistName,
+          trackName,
+          albumName: albumName || null,
+          artistMbid: artistMbid || null,
+          albumMbid: albumMbid || null,
+          trackMbid: trackMbid || null,
+          releaseYear: releaseYear || null,
+          durationMs,
+          artistAliases,
+          reason: reason || null,
+        };
+      })
+      .filter(Boolean),
   );
 };
 
