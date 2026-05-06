@@ -10,10 +10,11 @@ import { resolveWeeklyFlowTrackContext } from "./weeklyFlowTrackResolver.js";
 import {
   buildFlowSearchQueries,
   rankFlowSearchResults,
+  selectRankedMatchAttempts,
   validateDownloadedTrack,
 } from "./weeklyFlowSoulseekMatcher.js";
 
-const DEFAULT_CONCURRENCY = 3;
+const DEFAULT_CONCURRENCY = 2;
 const MIN_CONCURRENCY = 1;
 const MAX_CONCURRENCY = 3;
 const DEFAULT_PREFERRED_FORMAT = "flac";
@@ -27,25 +28,25 @@ const AUTH_FAILURE_PAUSE_MS = 45000;
 const CONNECTIVITY_FAILURE_PAUSE_MS = 15000;
 const RETRYABLE_FAILURE_STREAK_THRESHOLD = 3;
 const RETRYABLE_FAILURE_STREAK_PAUSE_MS = 180000;
-const MAX_MATCH_CANDIDATES = 3;
-const RETRY_MATCH_CANDIDATES = 10;
-const MAX_RETRY_MATCH_CANDIDATES = 20;
-const STRICT_FORMAT_MATCH_CANDIDATES = 30;
-const STRICT_RETRY_MATCH_CANDIDATES = 20;
-const MAX_DOWNLOAD_ATTEMPTS_PER_JOB = 4;
-const MAX_DOWNLOAD_ATTEMPTS_PER_RETRY = 6;
-const QUEUED_TIMEOUT_FIRST_ATTEMPT_MS = 4500;
-const QUEUED_TIMEOUT_RETRY_ATTEMPT_MS = 3000;
+const MAX_MATCH_CANDIDATES = 8;
+const RETRY_MATCH_CANDIDATES = 14;
+const MAX_RETRY_MATCH_CANDIDATES = 28;
+const STRICT_FORMAT_MATCH_CANDIDATES = 40;
+const STRICT_RETRY_MATCH_CANDIDATES = 28;
+const MAX_DOWNLOAD_ATTEMPTS_PER_JOB = 7;
+const MAX_DOWNLOAD_ATTEMPTS_PER_RETRY = 9;
 const FALLBACK_MP3_REGEX = /^[^/\\]+-[a-f0-9]{8}\.mp3$/i;
 const FALLBACK_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 const MAX_RETRIES_PER_JOB = 1;
 const MAX_RETRIES_FOR_TIMEOUT_LOGIN = 1;
+const MAX_RETRIES_FOR_QUEUED_DOWNLOAD = 12;
+const MAX_RETRIES_FOR_OFFLINE_SOURCE = 3;
 const MAX_BACKUP_REFILL_ROUNDS = 3;
+const QUEUED_RETRY_BASE_DELAY_MS = 2 * 60 * 1000;
+const QUEUED_RETRY_MAX_DELAY_MS = 30 * 60 * 1000;
 const NON_RETRYABLE_ERRORS = new Set([
   "No search results found",
   "No candidate files returned",
-  "User not exist",
-  "User offline",
 ]);
 const SUPPORTED_PREFERRED_FORMATS = new Set(["flac", "mp3"]);
 const WORKER_STOPPED_CODE = "WORKER_STOPPED";
@@ -297,20 +298,45 @@ export class WeeklyFlowWorker {
     );
   }
 
+  _isQueuedError(message) {
+    return String(message || "")
+      .toLowerCase()
+      .includes("download queued");
+  }
+
+  _isOfflineSourceError(message) {
+    const lower = String(message || "").toLowerCase();
+    return lower.includes("user not exist") || lower.includes("user offline");
+  }
+
   _isNonRetryableError(message) {
     const text = String(message || "").trim();
     if (!text) return false;
     if (NON_RETRYABLE_ERRORS.has(text)) return true;
-    const lower = text.toLowerCase();
-    return lower.includes("user not exist") || lower.includes("user offline");
+    return false;
   }
 
   _getRetryLimitForError(message) {
+    if (this._isQueuedError(message)) return MAX_RETRIES_FOR_QUEUED_DOWNLOAD;
+    if (this._isOfflineSourceError(message)) return MAX_RETRIES_FOR_OFFLINE_SOURCE;
     if (this._isAuthFailure(message)) return MAX_RETRIES_FOR_TIMEOUT_LOGIN;
     return MAX_RETRIES_PER_JOB;
   }
 
   _getRetryDelayMs(attempt, message) {
+    if (this._isQueuedError(message)) {
+      const exp = Math.max(0, Number(attempt) - 1);
+      return Math.min(
+        QUEUED_RETRY_MAX_DELAY_MS,
+        QUEUED_RETRY_BASE_DELAY_MS * 2 ** exp,
+      );
+    }
+    if (this._isOfflineSourceError(message)) {
+      return Math.min(
+        RETRY_MAX_DELAY_MS,
+        5000 * 2 ** Math.max(0, Number(attempt) - 1),
+      );
+    }
     const exp = Math.max(0, Number(attempt) - 1);
     const base = Math.min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * 2 ** exp);
     if (this._isAuthFailure(message)) {
@@ -385,6 +411,26 @@ export class WeeklyFlowWorker {
     if (retryAttempt >= 2) return MAX_RETRY_MATCH_CANDIDATES;
     if (retryAttempt >= 1) return RETRY_MATCH_CANDIDATES;
     return MAX_MATCH_CANDIDATES;
+  }
+
+  _getNextReadyPendingJob(lastPlaylistType = null) {
+    const now = Date.now();
+    return downloadTracker.getNextPendingMatching((job) => {
+      const notBefore = Number(this.retryNotBefore.get(job.id) || 0);
+      return notBefore <= now;
+    }, lastPlaylistType);
+  }
+
+  _getNextPendingWakeDelayMs() {
+    const now = Date.now();
+    let nextDelay = null;
+    for (const job of downloadTracker.getByStatus("pending")) {
+      const notBefore = Number(this.retryNotBefore.get(job.id) || 0);
+      if (notBefore <= now) return 0;
+      const delay = Math.max(250, notBefore - now);
+      nextDelay = nextDelay == null ? delay : Math.min(nextDelay, delay);
+    }
+    return nextDelay;
   }
 
   getWorkerSettings() {
@@ -695,21 +741,20 @@ export class WeeklyFlowWorker {
       }
       const { concurrency } = this.getWorkerSettings();
       while (this.activeCount < concurrency) {
-        const job = downloadTracker.getNextPending(
+        const job = this._getNextReadyPendingJob(
           this.lastDequeuedPlaylistType,
         );
-        if (!job) break;
+        if (!job) {
+          const waitMs = this._getNextPendingWakeDelayMs();
+          if (waitMs != null) {
+            this._scheduleProcessIn(waitMs);
+          }
+          break;
+        }
         this.lastDequeuedPlaylistType = job.playlistType;
         if (this._hasReachedPlaylistTarget(job.playlistType)) {
           downloadTracker.removeJob(job.id);
           continue;
-        }
-        const loopNow = Date.now();
-        const notBefore = Number(this.retryNotBefore.get(job.id) || 0);
-        if (notBefore > loopNow) {
-          const waitMs = Math.max(1000, notBefore - loopNow);
-          this._scheduleProcessIn(waitMs);
-          break;
         }
         if (this._isPlaylistBlocked(job.playlistType)) {
           downloadTracker.deferPendingToBack(
@@ -751,17 +796,25 @@ export class WeeklyFlowWorker {
             if (retryable && attempts < retryLimit) {
               const retryAttempt = attempts + 1;
               this.retryAttempts.set(job.id, retryAttempt);
-              this._recordRetryableFailure();
+              const queuedError = this._isQueuedError(message);
+              if (!queuedError) {
+                this._recordRetryableFailure();
+              }
               const retryDelayMs = this._getRetryDelayMs(retryAttempt, message);
               this.retryNotBefore.set(job.id, Date.now() + retryDelayMs);
+              console.warn(
+                `[WeeklyFlowWorker] Requeueing job ${job.id}: ${message} (attempt ${retryAttempt}/${retryLimit} in ${Math.ceil(retryDelayMs / 1000)}s)`,
+              );
               if (this._isAuthFailure(message)) {
                 this._pauseWorker(AUTH_FAILURE_PAUSE_MS);
-              } else if (this._isConnectivityFailure(message)) {
+              } else if (!queuedError && this._isConnectivityFailure(message)) {
                 this._pauseWorker(CONNECTIVITY_FAILURE_PAUSE_MS);
               }
               downloadTracker.setPending(
                 job.id,
-                `${message} (retry ${retryAttempt}/${retryLimit} in ${Math.ceil(retryDelayMs / 1000)}s)`,
+                queuedError
+                  ? `Remote queue full; retrying in ${Math.ceil(retryDelayMs / 1000)}s (attempt ${retryAttempt}/${retryLimit})`
+                  : `${message} (retry ${retryAttempt}/${retryLimit} in ${Math.ceil(retryDelayMs / 1000)}s)`,
                 {
                   asRetryCycle: true,
                 },
@@ -915,7 +968,7 @@ export class WeeklyFlowWorker {
         this._assertJobCanContinue(job, runGeneration);
         const query = searchQueries[queryIndex];
         const searchResults = await soulseekClient.searchQuery(query, {
-          forceFresh: queryIndex === 0,
+          forceFresh: retryAttempt > 0,
         });
         for (const result of Array.isArray(searchResults) ? searchResults : []) {
           const file = String(result?.file || "").trim();
@@ -929,10 +982,19 @@ export class WeeklyFlowWorker {
         rankedMatches = rankFlowSearchResults(aggregatedResults, resolvedTrack, {
           preferredFormat,
           strictFormat: preferredFormatStrict,
+          isUserBlacklisted: (user) => soulseekClient.isUserBlacklisted(user),
+          getUserQueuePenalty: (user) => soulseekClient.getUserQueuePenalty(user),
         });
+        const distinctTopUsers = new Set(
+          rankedMatches
+            .slice(0, Math.max(3, Math.min(matchLimit, 6)))
+            .map((entry) => String(entry?.raw?.user || "").trim().toLowerCase())
+            .filter(Boolean),
+        ).size;
         if (
           rankedMatches.length >= Math.min(matchLimit, 3) &&
-          rankedMatches[0]?.isLikelyMatch
+          rankedMatches[0]?.isLikelyMatch &&
+          distinctTopUsers >= 2
         ) {
           break;
         }
@@ -959,7 +1021,15 @@ export class WeeklyFlowWorker {
       const stagingFilePath = path.join(stagingDir, stagingFile);
 
       phaseStart = process.hrtime.bigint();
-      const candidates = rankedMatches.slice(0, matchLimit);
+      const maxDownloadAttempts =
+        retryAttempt > 0
+          ? MAX_DOWNLOAD_ATTEMPTS_PER_RETRY
+          : MAX_DOWNLOAD_ATTEMPTS_PER_JOB;
+      const candidatePoolSize = Math.max(
+        matchLimit,
+        maxDownloadAttempts * 3,
+      );
+      const candidates = rankedMatches.slice(0, candidatePoolSize);
       if (candidates.length === 0) {
         if (preferredFormatStrict) {
           lastError = new Error(
@@ -970,12 +1040,8 @@ export class WeeklyFlowWorker {
         }
         timingsMs.search += Number(process.hrtime.bigint() - phaseStart) / 1e6;
       } else {
-        const maxDownloadAttempts =
-          retryAttempt > 0
-            ? MAX_DOWNLOAD_ATTEMPTS_PER_RETRY
-            : MAX_DOWNLOAD_ATTEMPTS_PER_JOB;
-        const attemptCandidates = candidates.slice(
-          0,
+        const attemptCandidates = selectRankedMatchAttempts(
+          candidates,
           maxDownloadAttempts,
         );
         if (attemptCandidates.length === 0) {
@@ -990,6 +1056,9 @@ export class WeeklyFlowWorker {
         ) {
           this._assertJobCanContinue(job, runGeneration);
           const candidate = attemptCandidates[attemptIndex];
+          if (soulseekClient.isUserBlacklisted(candidate.raw?.user)) {
+            continue;
+          }
           const extFromSoulseek = path.extname(candidate.raw?.file || "");
           const ext =
             extFromSoulseek &&
@@ -1010,9 +1079,7 @@ export class WeeklyFlowWorker {
               },
               {
                 queuedTimeoutMs:
-                  attemptIndex === 0
-                    ? QUEUED_TIMEOUT_FIRST_ATTEMPT_MS
-                    : QUEUED_TIMEOUT_RETRY_ATTEMPT_MS,
+                  soulseekClient.getQueuedTimeoutForAttempt(attemptIndex),
               },
             );
             this._assertJobCanContinue(job, runGeneration);

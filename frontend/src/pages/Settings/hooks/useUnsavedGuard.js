@@ -29,6 +29,7 @@ export function useUnsavedGuard(hasUnsavedChanges, setHasUnsavedChanges) {
     import.meta.env.VITE_BASE_PATH || import.meta.env.BASE_URL,
   );
   const settingsPath = basePath === "/" ? "/settings" : `${basePath}/settings`;
+  const isSettingsRoute = (path) => path === "/settings" || path.startsWith("/settings/");
 
   useEffect(() => {
     hasUnsavedChangesRef.current = hasUnsavedChanges;
@@ -57,7 +58,7 @@ export function useUnsavedGuard(hasUnsavedChanges, setHasUnsavedChanges) {
       if (
         link &&
         href?.startsWith("/") &&
-        stripBasePath(href, basePath) !== "/settings"
+        !isSettingsRoute(stripBasePath(href, basePath))
       ) {
         e.preventDefault();
         e.stopPropagation();
@@ -72,7 +73,7 @@ export function useUnsavedGuard(hasUnsavedChanges, setHasUnsavedChanges) {
     };
 
     const handlePopState = () => {
-      if (location.pathname === "/settings") {
+      if (isSettingsRoute(location.pathname)) {
         window.history.pushState(null, "", settingsPath);
         setShowUnsavedModal(true);
         setPendingNavigation(() => () => {

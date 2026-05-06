@@ -75,6 +75,10 @@ export const clearAuthStorage = () => {
 
 const libraryLookupCache = new Map();
 const MAX_LIBRARY_LOOKUP_CACHE_SIZE = 1000;
+const coverResponseCache = new Map();
+const coverInflightRequests = new Map();
+const MAX_COVER_CACHE_SIZE = 1000;
+const searchInflightRequests = new Map();
 
 const setLibraryLookupCacheEntry = (id, value) => {
   if (id == null) return;
@@ -88,6 +92,54 @@ const setLibraryLookupCacheEntry = (id, value) => {
       libraryLookupCache.delete(oldestKey);
     }
   }
+};
+
+const setCoverCacheEntry = (key, value) => {
+  if (!key) return;
+  if (coverResponseCache.has(key)) {
+    coverResponseCache.delete(key);
+  }
+  coverResponseCache.set(key, value);
+  if (coverResponseCache.size > MAX_COVER_CACHE_SIZE) {
+    const oldestKey = coverResponseCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      coverResponseCache.delete(oldestKey);
+    }
+  }
+};
+
+const fetchCoverWithMemo = async (key, requestFactory, { bypassCache = false } = {}) => {
+  if (!bypassCache && coverResponseCache.has(key)) {
+    return coverResponseCache.get(key);
+  }
+
+  if (coverInflightRequests.has(key)) {
+    return coverInflightRequests.get(key);
+  }
+
+  const request = requestFactory()
+    .then((response) => {
+      setCoverCacheEntry(key, response);
+      return response;
+    })
+    .finally(() => {
+      coverInflightRequests.delete(key);
+    });
+
+  coverInflightRequests.set(key, request);
+  return request;
+};
+
+const fetchInflightOnce = async (store, key, requestFactory) => {
+  if (store.has(key)) {
+    return store.get(key);
+  }
+
+  const request = requestFactory().finally(() => {
+    store.delete(key);
+  });
+  store.set(key, request);
+  return request;
 };
 
 api.interceptors.request.use(
@@ -122,6 +174,11 @@ api.interceptors.response.use(
 
 export const checkHealth = async () => {
   const response = await api.get("/health");
+  return response.data;
+};
+
+export const getBootstrapStatus = async () => {
+  const response = await api.get("/health/bootstrap");
   return response.data;
 };
 
@@ -193,8 +250,11 @@ export const searchCatalog = async (
   if (scope === "album" && Array.isArray(releaseTypes) && releaseTypes.length) {
     params.releaseTypes = releaseTypes.join(",");
   }
-  const response = await api.get("/search", { params });
-  return response.data;
+  const key = `search:${JSON.stringify(params)}`;
+  return fetchInflightOnce(searchInflightRequests, key, async () => {
+    const response = await api.get("/search", { params });
+    return response.data;
+  });
 };
 
 export const getArtistDetails = async (mbid, artistName) => {
@@ -204,12 +264,8 @@ export const getArtistDetails = async (mbid, artistName) => {
   return response.data;
 };
 
-export const getReleaseGroupTracks = async (mbid, deezerAlbumId = null) => {
-  const params = {};
-  if (deezerAlbumId) params.deezerAlbumId = deezerAlbumId;
-  const response = await api.get(`/artists/release-group/${mbid}/tracks`, {
-    params,
-  });
+export const getReleaseGroupTracks = async (mbid) => {
+  const response = await api.get(`/artists/release-group/${mbid}/tracks`);
   return response.data;
 };
 
@@ -221,16 +277,26 @@ export const getArtistCover = async (mbid, artistName, refresh = false) => {
   if (refresh) {
     params.refresh = true;
   }
-  const response = await api.get(`/artists/${mbid}/cover`, {
-    params,
-    timeout: 4000,
-  });
-  return response.data;
+  const cacheKey = `artist:${mbid}`;
+  return fetchCoverWithMemo(
+    cacheKey,
+    async () => {
+      const response = await api.get(`/artists/${mbid}/cover`, {
+        params,
+        timeout: 4000,
+      });
+      return response.data;
+    },
+    { bypassCache: refresh },
+  );
 };
 
 export const getReleaseGroupCover = async (mbid) => {
-  const response = await api.get(`/artists/release-group/${mbid}/cover`);
-  return response.data;
+  const cacheKey = `release-group:${mbid}`;
+  return fetchCoverWithMemo(cacheKey, async () => {
+    const response = await api.get(`/artists/release-group/${mbid}/cover`);
+    return response.data;
+  });
 };
 
 export const getSimilarArtistsForArtist = async (mbid, limit = 20) => {
@@ -354,6 +420,11 @@ export const lookupArtistsInLibraryBatch = async (mbids) => {
   const data = response.data;
   writeLibraryLookupCache(data);
   return data;
+};
+
+export const lookupAlbumsInLibraryBatch = async (mbids) => {
+  const response = await api.post("/library/albums/lookup/batch", { mbids });
+  return response.data;
 };
 
 export const addArtistToLibrary = async (artistData) => {

@@ -1,13 +1,7 @@
 import { UUID_REGEX } from "../../../config/constants.js";
-import {
-  getLastfmApiKey,
-  lastfmGetArtistNameByMbid,
-  deezerSearchArtist,
-  getDeezerArtistById,
-  musicbrainzGetArtistNameByMbid,
-} from "../../../services/apiClients.js";
 import { dbOps } from "../../../config/db-helpers.js";
 import { pendingCoverRequests, fetchCoverInBackground } from "../utils.js";
+import { getArtistImage } from "../../../services/imageService.js";
 
 export default function registerCover(router) {
   router.get("/:mbid/cover", async (req, res) => {
@@ -31,7 +25,6 @@ export default function registerCover(router) {
 
       const override = dbOps.getArtistOverride(mbid);
       const resolvedMbid = override?.musicbrainzId || mbid;
-      const deezerArtistId = override?.deezerArtistId || null;
 
       const cachedImage = dbOps.getImage(mbid);
       if (
@@ -83,46 +76,8 @@ export default function registerCover(router) {
 
       const fetchPromise = (async () => {
         try {
-          const { libraryManager } = await import(
-            "../../../services/libraryManager.js"
-          );
-          const libraryArtist = libraryManager.getArtist(mbid);
-
-          let artistName =
-            libraryArtist?.artistName ||
-            artistNameFromQuery ||
-            (getLastfmApiKey()
-              ? await lastfmGetArtistNameByMbid(resolvedMbid)
-              : null) ||
-            (await musicbrainzGetArtistNameByMbid(resolvedMbid));
-
-          if (artistName) {
-            try {
-              console.log(`[Cover Route] Trying Deezer for cover: ${artistName}`);
-              const deezer = deezerArtistId
-                ? await getDeezerArtistById(deezerArtistId)
-                : await deezerSearchArtist(artistName);
-              if (deezer?.imageUrl) {
-                console.log(`[Cover Route] Deezer cover found for ${mbid}`);
-                dbOps.setImage(mbid, deezer.imageUrl);
-                return {
-                  images: [
-                    { image: deezer.imageUrl, front: true, types: ["Front"] },
-                  ],
-                };
-              }
-              console.log(
-                `[Cover Route] Deezer returned no image for: ${artistName}`
-              );
-            } catch (e) {
-              console.log(
-                `[Cover Route] Deezer error for ${artistName}:`,
-                e.message
-              );
-            }
-          }
-
-          return { images: [] };
+          const result = await getArtistImage(mbid, !!refresh);
+          return { images: result.images || [] };
         } catch (error) {
           console.error(`Error fetching cover for ${mbid}:`, error.message);
           return { images: [] };

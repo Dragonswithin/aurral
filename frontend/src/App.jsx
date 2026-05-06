@@ -9,7 +9,7 @@ import PropTypes from "prop-types";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Onboarding from "./pages/Onboarding";
-import { checkHealth } from "./utils/api";
+import { getBootstrapStatus } from "./utils/api";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ToastProvider, useToast } from "./contexts/ToastContext";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -22,6 +22,9 @@ const DiscoverPage = lazy(() => import("./pages/DiscoverPage"));
 const ShowsPage = lazy(() => import("./pages/ShowsPage"));
 const LibraryPage = lazy(() => import("./pages/LibraryPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const MetadataProvidersPage = lazy(
+  () => import("./pages/Settings/MetadataProvidersPage")
+);
 const ArtistDetailsPage = lazy(() => import("./pages/ArtistDetailsPage"));
 const RequestsPage = lazy(() => import("./pages/RequestsPage"));
 const FlowPage = lazy(() => import("./pages/FlowPage"));
@@ -135,10 +138,10 @@ function AppContent() {
         return;
       }
       try {
-        const health = await checkHealth();
-        setIsHealthy(health.status === "ok");
-        setRootFolderConfigured(health.rootFolderConfigured || false);
-        setAppVersion(health.appVersion || null);
+        const bootstrap = await getBootstrapStatus();
+        setIsHealthy(bootstrap.status === "ok");
+        setRootFolderConfigured(bootstrap.rootFolderConfigured || false);
+        setAppVersion(bootstrap.appVersion || null);
       } catch {
         setIsHealthy(false);
         setAppVersion(null);
@@ -160,7 +163,13 @@ function AppContent() {
   }, [isAuthenticated]);
 
   return (
-    <Router basename={basePath}>
+    <Router
+      basename={basePath}
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}
+    >
       <ProtectedRoute>
         <Layout
           isHealthy={isHealthy}
@@ -234,6 +243,10 @@ function AppContent() {
               <Route path="/blocklist" element={<BlocklistPage />} />
               <Route path="/artist/:mbid" element={<ArtistDetailsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route
+                path="/settings/metadata"
+                element={<MetadataProvidersPage />}
+              />
             </Routes>
           </Suspense>
         </Layout>

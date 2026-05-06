@@ -4,6 +4,7 @@ import {
   updateDiscoveryCache,
   updateUserDiscoveryCache,
   getUserDiscoveryCacheStaleness,
+  getDiscoveryAutoRefreshHours,
 } from "../services/discoveryService.js";
 import {
   lastfmRequest,
@@ -27,13 +28,40 @@ const router = express.Router();
 
 const pendingTagRequests = new Map();
 const pendingTagSuggestRequest = { promise: null, expiry: 0 };
-const DISCOVERY_STALE_MS = 6 * 60 * 60 * 1000;
 const DISCOVERY_REVALIDATE_COOLDOWN_MS = 60 * 1000;
 const MBID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 let lastDiscoveryRevalidateAt = 0;
 
 let discoveryPreferences = { ...defaultDiscoveryPreferences };
+
+const getDiscoveryStaleMs = () =>
+  getDiscoveryAutoRefreshHours() * 60 * 60 * 1000;
+
+const getArtistId = (artist) =>
+  artist?.id || artist?.mbid || artist?.foreignArtistId || null;
+
+const withCachedImages = (artists = []) => {
+  const list = Array.isArray(artists) ? artists : [];
+  const ids = [
+    ...new Set(list.map((artist) => getArtistId(artist)).filter(Boolean)),
+  ];
+  if (!ids.length) return list;
+
+  const cachedImages = dbOps.getImages(ids);
+  return list.map((artist) => {
+    if (!artist || typeof artist !== "object") return artist;
+    if (artist.image || artist.imageUrl) return artist;
+
+    const imageUrl = cachedImages[getArtistId(artist)]?.imageUrl;
+    if (!imageUrl || imageUrl === "NOT_FOUND") return artist;
+    return {
+      ...artist,
+      image: imageUrl,
+      imageUrl,
+    };
+  });
+};
 
 const normalizeTextList = (value) => {
   if (!Array.isArray(value)) return [];
@@ -291,7 +319,7 @@ router.get("/", requireAuth, async (req, res) => {
 
   if (hasListenHistoryProfile(listenHistoryProfile) && hasLastfmKey) {
     const staleness = getUserDiscoveryCacheStaleness(userCacheNamespace);
-    if (staleness > DISCOVERY_STALE_MS) {
+    if (staleness > getDiscoveryStaleMs()) {
       updateUserDiscoveryCache(listenHistoryProfile).catch((err) => {
         console.error(
           `[Discover] On-demand refresh for ${listenHistoryProfile.listenHistoryProvider}:${listenHistoryProfile.listenHistoryUsername} failed:`,
@@ -331,6 +359,9 @@ router.get("/", requireAuth, async (req, res) => {
     (artist) => !existingArtistIds.has(artist.id),
   );
   globalTop = globalTop.filter((artist) => !existingArtistIds.has(artist.id));
+  recommendations = withCachedImages(recommendations);
+  globalTop = withCachedImages(globalTop);
+  basedOn = withCachedImages(basedOn);
 
   const blocklist = getStoredBlocklist();
   recommendations = applyBlocklistToArtistCollection(recommendations, blocklist);
@@ -342,7 +373,7 @@ router.get("/", requireAuth, async (req, res) => {
   const isStale =
     Number.isFinite(parsedLastUpdated) &&
     parsedLastUpdated > 0 &&
-    Date.now() - parsedLastUpdated > DISCOVERY_STALE_MS;
+    Date.now() - parsedLastUpdated > getDiscoveryStaleMs();
 
   if (
     isStale &&

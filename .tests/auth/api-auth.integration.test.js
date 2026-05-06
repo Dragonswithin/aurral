@@ -146,3 +146,25 @@ test("weekly flow worker settings reject concurrency above 3 and accept 3", asyn
   assert.equal(acceptPayload.success, true);
   assert.equal(acceptPayload.settings.concurrency, 3);
 });
+
+test("weekly flow worker settings default to concurrency 2", async () => {
+  await server?.stop();
+  dbOps.updateSettings({
+    ...dbOps.getSettings(),
+    weeklyFlowWorker: {},
+  });
+  server = await startServerProcess();
+  const settingsToken = await loginAsAdmin();
+  const response = await fetch(
+    buildApiUrl(server.port, "/api/weekly-flow/worker/settings"),
+    {
+      headers: {
+        Authorization: `Bearer ${settingsToken}`,
+      },
+    },
+  );
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.concurrency, 2);
+});

@@ -4,6 +4,9 @@ import NodeCache from "node-cache";
 import { dbOps } from "../config/db-helpers.js";
 import {
   MUSICBRAINZ_API,
+  AURRAL_MUSICBRAINZ_API,
+  COVER_ART_ARCHIVE_API,
+  OFFICIAL_COVER_ART_ARCHIVE_API,
   LASTFM_API,
   LISTENBRAINZ_API,
   APP_NAME,
@@ -25,6 +28,16 @@ const deezerArtistCache = new NodeCache({
   stdTTL: 3600,
   checkperiod: 120,
   maxKeys: 1000,
+});
+const musicbrainzArtistNameCache = new NodeCache({
+  stdTTL: 3600,
+  checkperiod: 120,
+  maxKeys: 1000,
+});
+const musicbrainzReleaseGroupsCache = new NodeCache({
+  stdTTL: 300,
+  checkperiod: 120,
+  maxKeys: 500,
 });
 
 export const getLastfmApiKey = () => {
@@ -50,10 +63,125 @@ export const getMusicBrainzContact = () => {
   );
 };
 
+const normalizeMusicbrainzApiBaseUrl = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return MUSICBRAINZ_API;
+
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return MUSICBRAINZ_API;
+  }
+
+  const trimmedPath = parsed.pathname.replace(/\/+$/, "");
+  parsed.pathname = trimmedPath.endsWith("/ws/2")
+    ? trimmedPath
+    : `${trimmedPath || ""}/ws/2`;
+
+  return parsed.toString().replace(/\/+$/, "");
+};
+
+const normalizeBaseUrl = (value, fallback) => {
+  const raw = String(value || "").trim();
+  if (!raw) return fallback;
+
+  try {
+    const parsed = new URL(raw);
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "";
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return fallback;
+  }
+};
+
+const getMusicbrainzProvider = () => {
+  const settings = dbOps.getSettings();
+  return settings.integrations?.musicbrainz?.provider || "aurralHosted";
+};
+
+const getCoverArtArchiveProvider = () => {
+  const settings = dbOps.getSettings();
+  return settings.integrations?.coverArtArchive?.provider || "aurralHosted";
+};
+
+export const getMusicbrainzApiBaseUrl = () => {
+  const settings = dbOps.getSettings();
+  const provider = settings.integrations?.musicbrainz?.provider || "aurralHosted";
+  if (provider === "official") {
+    return MUSICBRAINZ_API;
+  }
+  if (provider === "custom") {
+    return normalizeMusicbrainzApiBaseUrl(
+      settings.integrations?.musicbrainz?.customUrl,
+    );
+  }
+  return AURRAL_MUSICBRAINZ_API;
+};
+
+export const getMusicbrainzApiBaseUrls = () => {
+  if (getMusicbrainzProvider() === "aurralHosted") {
+    return [AURRAL_MUSICBRAINZ_API, MUSICBRAINZ_API];
+  }
+  return [getMusicbrainzApiBaseUrl()];
+};
+
+export const getCoverArtArchiveApiBaseUrl = () => {
+  const settings = dbOps.getSettings();
+  const provider =
+    settings.integrations?.coverArtArchive?.provider || "aurralHosted";
+  if (provider === "official") {
+    return OFFICIAL_COVER_ART_ARCHIVE_API;
+  }
+  if (provider === "custom") {
+    return normalizeBaseUrl(
+      settings.integrations?.coverArtArchive?.customUrl,
+      OFFICIAL_COVER_ART_ARCHIVE_API,
+    );
+  }
+  return COVER_ART_ARCHIVE_API;
+};
+
+export const getCoverArtArchiveApiBaseUrls = () => {
+  if (getCoverArtArchiveProvider() === "aurralHosted") {
+    return [COVER_ART_ARCHIVE_API, OFFICIAL_COVER_ART_ARCHIVE_API];
+  }
+  return [getCoverArtArchiveApiBaseUrl()];
+};
+
+const requestMusicbrainz = async (
+  baseUrl,
+  endpoint,
+  queryParams,
+  userAgent,
+  forceIpv4 = false,
+) =>
+  axios.get(`${baseUrl}${endpoint}?${queryParams}`, {
+    headers: { "User-Agent": userAgent },
+    timeout: 5000,
+    ...(forceIpv4 ? { family: 4 } : {}),
+  });
+
 const mbLimiter = new Bottleneck({
   maxConcurrent: 1,
   minTime: 1000,
 });
+
+const configureMusicbrainzLimiter = async () => {
+  const provider = getMusicbrainzProvider();
+  if (provider === "official") {
+    await mbLimiter.updateSettings({
+      maxConcurrent: 1,
+      minTime: 1000,
+    });
+    return;
+  }
+
+  await mbLimiter.updateSettings({
+    maxConcurrent: 4,
+    minTime: 100,
+  });
+};
 
 const lastfmLimiter = new Bottleneck({
   maxConcurrent: 5,
@@ -113,74 +241,139 @@ const musicbrainzRequestWithRetry = async (
     );
   };
 
-  const isServerUnavailable = (error) =>
-    error.response && [502, 503, 504].includes(error.response.status);
-
   const contact =
     (getMusicBrainzContact() || "").trim() || "https://github.com/aurral";
   const userAgent = `${APP_NAME}/${APP_VERSION} ( ${contact} )`;
-  try {
-    const response = await axios.get(
-      `${MUSICBRAINZ_API}${endpoint}?${queryParams}`,
-      {
-        headers: { "User-Agent": userAgent },
-        timeout: 5000,
-        ...(forceIpv4 ? { family: 4 } : {}),
-      },
-    );
-    mbCache.set(cacheKey, response.data);
-    return response.data;
-  } catch (error) {
-    const connectionError = isConnectionError(error);
-    const shouldRetry =
-      retryCount < MAX_RETRIES &&
-      (connectionError ||
-        (error.response &&
-          [429, 500, 502, 503, 504].includes(error.response.status)));
+  const shouldTryFallbackBaseUrl = (error) =>
+    isConnectionError(error) ||
+    (error.response && [429, 500, 502, 503, 504].includes(error.response.status));
 
-    if (shouldRetry) {
-      const delay = 300 * Math.pow(2, retryCount);
-      const errorType = error.response
-        ? `HTTP ${error.response.status}`
-        : error.code || error.message;
-      console.warn(
-        `MusicBrainz error (${errorType}), retrying in ${delay}ms... (attempt ${
-          retryCount + 1
-        }/${MAX_RETRIES})`,
-      );
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      return musicbrainzRequestWithRetry(
+  const baseUrls = getMusicbrainzApiBaseUrls();
+  let error;
+  for (const [index, baseUrl] of baseUrls.entries()) {
+    try {
+      const response = await requestMusicbrainz(
+        baseUrl,
         endpoint,
-        params,
-        retryCount + 1,
-        forceIpv4 || connectionError,
+        queryParams,
+        userAgent,
+        forceIpv4,
       );
-    }
+      const responseData = response.data;
 
-    if (error.response && error.response.status === 404) {
-      console.warn(`MusicBrainz 404 Not Found for ${endpoint}`);
-      throw error;
-    }
-
-    const status = error.response?.status;
-    if (status === 502 || status === 503 || status === 504) {
-      if (
-        !musicbrainzLast503Log ||
-        Date.now() - musicbrainzLast503Log > 15000
-      ) {
-        musicbrainzLast503Log = Date.now();
+      mbCache.set(cacheKey, responseData);
+      return responseData;
+    } catch (requestError) {
+      error = requestError;
+      const hasFallbackBaseUrl = index < baseUrls.length - 1;
+      if (hasFallbackBaseUrl && shouldTryFallbackBaseUrl(requestError)) {
         console.warn(
-          `MusicBrainz ${status} (suppressing further logs for 15s)`,
+          `MusicBrainz endpoint ${baseUrl} failed, falling back to the public API`,
         );
+        continue;
       }
-    } else {
-      console.error("MusicBrainz API error:", error.message);
+      break;
     }
+  }
+
+  const connectionError = isConnectionError(error);
+  const shouldRetry =
+    retryCount < MAX_RETRIES &&
+    (connectionError ||
+      (error.response &&
+        [429, 500, 502, 503, 504].includes(error.response.status)));
+
+  if (shouldRetry) {
+    const delay = 300 * Math.pow(2, retryCount);
+    const errorType = error.response
+      ? `HTTP ${error.response.status}`
+      : error.code || error.message;
+    console.warn(
+      `MusicBrainz error (${errorType}), retrying in ${delay}ms... (attempt ${
+        retryCount + 1
+      }/${MAX_RETRIES})`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    return musicbrainzRequestWithRetry(
+      endpoint,
+      params,
+      retryCount + 1,
+      forceIpv4 || connectionError,
+    );
+  }
+
+  if (error.response && error.response.status === 404) {
+    console.warn(`MusicBrainz 404 Not Found for ${endpoint}`);
     throw error;
   }
+
+  const status = error.response?.status;
+  if (status === 502 || status === 503 || status === 504) {
+    if (
+      !musicbrainzLast503Log ||
+      Date.now() - musicbrainzLast503Log > 15000
+    ) {
+      musicbrainzLast503Log = Date.now();
+      console.warn(
+        `MusicBrainz ${status} (suppressing further logs for 15s)`,
+      );
+    }
+  } else {
+    console.error("MusicBrainz API error:", error.message);
+  }
+  throw error;
 };
 
-export const musicbrainzRequest = mbLimiter.wrap(musicbrainzRequestWithRetry);
+export const musicbrainzRequest = async (endpoint, params = {}) => {
+  await configureMusicbrainzLimiter();
+  return mbLimiter.schedule(() =>
+    musicbrainzRequestWithRetry(endpoint, params),
+  );
+};
+
+export async function fetchCoverArtArchiveReleaseGroup(releaseGroupMbid) {
+  if (!releaseGroupMbid) return null;
+  for (const baseUrl of getCoverArtArchiveApiBaseUrls()) {
+    const directUrl = `${baseUrl}/release-group/${releaseGroupMbid}/front-250`;
+    try {
+      const response = await axios.head(directUrl, {
+        timeout: 2000,
+        maxRedirects: 0,
+        validateStatus: (status) =>
+          status === 200 || status === 301 || status === 302 || status === 307,
+      });
+
+      if (response.status >= 200 && response.status < 400) {
+        return {
+          imageUrl: directUrl,
+          types: ["Front"],
+        };
+      }
+    } catch {}
+
+    try {
+      const response = await axios.get(
+        `${baseUrl}/release-group/${releaseGroupMbid}`,
+        {
+          headers: { Accept: "application/json" },
+          timeout: 2000,
+        },
+      );
+      const images = Array.isArray(response?.data?.images)
+        ? response.data.images
+        : [];
+      if (!images.length) continue;
+
+      const frontImage = images.find((img) => img.front) || images[0];
+      return {
+        imageUrl: directUrl,
+        types: frontImage?.types || ["Front"],
+      };
+    } catch {}
+  }
+
+  return null;
+}
 
 export const lastfmRequest = lastfmLimiter.wrap(async (method, params = {}) => {
   const apiKey = getLastfmApiKey();
@@ -620,17 +813,13 @@ export async function lastfmGetArtistBio(mbid) {
 }
 
 /**
- * Get artist biography: try Deezer first, then Last.fm. Returns string or null.
+ * Get artist biography: prefer Wikipedia via Wikidata, then Last.fm. Returns string or null.
  */
-export async function getArtistBio(artistName, mbid, deezerArtistId = null) {
+export async function getArtistBio(_artistName, mbid) {
   if (mbid) {
     const wikiBio = await wikipediaGetArtistBioByMbid(mbid);
     if (wikiBio) return wikiBio;
   }
-  const deezerBio = deezerArtistId
-    ? await deezerGetArtistBioById(deezerArtistId)
-    : await deezerGetArtistBio(artistName);
-  if (deezerBio) return deezerBio;
   if (mbid) {
     const lastfmBio = await lastfmGetArtistBio(mbid);
     if (lastfmBio) return lastfmBio;
@@ -716,6 +905,9 @@ const ALLOWED_PRIMARY_TYPES = new Set(["album", "ep", "single"]);
  * Returns array of { id, title, "first-release-date", "primary-type", "secondary-types" }.
  */
 export async function musicbrainzGetArtistReleaseGroups(mbid) {
+  const cacheKey = `full:${mbid}`;
+  const cached = musicbrainzReleaseGroupsCache.get(cacheKey);
+  if (cached) return cached;
   try {
     const raw = [];
     const limit = 100;
@@ -760,7 +952,57 @@ export async function musicbrainzGetArtistReleaseGroups(mbid) {
         const dateB = b["first-release-date"] || "";
         return dateB.localeCompare(dateA);
       });
+    musicbrainzReleaseGroupsCache.set(cacheKey, filtered);
     return filtered;
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function musicbrainzGetArtistReleaseGroupsPreview(mbid, limit = 50) {
+  if (!mbid) return [];
+  const parsedLimit = Number.parseInt(limit, 10);
+  const safeLimit =
+    Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(100, parsedLimit) : 50;
+  const cacheKey = `preview:${mbid}:${safeLimit}`;
+  const cached = musicbrainzReleaseGroupsCache.get(cacheKey);
+  if (cached) return cached;
+  try {
+    const data = await musicbrainzRequest("/release-group", {
+      artist: mbid,
+      limit: safeLimit,
+      offset: 0,
+    });
+    const releaseGroups = Array.isArray(data?.["release-groups"])
+      ? data["release-groups"]
+      : [];
+    const result = releaseGroups
+      .filter(
+        (rg) =>
+          rg?.id &&
+          ALLOWED_PRIMARY_TYPES.has((rg["primary-type"] || "").toLowerCase()),
+      )
+      .map((rg) => ({
+        id: rg.id,
+        title: rg.title || "",
+        "first-release-date": rg["first-release-date"] || null,
+        "primary-type":
+          rg["primary-type"] === "EP"
+            ? "EP"
+            : rg["primary-type"] === "Single"
+              ? "Single"
+              : "Album",
+        "secondary-types": Array.isArray(rg["secondary-types"])
+          ? rg["secondary-types"]
+          : [],
+      }))
+      .sort((a, b) => {
+        const dateA = a["first-release-date"] || "";
+        const dateB = b["first-release-date"] || "";
+        return dateB.localeCompare(dateA);
+      });
+    musicbrainzReleaseGroupsCache.set(cacheKey, result);
+    return result;
   } catch (e) {
     return [];
   }
@@ -965,11 +1207,17 @@ export async function lastfmGetArtistNameByMbid(mbid) {
 
 export async function musicbrainzGetArtistNameByMbid(mbid) {
   if (!mbid) return null;
+  const cached = musicbrainzArtistNameCache.get(mbid);
+  if (cached !== undefined) return cached;
   try {
     const data = await musicbrainzRequest(`/artist/${mbid}`);
     const name = data?.name;
-    return name && typeof name === "string" ? name.trim() : null;
+    const normalized =
+      name && typeof name === "string" ? name.trim() : null;
+    musicbrainzArtistNameCache.set(mbid, normalized);
+    return normalized;
   } catch (e) {
+    musicbrainzArtistNameCache.set(mbid, null);
     return null;
   }
 }
@@ -1099,6 +1347,8 @@ export function clearApiCaches() {
   lastfmCache.flushAll();
   listenbrainzCache.flushAll();
   deezerArtistCache.flushAll();
+  musicbrainzArtistNameCache.flushAll();
+  musicbrainzReleaseGroupsCache.flushAll();
   deezerAlbumCache.flushAll();
   deezerBioCache.flushAll();
 }

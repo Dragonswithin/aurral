@@ -40,6 +40,100 @@ router.post("/", async (req, res) => {
       }
     }
 
+    const musicbrainzProvider = integrations?.musicbrainz?.provider;
+    const validMusicbrainzProviders = new Set([
+      "aurralHosted",
+      "official",
+      "custom",
+    ]);
+    if (
+      musicbrainzProvider !== undefined &&
+      !validMusicbrainzProviders.has(musicbrainzProvider)
+    ) {
+      return res.status(400).json({
+        error:
+          "Invalid MusicBrainz provider. Expected aurralHosted, official, or custom.",
+      });
+    }
+
+    const coverArtArchiveProvider = integrations?.coverArtArchive?.provider;
+    const validCoverArtArchiveProviders = new Set([
+      "aurralHosted",
+      "official",
+      "custom",
+    ]);
+    if (
+      coverArtArchiveProvider !== undefined &&
+      !validCoverArtArchiveProviders.has(coverArtArchiveProvider)
+    ) {
+      return res.status(400).json({
+        error:
+          "Invalid Cover Art Archive provider. Expected aurralHosted, official, or custom.",
+      });
+    }
+
+    if (integrations?.musicbrainz) {
+      const nextMusicbrainz = {
+        ...(currentSettings.integrations?.musicbrainz || {}),
+        ...integrations.musicbrainz,
+      };
+      const provider = validMusicbrainzProviders.has(nextMusicbrainz.provider)
+        ? nextMusicbrainz.provider
+        : "aurralHosted";
+      nextMusicbrainz.provider = provider;
+
+      if (provider === "custom") {
+        const customUrlValidation = validateExternalUrl(
+          nextMusicbrainz.customUrl || "",
+        );
+        if (!customUrlValidation.valid) {
+          return res.status(400).json({
+            error: `Invalid custom MusicBrainz URL: ${customUrlValidation.error}`,
+          });
+        }
+        nextMusicbrainz.customUrl = customUrlValidation.url;
+      } else {
+        nextMusicbrainz.customUrl =
+          typeof nextMusicbrainz.customUrl === "string"
+            ? nextMusicbrainz.customUrl.trim()
+            : "";
+      }
+
+      integrations.musicbrainz = nextMusicbrainz;
+    }
+
+    if (integrations?.coverArtArchive) {
+      const nextCoverArtArchive = {
+        ...(currentSettings.integrations?.coverArtArchive || {}),
+        ...integrations.coverArtArchive,
+      };
+      const provider = validCoverArtArchiveProviders.has(
+        nextCoverArtArchive.provider,
+      )
+        ? nextCoverArtArchive.provider
+        : "aurralHosted";
+      nextCoverArtArchive.provider = provider;
+
+      if (provider === "custom") {
+        const customUrlValidation = validateExternalUrl(
+          nextCoverArtArchive.customUrl || "",
+        );
+        if (!customUrlValidation.valid) {
+          return res.status(400).json({
+            error: `Invalid custom Cover Art Archive URL: ${customUrlValidation.error}`,
+          });
+        }
+        nextCoverArtArchive.customUrl = customUrlValidation.url;
+      } else {
+        nextCoverArtArchive.customUrl =
+          typeof nextCoverArtArchive.customUrl === "string"
+            ? nextCoverArtArchive.customUrl.trim()
+            : "";
+      }
+
+      integrations.coverArtArchive = nextCoverArtArchive;
+    }
+
     let mergedIntegrations =
       currentSettings.integrations || defaultData.settings.integrations || {};
     if (integrations) {
@@ -82,6 +176,12 @@ router.post("/", async (req, res) => {
               ...integrations.musicbrainz,
             }
           : mergedIntegrations.musicbrainz,
+        coverArtArchive: integrations.coverArtArchive
+          ? {
+              ...(mergedIntegrations.coverArtArchive || {}),
+              ...integrations.coverArtArchive,
+            }
+          : mergedIntegrations.coverArtArchive,
         general: integrations.general
           ? {
               ...(mergedIntegrations.general || {}),

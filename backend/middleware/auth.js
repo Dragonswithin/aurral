@@ -328,7 +328,11 @@ function consumeStreamToken(rawToken) {
 export const createAuthMiddleware = () => {
   return (req, res, next) => {
     if (!req.path.startsWith("/api")) return next();
-    if (req.path === "/api/health" || req.path === "/api/health/live") {
+    if (
+      req.path === "/api/health" ||
+      req.path === "/api/health/live" ||
+      req.path === "/api/health/bootstrap"
+    ) {
       return next();
     }
     if (

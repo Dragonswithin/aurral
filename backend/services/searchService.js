@@ -1,5 +1,5 @@
+import NodeCache from "node-cache";
 import { dbOps } from "../config/db-helpers.js";
-import { imagePrefetchService } from "./imagePrefetchService.js";
 import {
   getLastfmApiKey,
   lastfmRequest,
@@ -23,10 +23,19 @@ const ALL_RELEASE_TYPES = new Set([
   ...PRIMARY_RELEASE_TYPES,
   ...SECONDARY_RELEASE_TYPES,
 ]);
+const albumLibraryLookupCache = new NodeCache({
+  stdTTL: 60,
+  checkperiod: 60,
+  maxKeys: 10,
+});
 
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function escapeMusicbrainzQueryTerm(value) {
+  return String(value || "").replace(/["\\]/g, "\\$&");
 }
 
 function normalizePercentOfTracks(value) {
@@ -43,8 +52,19 @@ function normalizeArtistImage(cachedImage) {
     : null;
 }
 
+function normalizeReleaseGroupCover(cachedImage) {
+  return cachedImage?.imageUrl && cachedImage.imageUrl !== "NOT_FOUND"
+    ? cachedImage.imageUrl
+    : null;
+}
+
 export function normalizeArtistSearchItem(artist, cachedImages = {}) {
   const imageUrl = normalizeArtistImage(cachedImages[artist.id]);
+  const areaName =
+    artist?.area?.name || artist?.["begin-area"]?.name || artist?.area || null;
+  const lifeSpan = artist?.["life-span"] || artist?.lifeSpan || null;
+  const begin = lifeSpan?.begin || null;
+  const end = lifeSpan?.end || null;
   return {
     type: "artist",
     id: artist.id,
@@ -52,6 +72,12 @@ export function normalizeArtistSearchItem(artist, cachedImages = {}) {
     sortName: artist["sort-name"] || artist.name,
     image: imageUrl,
     imageUrl,
+    artistType: artist.type || null,
+    country: artist.country || null,
+    area: areaName,
+    begin,
+    end,
+    disambiguation: artist.disambiguation || null,
     inLibrary: false,
   };
 }
@@ -81,8 +107,13 @@ function normalizeArtistCredit(artistCredit) {
   };
 }
 
-export function normalizeAlbumSearchItem(releaseGroup, lookup = null) {
+export function normalizeAlbumSearchItem(
+  releaseGroup,
+  lookup = null,
+  cachedCovers = {},
+) {
   const artistCredit = normalizeArtistCredit(releaseGroup["artist-credit"]);
+  const coverUrl = normalizeReleaseGroupCover(cachedCovers[releaseGroup.id]);
   return {
     type: "album",
     id: releaseGroup.id,
@@ -94,7 +125,7 @@ export function normalizeAlbumSearchItem(releaseGroup, lookup = null) {
     secondaryTypes: Array.isArray(releaseGroup["secondary-types"])
       ? releaseGroup["secondary-types"]
       : [],
-    coverUrl: null,
+    coverUrl,
     inLibrary: !!lookup,
     libraryAlbumId: lookup?.libraryAlbumId || null,
     libraryArtistId: lookup?.libraryArtistId || null,
@@ -147,6 +178,50 @@ export function matchesAlbumReleaseTypeFilter(
   );
 }
 
+function buildAlbumSearchQuery(query, selectedReleaseTypes) {
+  const normalizedQuery = String(query || "").trim();
+  const normalizedSelection =
+    normalizeAlbumReleaseTypesFilter(selectedReleaseTypes);
+  const primarySelection = normalizedSelection.filter((value) =>
+    PRIMARY_RELEASE_TYPES.has(value),
+  );
+  const secondarySelection = normalizedSelection.filter((value) =>
+    SECONDARY_RELEASE_TYPES.has(value),
+  );
+
+  if (
+    primarySelection.length === 0 ||
+    primarySelection.length === PRIMARY_RELEASE_TYPES.size
+  ) {
+    return normalizedQuery;
+  }
+
+  const primaryClauses = primarySelection.map(
+    (value) => `primarytype:${value.toLowerCase()}`,
+  );
+  const escapedQuery = escapeMusicbrainzQueryTerm(normalizedQuery);
+  const clauses = [`"${escapedQuery}"`, `(${primaryClauses.join(" OR ")})`];
+
+  if (secondarySelection.length === 0) {
+    clauses.push("-secondarytype:*");
+  }
+
+  return clauses.join(" AND ");
+}
+
+function canUseDirectPrimaryTypeSearch(selectedReleaseTypes) {
+  const normalizedSelection =
+    normalizeAlbumReleaseTypesFilter(selectedReleaseTypes);
+  if (
+    normalizedSelection.length === 0 ||
+    normalizedSelection.length === ALL_RELEASE_TYPES.size
+  ) {
+    return false;
+  }
+
+  return normalizedSelection.every((value) => PRIMARY_RELEASE_TYPES.has(value));
+}
+
 function normalizeTagArtistItem(artist, tag) {
   let imageUrl = artist.image || artist.imageUrl || null;
   if (!imageUrl && Array.isArray(artist.image)) {
@@ -181,7 +256,10 @@ async function getAlbumLibraryLookup(albumMbids) {
   }
 
   try {
-    const lidarrAlbums = await lidarrClient.request("/album");
+    let lidarrAlbums = albumLibraryLookupCache.get("lidarrAlbums");
+    if (!lidarrAlbums) {
+      return lookup;
+    }
     const wanted = new Set(albumMbids);
     for (const album of Array.isArray(lidarrAlbums) ? lidarrAlbums : []) {
       const foreignAlbumId = album?.foreignAlbumId;
@@ -224,10 +302,6 @@ export async function searchArtists(query, limit = 24, offset = 0) {
     normalizeArtistSearchItem(artist, cachedImages),
   );
 
-  if (items.length > 0) {
-    imagePrefetchService.prefetchSearchResults(items).catch(() => {});
-  }
-
   return {
     scope: "artist",
     query,
@@ -262,9 +336,15 @@ export async function searchAlbums(
   const limitInt = parsePositiveInt(limit, 24);
   const offsetInt = Math.max(0, Number.parseInt(offset, 10) || 0);
   const selectedReleaseTypes = normalizeAlbumReleaseTypesFilter(releaseTypes);
+  const useDirectPrimaryTypeSearch =
+    canUseDirectPrimaryTypeSearch(selectedReleaseTypes);
   const shouldFilterByReleaseType =
+    !useDirectPrimaryTypeSearch &&
     selectedReleaseTypes.length > 0 &&
     selectedReleaseTypes.length < ALL_RELEASE_TYPES.size;
+  const musicbrainzQuery = buildAlbumSearchQuery(query, selectedReleaseTypes);
+  const MAX_SEARCH_PAGES = 6;
+  let pagesFetched = 0;
   const rawPageSize = shouldFilterByReleaseType
     ? Math.max(limitInt, 50)
     : limitInt;
@@ -279,11 +359,15 @@ export async function searchAlbums(
     filteredReleaseGroups.length < limitInt ||
     (shouldFilterByReleaseType && !hasMore)
   ) {
+    if (pagesFetched >= MAX_SEARCH_PAGES) {
+      break;
+    }
     const mbData = await musicbrainzRequest("/release-group", {
-      query,
+      query: musicbrainzQuery,
       limit: rawPageSize,
       offset: rawOffset,
     });
+    pagesFetched += 1;
     rawCount =
       Number.parseInt(mbData?.count, 10) ||
       Number.parseInt(mbData?.["release-group-count"], 10) ||
@@ -294,6 +378,14 @@ export async function searchAlbums(
     const validReleaseGroups = releaseGroups.filter(
       (releaseGroup) => releaseGroup?.id && releaseGroup?.title,
     );
+
+    if (useDirectPrimaryTypeSearch) {
+      filteredReleaseGroups.push(
+        ...validReleaseGroups.slice(0, Math.max(0, limitInt - filteredReleaseGroups.length)),
+      );
+      hasMore = rawCount > offsetInt + filteredReleaseGroups.length;
+      break;
+    }
 
     for (const releaseGroup of validReleaseGroups) {
       if (
@@ -332,6 +424,9 @@ export async function searchAlbums(
   const albumLookup = await getAlbumLibraryLookup(
     filteredReleaseGroups.map((releaseGroup) => releaseGroup.id),
   );
+  const cachedCovers = dbOps.getImages(
+    filteredReleaseGroups.map((releaseGroup) => `rg:${releaseGroup.id}`),
+  );
 
   return {
     scope: "album",
@@ -346,7 +441,11 @@ export async function searchAlbums(
         : (rawCount || filteredReleaseGroups.length) >
           offsetInt + filteredReleaseGroups.length,
     items: filteredReleaseGroups.map((releaseGroup) =>
-      normalizeAlbumSearchItem(releaseGroup, albumLookup.get(releaseGroup.id)),
+      normalizeAlbumSearchItem(
+        releaseGroup,
+        albumLookup.get(releaseGroup.id),
+        cachedCovers,
+      ),
     ),
   };
 }

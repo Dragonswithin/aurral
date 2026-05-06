@@ -856,11 +856,7 @@ export function useArtistDetailsLibrary({
           const tracks = await getLibraryTracks(libraryAlbumId, releaseGroupId);
           setAlbumTracks((prev) => ({ ...prev, [trackKey]: tracks }));
         } else {
-          const rg = artist?.["release-groups"]?.find(
-            (r) => r.id === releaseGroupId,
-          );
-          const deezerId = rg?._deezerAlbumId ?? null;
-          const tracks = await getReleaseGroupTracks(releaseGroupId, deezerId);
+          const tracks = await getReleaseGroupTracks(releaseGroupId);
           setAlbumTracks((prev) => ({ ...prev, [trackKey]: tracks }));
         }
       } catch (err) {

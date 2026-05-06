@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { Ban, CheckCircle2, Library, Loader2, MoreVertical } from "lucide-react";
+import {
+  Ban,
+  CheckCircle2,
+  Library,
+  Loader2,
+  MoreVertical,
+} from "lucide-react";
 import ArtistImage from "./ArtistImage";
 
 function ArtistActionsMenu({
@@ -75,7 +81,9 @@ function ArtistActionsMenu({
           )}
           <button
             type="button"
-            onClick={(event) => handleAction(event, "blocklist", onAddToBlocklist)}
+            onClick={(event) =>
+              handleAction(event, "blocklist", onAddToBlocklist)
+            }
             disabled={isBlocked || !!pendingAction}
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ color: isBlocked ? "#c1c1c3" : "#fca5a5" }}
@@ -107,6 +115,45 @@ function SearchArtistResults({
   const getArtistId = (artist) =>
     artist?.id || artist?.mbid || artist?.foreignArtistId;
 
+  const formatLifeSpan = (artist) => {
+    const begin =
+      artist?.begin || artist?.["life-span"]?.begin || artist?.lifeSpan?.begin;
+    if (!begin) return null;
+    const ended =
+      artist?.ended ??
+      artist?.["life-span"]?.ended ??
+      artist?.lifeSpan?.ended ??
+      false;
+    const end =
+      artist?.end || artist?.["life-span"]?.end || artist?.lifeSpan?.end || null;
+    const beginYear = String(begin).split("-")[0];
+    if (ended && end) {
+      const endYear = String(end).split("-")[0];
+      return `${beginYear} - ${endYear}`;
+    }
+    return `${beginYear} - Present`;
+  };
+
+  const normalizeArtistType = (artist) => {
+    const raw = artist?.artistType || artist?.type || null;
+    if (!raw) return null;
+    const types = {
+      Person: "Solo Artist",
+      Group: "Band",
+      Orchestra: "Orchestra",
+      Choir: "Choir",
+      Character: "Character",
+      Other: "Other",
+    };
+    return types[raw] || raw;
+  };
+
+  const normalizeArea = (artist) => {
+    const value = artist?.area || artist?.area?.name || null;
+    if (!value) return null;
+    return String(value).trim() || null;
+  };
+
   const isArtistBlocked = (artist) => {
     const artistId = String(getArtistId(artist) || "").trim().toLowerCase();
     const artistName = String(artist?.name || "").trim().toLowerCase();
@@ -123,6 +170,21 @@ function SearchArtistResults({
     <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
       {artists.map((artist, index) => {
         const artistId = getArtistId(artist);
+        const artistTypeLabel = normalizeArtistType(artist);
+        const lifeSpan = formatLifeSpan(artist);
+        const area = normalizeArea(artist);
+        const country = artist?.country ? String(artist.country).trim() : null;
+        const disambiguation = artist?.disambiguation
+          ? String(artist.disambiguation).trim()
+          : null;
+        const disambiguationLine = [
+          artistTypeLabel,
+          area || country,
+          lifeSpan,
+          disambiguation,
+        ]
+          .filter(Boolean)
+          .join(" • ");
         const artistMetaText = [
           type === "recommended" &&
             artist.sourceArtist &&
@@ -164,7 +226,7 @@ function SearchArtistResults({
                         state: { artistName: artist.name },
                       })
                     }
-                    className="truncate font-semibold hover:underline cursor-pointer"
+                    className="truncate cursor-pointer font-semibold hover:underline"
                     style={{ color: "#fff" }}
                     title={artist.name}
                   >
@@ -184,12 +246,12 @@ function SearchArtistResults({
                       {artistMetaText}
                     </p>
                   )}
-                  {artist.country && (
+                  {disambiguationLine && (
                     <p
                       className="truncate text-xs opacity-80"
-                      title={artist.country}
+                      title={disambiguationLine}
                     >
-                      {artist.country}
+                      {disambiguationLine}
                     </p>
                   )}
                 </div>

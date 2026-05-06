@@ -435,8 +435,6 @@ export class SimpleSoulseekClient {
     this.connectPromise = null;
     this.connectedConfigKey = null;
     this.needsReconnect = false;
-    this.searchCache.clear();
-    this.noResultsCache.clear();
     this.metrics.disconnectCalls += 1;
     this.metrics.lastDisconnectAt = Date.now();
     if (this.client && this.connected) {
@@ -480,13 +478,13 @@ export class SimpleSoulseekClient {
   _getDownloadStartupTimeoutMs() {
     const raw = Number(process.env.SOULSEEK_DOWNLOAD_START_TIMEOUT_MS);
     if (Number.isFinite(raw) && raw >= 3000) return raw;
-    return 12000;
+    return 45000;
   }
 
   _getDownloadStallTimeoutMs() {
     const raw = Number(process.env.SOULSEEK_DOWNLOAD_STALL_TIMEOUT_MS);
     if (Number.isFinite(raw) && raw >= 5000) return raw;
-    return 15000;
+    return 45000;
   }
 
   _getMatchScanLimit() {
@@ -506,27 +504,27 @@ export class SimpleSoulseekClient {
   _getQueuedTimeoutMs() {
     const raw = Number(process.env.SOULSEEK_QUEUED_TIMEOUT_MS);
     if (Number.isFinite(raw) && raw >= 3000) return Math.floor(raw);
-    return 8000;
+    return 30000;
   }
 
-  _getQueuedFirstTimeoutMs() {
+  getQueuedFirstTimeoutMs() {
     const raw = Number(process.env.SOULSEEK_QUEUED_TIMEOUT_FIRST_MS);
     if (Number.isFinite(raw) && raw >= 2500) return Math.floor(raw);
-    return Math.min(this._getQueuedTimeoutMs(), 5000);
+    return this._getQueuedTimeoutMs();
   }
 
-  _getQueuedRetryTimeoutMs() {
+  getQueuedRetryTimeoutMs() {
     const raw = Number(process.env.SOULSEEK_QUEUED_TIMEOUT_RETRY_MS);
     if (Number.isFinite(raw) && raw >= 2500) return Math.floor(raw);
-    return Math.max(2500, this._getQueuedFirstTimeoutMs() - 1000);
+    return Math.max(15000, Math.floor(this.getQueuedFirstTimeoutMs() * 0.75));
   }
 
-  _getQueuedTimeoutForAttempt(attemptIndex) {
+  getQueuedTimeoutForAttempt(attemptIndex) {
     const index = Number.isFinite(Number(attemptIndex))
       ? Math.max(0, Math.floor(Number(attemptIndex)))
       : 0;
-    if (index <= 0) return this._getQueuedFirstTimeoutMs();
-    return this._getQueuedRetryTimeoutMs();
+    if (index <= 0) return this.getQueuedFirstTimeoutMs();
+    return this.getQueuedRetryTimeoutMs();
   }
 
   _getCachedSearch(query) {
@@ -623,6 +621,17 @@ export class SimpleSoulseekClient {
     this.userFailures.set(key, entry);
   }
 
+  _blacklistUserImmediately(user) {
+    const key = String(user || "")
+      .trim()
+      .toLowerCase();
+    if (!key) return;
+    this.userFailures.set(key, {
+      count: this.userBlacklistThreshold,
+      lastFailure: Date.now(),
+    });
+  }
+
   _resetUserFailure(user) {
     const key = String(user || "")
       .trim()
@@ -678,6 +687,14 @@ export class SimpleSoulseekClient {
   _isUserOfflineError(message) {
     const text = String(message || "").toLowerCase();
     return text.includes("user not exist") || text.includes("user offline");
+  }
+
+  isUserBlacklisted(user) {
+    return this._isUserBlacklisted(user);
+  }
+
+  getUserQueuePenalty(user) {
+    return this._getUserQueuePenalty(user);
   }
 
   _isQueuedError(message) {
@@ -878,7 +895,7 @@ export class SimpleSoulseekClient {
       await fs.rm(absPath, { force: true }).catch(() => {});
       try {
         return await this.download(candidate, absPath, onProgress, {
-          queuedTimeoutMs: this._getQueuedTimeoutForAttempt(attemptIndex),
+          queuedTimeoutMs: this.getQueuedTimeoutForAttempt(attemptIndex),
         });
       } catch (error) {
         const message =
@@ -1070,7 +1087,6 @@ export class SimpleSoulseekClient {
           }, DOWNLOAD_STARTUP_TIMEOUT_MS);
           queuedTimeoutId = setTimeout(() => {
             if (settled || sawFirstByte) return;
-            this._disconnectOnTransferFailure();
             settle(reject)(
               new Error("Download queued (skipping to next source)"),
             );
@@ -1121,7 +1137,9 @@ export class SimpleSoulseekClient {
       const message = err instanceof Error ? err.message : String(err || "");
       if (this._isQueuedError(message)) {
         this._recordUserQueued(result?.user);
-      } else if (!this._isUserOfflineError(message)) {
+      } else if (this._isUserOfflineError(message)) {
+        this._blacklistUserImmediately(result?.user);
+      } else {
         this._recordUserFailure(result?.user);
       }
       this.metrics.downloadFailures += 1;

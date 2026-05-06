@@ -742,7 +742,7 @@ const EMPTY_FLOW_STATS = {
 };
 
 const DEFAULT_WORKER_SETTINGS = {
-  concurrency: 3,
+  concurrency: 2,
   preferredFormat: "flac",
   preferredFormatStrict: false,
   retryCycleMinutes: 15,
@@ -1634,8 +1634,14 @@ function FlowPage() {
 
   const handleSaveWorkerSettings = async () => {
     const safeConcurrency = Math.min(
-      5,
-      Math.max(1, Math.floor(Number(workerSettingsDraft.concurrency) || 3)),
+      3,
+      Math.max(
+        1,
+        Math.floor(
+          Number(workerSettingsDraft.concurrency) ||
+            DEFAULT_WORKER_SETTINGS.concurrency,
+        ),
+      ),
     );
     const safePreferredFormat =
       workerSettingsDraft.preferredFormat === "mp3" ? "mp3" : "flac";

@@ -1,10 +1,7 @@
 import { UUID_REGEX } from "../../../config/constants.js";
 import {
-  getLastfmApiKey,
-  lastfmGetArtistNameByMbid,
   deezerGetArtistTopTracks,
   deezerGetArtistTopTracksById,
-  musicbrainzGetArtistNameByMbid,
 } from "../../../services/apiClients.js";
 import { dbOps } from "../../../config/db-helpers.js";
 import { cacheMiddleware } from "../../../middleware/cache.js";
@@ -25,13 +22,7 @@ export default function registerPreview(router) {
         const tracks = await deezerGetArtistTopTracksById(deezerArtistId);
         return res.json({ tracks });
       }
-      let artistName =
-        artistNameParam ||
-        (getLastfmApiKey()
-          ? await lastfmGetArtistNameByMbid(resolvedMbid)
-          : null) ||
-        (await musicbrainzGetArtistNameByMbid(resolvedMbid)) ||
-        null;
+      const artistName = artistNameParam || null;
       if (!artistName) {
         return res.json({ tracks: [] });
       }

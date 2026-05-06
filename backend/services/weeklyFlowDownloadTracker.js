@@ -461,22 +461,35 @@ export class WeeklyFlowDownloadTracker {
   }
 
   getNextPending(lastPlaylistType = null) {
+    return this.getNextPendingMatching(() => true, lastPlaylistType);
+  }
+
+  getNextPendingMatching(predicate = null, lastPlaylistType = null) {
+    const accepts = typeof predicate === "function" ? predicate : () => true;
     this.pendingFreshQueue = this._compactPendingQueue(this.pendingFreshQueue);
     const nextFresh = this._pickPendingFromQueue(
       this.pendingFreshQueue,
       lastPlaylistType,
     );
-    if (nextFresh) return nextFresh;
+    if (nextFresh && accepts(nextFresh)) return nextFresh;
+    for (const id of this.pendingFreshQueue) {
+      const job = this.jobs.get(id);
+      if (job && job.status === "pending" && accepts(job)) return job;
+    }
     this.pendingRetryQueue = this._compactPendingQueue(this.pendingRetryQueue);
     const nextRetry = this._pickPendingFromQueue(
       this.pendingRetryQueue,
       lastPlaylistType,
     );
-    if (nextRetry) return nextRetry;
+    if (nextRetry && accepts(nextRetry)) return nextRetry;
+    for (const id of this.pendingRetryQueue) {
+      const job = this.jobs.get(id);
+      if (job && job.status === "pending" && accepts(job)) return job;
+    }
     if (this.pendingSet.size > 0) {
       for (const id of this.pendingSet) {
         const job = this.jobs.get(id);
-        if (job && job.status === "pending") return job;
+        if (job && job.status === "pending" && accepts(job)) return job;
       }
     }
     return null;

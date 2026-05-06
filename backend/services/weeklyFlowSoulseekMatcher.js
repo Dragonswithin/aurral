@@ -26,6 +26,12 @@ const TITLE_STOP_WORDS = new Set([
   "with",
 ]);
 
+const MIX_VARIANT_PATTERNS = [
+  { value: "radio_edit", pattern: /\bradio\s+edit\b/ },
+  { value: "extended", pattern: /\b(?:extended|full length|club mix|long version)\b/ },
+  { value: "remix", pattern: /\b(?:remix|mix|rework|bootleg|vip|mashup)\b/ },
+];
+
 function normalizeText(value) {
   return String(value || "")
     .toLowerCase()
@@ -40,11 +46,44 @@ function normalizeText(value) {
     .trim();
 }
 
+function normalizeVariantText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeTitle(value) {
   return normalizeText(value)
     .split(" ")
     .filter((word) => word && !TITLE_STOP_WORDS.has(word))
     .join(" ");
+}
+
+function extractVariantProfile(value) {
+  const text = normalizeVariantText(value);
+  const mixVariant =
+    MIX_VARIANT_PATTERNS.find((entry) => entry.pattern.test(text))?.value || null;
+  return {
+    live: /\blive\b/.test(text),
+    acoustic: /\bacoustic\b/.test(text),
+    demo: /\bdemo\b/.test(text),
+    instrumental: /\binstrumental\b/.test(text),
+    karaoke: /\bkaraoke\b/.test(text),
+    mixVariant,
+    monoStereo: /\bmono\b/.test(text)
+      ? "mono"
+      : /\bstereo\b/.test(text)
+        ? "stereo"
+        : null,
+    contentRating: /\bclean\b/.test(text)
+      ? "clean"
+      : /\bexplicit\b/.test(text)
+        ? "explicit"
+        : null,
+  };
 }
 
 function getYear(value) {
@@ -100,7 +139,36 @@ function uniqueQueries(values) {
     seen.add(key);
     queries.push(query);
   }
-  return queries.slice(0, 6);
+  return queries.slice(0, 8);
+}
+
+function stripParenthetical(value) {
+  return String(value || "")
+    .replace(/\(.*?\)|\[.*?\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildTrackQueryVariants(trackName) {
+  const raw = String(trackName || "").trim();
+  if (!raw) return [];
+  const variants = [raw];
+  const stripped = stripParenthetical(raw);
+  if (stripped && stripped.toLowerCase() !== raw.toLowerCase()) {
+    variants.push(stripped);
+  }
+  const normalized = normalizeTitle(raw);
+  if (normalized && normalized.toLowerCase() !== raw.toLowerCase()) {
+    variants.push(normalized);
+  }
+  if (raw.includes("/")) {
+    const slashParts = raw
+      .split("/")
+      .map((entry) => stripParenthetical(entry))
+      .filter(Boolean);
+    variants.push(...slashParts);
+  }
+  return uniqueQueries(variants);
 }
 
 export function buildFlowSearchQueries(context) {
@@ -116,6 +184,7 @@ export function buildFlowSearchQueries(context) {
     : [];
   const normalizedAlbum = normalizeTitle(albumName);
   const distinctiveAlbum = getDistinctiveAlbumPhrase(albumName);
+  const trackVariants = buildTrackQueryVariants(trackName);
   const isSelfTitled =
     artistName && albumName
       ? scoreTextMatch(artistName, albumName) >= 92
@@ -137,12 +206,16 @@ export function buildFlowSearchQueries(context) {
       queries.push(`${artistName} ${distinctiveAlbum}`);
     }
   }
-  if (artistName && trackName) {
-    queries.push(`${artistName} ${trackName}`);
+  if (artistName && trackVariants.length > 0) {
+    for (const trackVariant of trackVariants) {
+      queries.push(`${artistName} ${trackVariant}`);
+    }
   }
   for (const alias of aliases) {
     if (albumName) queries.push(`${alias} ${albumName}`);
-    queries.push(`${alias} ${trackName}`);
+    for (const trackVariant of trackVariants) {
+      queries.push(`${alias} ${trackVariant}`);
+    }
   }
   return uniqueQueries(queries);
 }
@@ -192,6 +265,103 @@ function scoreYearMatch(directoryText, releaseYear) {
   return directoryText.includes(expected) ? 12 : 0;
 }
 
+function scoreVariantCompatibility(expectedTitle, actualTitle) {
+  const expected = extractVariantProfile(expectedTitle);
+  const actual = extractVariantProfile(actualTitle);
+  let score = 0;
+  let hardMismatch = false;
+
+  const compareBooleanVariant = (key, bonus = 12, penalty = 20) => {
+    if (expected[key] && actual[key]) {
+      score += bonus;
+      return;
+    }
+    if (expected[key] !== actual[key]) {
+      if (expected[key] || actual[key]) {
+        score -= penalty;
+        hardMismatch = true;
+      }
+    }
+  };
+
+  compareBooleanVariant("live", 14, 120);
+  compareBooleanVariant("acoustic", 12, 90);
+  compareBooleanVariant("demo", 12, 90);
+  compareBooleanVariant("instrumental", 10, 80);
+  compareBooleanVariant("karaoke", 10, 80);
+
+  if (expected.mixVariant && actual.mixVariant) {
+    if (expected.mixVariant === actual.mixVariant) {
+      score += 10;
+    } else {
+      score -= 95;
+      hardMismatch = true;
+    }
+  } else if (expected.mixVariant || actual.mixVariant) {
+    score -= 95;
+    hardMismatch = true;
+  }
+
+  if (expected.monoStereo && actual.monoStereo) {
+    score += expected.monoStereo === actual.monoStereo ? 6 : -10;
+  } else if (expected.monoStereo || actual.monoStereo) {
+    score -= 6;
+  }
+
+  if (expected.contentRating && actual.contentRating) {
+    score += expected.contentRating === actual.contentRating ? 4 : -6;
+  }
+
+  return {
+    score,
+    hardMismatch,
+  };
+}
+
+function extractTrackNumber(value) {
+  const match = String(value || "").match(
+    /^\s*(\d{1,3})(?:\s*[-._)\]]|\s+)/,
+  );
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function scoreTrackNumberMatch(expectedTrackNumber, actualTrackNumber) {
+  const expected = Number(expectedTrackNumber);
+  const actual = Number(actualTrackNumber);
+  if (!Number.isFinite(expected) || expected <= 0) return 0;
+  if (!Number.isFinite(actual) || actual <= 0) return 0;
+  if (expected === actual) return 18;
+  if (Math.abs(expected - actual) === 1) return -8;
+  return -22;
+}
+
+function scoreTitleConfidence(titleScore) {
+  if (titleScore >= 95) return 18;
+  if (titleScore >= 82) return 10;
+  if (titleScore >= 65) return 0;
+  if (titleScore >= 45) return -25;
+  return -60;
+}
+
+function scoreSiblingTrackConflict(baseName, context, titleScore) {
+  const titles = Array.isArray(context?.albumTrackTitles)
+    ? context.albumTrackTitles
+    : [];
+  if (titles.length === 0) return 0;
+  const targetKey = normalizeTitle(context?.trackName);
+  const bestOther = titles
+    .filter((title) => normalizeTitle(title) !== targetKey)
+    .reduce(
+      (best, title) => Math.max(best, scoreTextMatch(baseName, title)),
+      0,
+    );
+  if (bestOther >= 90 && bestOther >= titleScore + 25) return -120;
+  if (bestOther >= 82 && bestOther >= titleScore + 15) return -70;
+  return 0;
+}
+
 function pickBestArtistScore(context, text) {
   const candidates = [
     context?.artistName,
@@ -206,6 +376,17 @@ function pickBestArtistScore(context, text) {
 function buildGroupCandidate(group, context, options = {}) {
   const preferredFormat = options?.preferredFormat === "mp3" ? "mp3" : "flac";
   const strictFormat = options?.strictFormat === true;
+  const isUserBlacklisted =
+    typeof options?.isUserBlacklisted === "function"
+      ? options.isUserBlacklisted
+      : () => false;
+  const getUserQueuePenalty =
+    typeof options?.getUserQueuePenalty === "function"
+      ? options.getUserQueuePenalty
+      : () => 0;
+  if (isUserBlacklisted(group.user)) {
+    return [];
+  }
   const directoryText = normalizeText(group.directoryPath);
   const albumDir = group.parts.at(-2) || "";
   const artistDir = group.parts.at(-3) || "";
@@ -230,6 +411,10 @@ function buildGroupCandidate(group, context, options = {}) {
         250000,
     ),
   );
+  const userQueuePenaltyScore = -Math.min(
+    120,
+    Math.round(Number(getUserQueuePenalty(group.user) || 0) / 2),
+  );
 
   const files = strictFormat
     ? audioFiles.filter(
@@ -244,6 +429,20 @@ function buildGroupCandidate(group, context, options = {}) {
       scoreTextMatch(baseName, context?.trackName),
       scoreTextMatch(path.basename(String(item?.file || "")), context?.trackName),
     );
+    const variantScore = scoreVariantCompatibility(
+      context?.trackName,
+      baseName,
+    ).score;
+    const trackNumberScore = scoreTrackNumberMatch(
+      context?.trackNumber,
+      extractTrackNumber(baseName),
+    );
+    const titleConfidenceScore = scoreTitleConfidence(titleScore);
+    const siblingTrackPenalty = scoreSiblingTrackConflict(
+      baseName,
+      context,
+      titleScore,
+    );
     const formatScore =
       ext === `.${preferredFormat}` ? 18 : ext === ".flac" || ext === ".mp3" ? 9 : 0;
     const bitrateScore = Number.isFinite(Number(item?.bitrate))
@@ -257,6 +456,11 @@ function buildGroupCandidate(group, context, options = {}) {
       trackCountScore +
       availabilityScore +
       speedScore +
+      userQueuePenaltyScore +
+      variantScore +
+      trackNumberScore +
+      titleConfidenceScore +
+      siblingTrackPenalty +
       formatScore +
       bitrateScore;
     candidates.push({
@@ -274,6 +478,11 @@ function buildGroupCandidate(group, context, options = {}) {
         titleScore,
         yearScore,
         trackCountScore,
+        userQueuePenaltyScore,
+        variantScore,
+        trackNumberScore,
+        titleConfidenceScore,
+        siblingTrackPenalty,
         formatScore,
       },
       resolvedAlbumName: context?.albumName || albumDir || null,
@@ -317,6 +526,47 @@ export function rankFlowSearchResults(results, context, options = {}) {
   return ranked.sort((left, right) => right.score - left.score);
 }
 
+export function selectRankedMatchAttempts(matches, limit = 5) {
+  const ranked = Array.isArray(matches) ? matches : [];
+  const max =
+    Number.isFinite(Number(limit)) && Number(limit) > 0
+      ? Math.floor(Number(limit))
+      : 5;
+  if (ranked.length <= max) return ranked.slice(0, max);
+
+  const selected = [];
+  const seenKeys = new Set();
+  const seenUsers = new Set();
+  const getKey = (match) =>
+    `${String(match?.raw?.user || "").trim().toLowerCase()}\0${String(
+      match?.raw?.file || "",
+    )
+      .trim()
+      .toLowerCase()}`;
+
+  for (const match of ranked) {
+    if (selected.length >= max) break;
+    const key = getKey(match);
+    const user = String(match?.raw?.user || "")
+      .trim()
+      .toLowerCase();
+    if (!key || seenKeys.has(key) || !user || seenUsers.has(user)) continue;
+    seenKeys.add(key);
+    seenUsers.add(user);
+    selected.push(match);
+  }
+
+  for (const match of ranked) {
+    if (selected.length >= max) break;
+    const key = getKey(match);
+    if (!key || seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    selected.push(match);
+  }
+
+  return selected;
+}
+
 function getRemoteFilename(candidate) {
   return String(candidate?.raw?.file || candidate?.file || "");
 }
@@ -356,6 +606,21 @@ export async function validateDownloadedTrack(filePath, candidate, context) {
         scoreTextMatch(remoteFilename, context.albumName),
       )
     : 0;
+  const variantMatch = scoreVariantCompatibility(
+    context?.trackName,
+    titleFromTags || remoteFilename,
+  );
+  const actualTrackNumber =
+    parsed?.common?.track?.no != null &&
+    Number.isFinite(Number(parsed.common.track.no))
+      ? Number(parsed.common.track.no)
+      : extractTrackNumber(path.basename(remoteFilename));
+  const trackNumberValid =
+    !Number.isFinite(Number(context?.trackNumber)) ||
+    !Number.isFinite(Number(actualTrackNumber)) ||
+    Number(context.trackNumber) <= 0 ||
+    Number(actualTrackNumber) <= 0 ||
+    Number(context.trackNumber) === Number(actualTrackNumber);
   const durationSeconds = Number(parsed?.format?.duration || 0);
   const actualDurationMs =
     durationSeconds > 0 ? Math.round(durationSeconds * 1000) : null;
@@ -372,18 +637,22 @@ export async function validateDownloadedTrack(filePath, candidate, context) {
     titleScore >= 82 &&
     artistScore >= 60 &&
     durationValid &&
+    !variantMatch.hardMismatch &&
+    trackNumberValid &&
     (!context?.albumName || albumScore >= 28 || titleScore >= 95);
 
   return {
     valid,
     reason: valid
       ? null
-      : `title=${titleScore}, artist=${artistScore}, album=${albumScore}, durationValid=${durationValid}`,
+      : `title=${titleScore}, artist=${artistScore}, album=${albumScore}, durationValid=${durationValid}, variantScore=${variantMatch.score}, trackNumberValid=${trackNumberValid}`,
     scores: {
       title: titleScore,
       artist: artistScore,
       album: albumScore,
       durationValid,
+      variant: variantMatch.score,
+      trackNumberValid,
     },
     actualDurationMs,
     remoteFilename,

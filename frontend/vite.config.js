@@ -79,8 +79,8 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: false,
           ws: true,
-          timeout: 10000,
-          proxyTimeout: 10000,
+          timeout: 60000,
+          proxyTimeout: 60000,
         },
         "/ws": {
           target: "ws://localhost:3001",

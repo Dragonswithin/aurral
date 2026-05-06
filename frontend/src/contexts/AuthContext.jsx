@@ -1,8 +1,8 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import {
   AUTH_INVALID_EVENT,
-  checkHealth,
   clearAuthStorage,
+  getBootstrapStatus,
   getMe,
   getStoredAuth,
   loginApi,
@@ -36,8 +36,8 @@ export const AuthProvider = ({ children }) => {
 
   const checkAuthStatus = async () => {
     try {
-      const healthData = await checkHealth();
-      const isOnboarding = !!healthData.onboardingRequired;
+      const bootstrap = await getBootstrapStatus();
+      const isOnboarding = !!bootstrap.onboardingRequired;
       setOnboardingRequired(isOnboarding);
 
       if (isOnboarding) {
@@ -47,11 +47,11 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      const isRequired = healthData.authRequired;
+      const isRequired = bootstrap.authRequired;
       setAuthRequired(isRequired);
 
-      if (isRequired && healthData.user) {
-        setUser(healthData.user);
+      if (isRequired && bootstrap.user) {
+        setUser(bootstrap.user);
         setIsAuthenticated(true);
         setIsLoading(false);
         return;
@@ -59,7 +59,7 @@ export const AuthProvider = ({ children }) => {
 
       if (!isRequired) {
         setUser(
-          healthData.user || {
+          bootstrap.user || {
             role: "admin",
             permissions: {
               accessSettings: true,

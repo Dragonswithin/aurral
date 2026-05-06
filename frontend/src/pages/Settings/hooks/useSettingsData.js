@@ -41,7 +41,15 @@ const defaultSettings = {
       defaultMonitorOption: "none",
       searchOnAdd: false,
     },
-    musicbrainz: { email: "" },
+    musicbrainz: {
+      email: "",
+      provider: "aurralHosted",
+      customUrl: "",
+    },
+    coverArtArchive: {
+      provider: "aurralHosted",
+      customUrl: "",
+    },
     general: { authUser: "", authPassword: "" },
     gotify: {
       url: "",
@@ -91,6 +99,16 @@ export function useSettingsData(showSuccess, showError, showInfo) {
     }
   }, []);
 
+  const refreshHealth = useCallback(async () => {
+    try {
+      const healthData = await checkHealth();
+      applyHealthUpdate(healthData);
+      return healthData;
+    } catch {
+      return null;
+    }
+  }, [applyHealthUpdate]);
+
   useWebSocketChannel("discovery", (msg) => {
     if (msg.type !== "discovery_update") return;
 
@@ -115,11 +133,7 @@ export function useSettingsData(showSuccess, showError, showInfo) {
       setDiscoveryProgressMessage(
         msg.progressMessage || "Discovery refresh completed",
       );
-      checkHealth()
-        .then((healthData) => {
-          applyHealthUpdate(healthData);
-        })
-        .catch(() => {});
+      refreshHealth();
       return;
     }
   });
@@ -127,11 +141,10 @@ export function useSettingsData(showSuccess, showError, showInfo) {
   const fetchSettings = useCallback(async () => {
     comparisonEnabledRef.current = false;
     try {
-      const [healthData, savedSettings] = await Promise.all([
-        checkHealth(),
+      const [, savedSettings] = await Promise.all([
+        refreshHealth(),
         getAppSettings(),
       ]);
-      applyHealthUpdate(healthData);
       const updatedSettings = normalizeSettings(savedSettings);
       setSettingsState(updatedSettings);
       setOriginalSettings(JSON.parse(JSON.stringify(updatedSettings)));
@@ -162,7 +175,7 @@ export function useSettingsData(showSuccess, showError, showInfo) {
         }
       }
     } catch {}
-  }, [applyHealthUpdate]);
+  }, [refreshHealth]);
 
   useEffect(() => {
     fetchSettings();
@@ -173,8 +186,7 @@ export function useSettingsData(showSuccess, showError, showInfo) {
 
     const pollHealth = async () => {
       try {
-        const healthData = await checkHealth();
-        applyHealthUpdate(healthData);
+        const healthData = await refreshHealth();
         if (!healthData?.discovery?.isUpdating) {
           setDiscoveryProgressMessage(
             (current) => current || "Discovery refresh completed",
@@ -186,7 +198,7 @@ export function useSettingsData(showSuccess, showError, showInfo) {
     pollHealth();
     const intervalId = setInterval(pollHealth, 8000);
     return () => clearInterval(intervalId);
-  }, [refreshingDiscovery, applyHealthUpdate]);
+  }, [refreshingDiscovery, refreshHealth]);
 
   const updateSettings = useCallback(
     (newSettings) => {
@@ -227,8 +239,7 @@ export function useSettingsData(showSuccess, showError, showInfo) {
       showInfo(
         "Discovery refresh started in background. This may take a few minutes to fully hydrate images.",
       );
-      const healthData = await checkHealth();
-      applyHealthUpdate(healthData);
+      await refreshHealth();
     } catch (err) {
       setRefreshingDiscovery(false);
       setDiscoveryProgressMessage("");
@@ -239,7 +250,7 @@ export function useSettingsData(showSuccess, showError, showInfo) {
             err.message),
       );
     }
-  }, [refreshingDiscovery, showInfo, showError, applyHealthUpdate]);
+  }, [refreshingDiscovery, showInfo, showError, refreshHealth]);
 
   const handleClearCache = useCallback(async () => {
     if (
@@ -252,8 +263,7 @@ export function useSettingsData(showSuccess, showError, showInfo) {
     try {
       await api.post("/discover/clear");
       showSuccess("Image cache cleared successfully.");
-      const healthData = await checkHealth();
-      applyHealthUpdate(healthData);
+      await refreshHealth();
     } catch (err) {
       showError(
         "Failed to clear cache: " +
@@ -264,7 +274,7 @@ export function useSettingsData(showSuccess, showError, showInfo) {
     } finally {
       setClearingCache(false);
     }
-  }, [showSuccess, showError, applyHealthUpdate]);
+  }, [showSuccess, showError, refreshHealth]);
 
   const handleApplyCommunityGuide = useCallback(async () => {
     setShowCommunityGuideModal(false);
@@ -335,13 +345,6 @@ export function useSettingsData(showSuccess, showError, showInfo) {
       setApplyingCommunityGuide(false);
     }
   }, [settings, updateSettings, showSuccess, showError, showInfo]);
-
-  const refreshHealth = useCallback(async () => {
-    try {
-      const healthData = await checkHealth();
-      applyHealthUpdate(healthData);
-    } catch {}
-  }, [applyHealthUpdate]);
 
   return {
     health,

@@ -5,7 +5,6 @@ import {
   lastfmGetArtistNameByMbid,
   getArtistBio,
   musicbrainzGetArtistReleaseGroups,
-  enrichReleaseGroupsWithDeezer,
   enrichReleaseGroupsWithLastfm,
   musicbrainzGetArtistNameByMbid,
 } from "../../../services/apiClients.js";
@@ -130,7 +129,6 @@ export default function registerDetails(router) {
       let data = null;
       const override = dbOps.getArtistOverride(mbid);
       const resolvedMbid = override?.musicbrainzId || mbid;
-      const deezerArtistId = override?.deezerArtistId || null;
 
       let lidarrArtist = null;
       let lidarrAlbums = [];
@@ -158,7 +156,7 @@ export default function registerDetails(router) {
         const artistMbid =
           override?.musicbrainzId || lidarrArtist.foreignArtistId || mbid;
         const [bio, tagsData] = await Promise.all([
-          getArtistBio(lidarrArtist.artistName, artistMbid, deezerArtistId),
+          getArtistBio(lidarrArtist.artistName, artistMbid),
           getLastfmApiKey()
             ? lastfmRequest("artist.getTopTags", { mbid: artistMbid })
             : null,
@@ -226,11 +224,6 @@ export default function registerDetails(router) {
           : [];
         const releaseGroups =
           await musicbrainzGetArtistReleaseGroups(resolvedMbid);
-        await enrichReleaseGroupsWithDeezer(
-          releaseGroups,
-          name,
-          deezerArtistId,
-        );
         if (getLastfmApiKey()) {
           await enrichReleaseGroupsWithLastfm(
             releaseGroups,
@@ -238,7 +231,7 @@ export default function registerDetails(router) {
             resolvedMbid,
           );
         }
-        const bio = await getArtistBio(name, resolvedMbid, deezerArtistId);
+        const bio = await getArtistBio(name, resolvedMbid);
         return {
           id: resolvedMbid,
           name,

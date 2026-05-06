@@ -59,47 +59,51 @@ const ArtistImage = ({
 
   const abortRef = useRef(null);
 
-  const fetchBackendCover = useCallback(async (mbidToFetch, nameForCover, signal) => {
-    if (!mbidToFetch || fetchingRef.current) {
-      return;
-    }
+  const fetchBackendCover = useCallback(
+    async (mbidToFetch, nameForCover, signal, refresh = false) => {
+      if (!mbidToFetch || fetchingRef.current) {
+        return;
+      }
 
-    fetchingRef.current = true;
-    try {
-      setHasError(false);
+      fetchingRef.current = true;
+      try {
+        setHasError(false);
 
-      const data = await scheduleFetch(() =>
-        Promise.race([
-          getArtistCover(mbidToFetch, nameForCover),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Timeout")), 5000)
-          ),
-        ]),
-        signal
-      );
-      if (signal?.aborted) return;
-      if (data?.images && data.images.length > 0) {
-        const front = data.images.find((img) => img.front) || data.images[0];
-        const url = front.image;
-        if (url) {
-          setCurrentSrc(url);
-          setHasError(false);
+        const data = await scheduleFetch(
+          () =>
+            Promise.race([
+              getArtistCover(mbidToFetch, nameForCover, refresh),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("Timeout")), 5000),
+              ),
+            ]),
+          signal,
+        );
+        if (signal?.aborted) return;
+        if (data?.images && data.images.length > 0) {
+          const front = data.images.find((img) => img.front) || data.images[0];
+          const url = front.image;
+          if (url) {
+            setCurrentSrc(url);
+            setHasError(false);
+          } else {
+            setHasError(true);
+            setIsLoading(false);
+          }
         } else {
           setHasError(true);
           setIsLoading(false);
         }
-      } else {
+      } catch (err) {
+        if (err?.name === "AbortError" || signal?.aborted) return;
         setHasError(true);
         setIsLoading(false);
+      } finally {
+        fetchingRef.current = false;
       }
-    } catch (err) {
-      if (err?.name === "AbortError" || signal?.aborted) return;
-      setHasError(true);
-      setIsLoading(false);
-    } finally {
-      fetchingRef.current = false;
-    }
-  }, []);
+    },
+    [],
+  );
 
   useEffect(() => {
     fetchingRef.current = false;
@@ -136,7 +140,7 @@ const ArtistImage = ({
       triedBackendFallbackRef.current = true;
       setIsLoading(true);
       setHasError(false);
-      fetchBackendCover(mbid, artistName, abortRef.current?.signal);
+      fetchBackendCover(mbid, artistName, abortRef.current?.signal, true);
       return;
     }
     setHasError(true);

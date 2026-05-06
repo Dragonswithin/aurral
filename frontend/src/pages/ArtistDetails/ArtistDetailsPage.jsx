@@ -83,7 +83,19 @@ function ArtistDetailsPage() {
   const [blockingArtist, setBlockingArtist] = useState(false);
   const [artistBlocked, setArtistBlocked] = useState(false);
 
-  const stream = useArtistDetailsStream(mbid, artistNameFromNav);
+  const filter = useReleaseTypeFilter();
+  const {
+    selectedReleaseTypes,
+    setSelectedReleaseTypes,
+    primaryReleaseTypes,
+    secondaryReleaseTypes,
+  } = filter;
+
+  const stream = useArtistDetailsStream(
+    mbid,
+    artistNameFromNav,
+    selectedReleaseTypes,
+  );
   const canAddArtist = hasPermission("addArtist");
   const canAddAlbum = hasPermission("addAlbum");
   const canChangeMonitoring = hasPermission("changeMonitoring");
@@ -114,14 +126,6 @@ function ArtistDetailsPage() {
     setAlbumCovers,
     setArtist,
   } = stream;
-
-  const filter = useReleaseTypeFilter();
-  const {
-    selectedReleaseTypes,
-    setSelectedReleaseTypes,
-    primaryReleaseTypes,
-    secondaryReleaseTypes,
-  } = filter;
 
   const preview = usePreviewPlayer(mbid, artistNameFromNav, artist);
   const {

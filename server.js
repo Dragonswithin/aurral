@@ -95,7 +95,7 @@ app.use(
           "https://*.ticketm.net",
           "https://ticketmaster.com",
           "https://*.ticketmaster.com",
-          "https://coverartarchive.org",
+          "https://caa.lkly.net",
           "https://archive.org",
           "https://*.archive.org",
           "https://*.last.fm",
