@@ -3,6 +3,7 @@ import { readFileSync } from "fs";
 import {
   getLastfmApiKey,
   getTicketmasterApiKey,
+  getMetadataProviderHealthSnapshot,
 } from "../services/apiClients.js";
 import {
   resolveRequestUser,
@@ -52,6 +53,7 @@ function buildBootstrapPayload(req) {
     musicbrainzConfigured: !!(
       settings.integrations?.musicbrainz?.email || process.env.CONTACT_EMAIL
     ),
+    metadataProviders: getMetadataProviderHealthSnapshot(),
   };
 
   if (currentUser) {
