@@ -22,21 +22,22 @@ test("normalizeArtistSearchItem preserves sort name and cached image", () => {
     },
   );
 
-  assert.deepEqual(item, {
-    type: "artist",
-    id: "artist-mbid",
-    name: "Boards of Canada",
-    sortName: "Canada, Boards of",
-    image: "https://images.example/artist.jpg",
-    imageUrl: "https://images.example/artist.jpg",
-    artistType: null,
-    country: null,
-    area: null,
-    begin: null,
-    end: null,
-    disambiguation: null,
-    inLibrary: false,
-  });
+  assert.equal(item.type, "artist");
+  assert.equal(item.id, "artist-mbid");
+  assert.equal(item.name, "Boards of Canada");
+  assert.equal(item.sortName, "Canada, Boards of");
+  assert.match(
+    item.image,
+    /^\/api\/image-proxy\?src=https%3A%2F%2Fimages\.example%2Fartist\.jpg&sig=/,
+  );
+  assert.equal(item.imageUrl, item.image);
+  assert.equal(item.artistType, null);
+  assert.equal(item.country, null);
+  assert.equal(item.area, null);
+  assert.equal(item.begin, null);
+  assert.equal(item.end, null);
+  assert.equal(item.disambiguation, null);
+  assert.equal(item.inLibrary, false);
 });
 
 test("normalizeAlbumSearchItem preserves compilation metadata and library state", () => {

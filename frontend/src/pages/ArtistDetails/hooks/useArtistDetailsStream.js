@@ -107,7 +107,10 @@ export function useArtistDetailsStream(
           .finally(() => setLoadingCover(false));
       }
       if (!similarReceived) {
-        getSimilarArtistsForArtist(mbid)
+        getSimilarArtistsForArtist(
+          mbid,
+          artistNameRef.current || artistNameFromNav || "",
+        )
           .then((similarData) => {
             setSimilarArtists(similarData.artists || []);
           })
@@ -272,7 +275,10 @@ export function useArtistDetailsStream(
                 .catch(() => {})
                 .finally(() => setLoadingCover(false));
 
-              getSimilarArtistsForArtist(mbid)
+              getSimilarArtistsForArtist(
+                mbid,
+                artistData?.name || artistNameFromNav || "",
+              )
                 .then((similarData) => {
                   setSimilarArtists(similarData.artists || []);
                 })
@@ -315,7 +321,10 @@ export function useArtistDetailsStream(
               .catch(() => {})
               .finally(() => setLoadingCover(false));
 
-            getSimilarArtistsForArtist(mbid)
+            getSimilarArtistsForArtist(
+              mbid,
+              artistData?.name || artistNameFromNav || "",
+            )
               .then((similarData) => {
                 setSimilarArtists(similarData.artists || []);
               })
@@ -323,6 +332,7 @@ export function useArtistDetailsStream(
               .finally(() => setLoadingSimilar(false));
           })
           .catch((err) => {
+            console.error("Error fetching artist data:", err);
             setError(
               err.response?.data?.message ||
                 err.response?.data?.error ||

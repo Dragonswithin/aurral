@@ -299,9 +299,18 @@ export const getReleaseGroupCover = async (mbid) => {
   });
 };
 
-export const getSimilarArtistsForArtist = async (mbid, limit = 20) => {
+export const getSimilarArtistsForArtist = async (
+  mbid,
+  artistName = "",
+  limit = 20,
+) => {
   const response = await api.get(`/artists/${mbid}/similar`, {
-    params: { limit },
+    params: {
+      limit,
+      ...(artistName && typeof artistName === "string" && artistName.trim()
+        ? { artistName: artistName.trim() }
+        : {}),
+    },
   });
   return response.data;
 };

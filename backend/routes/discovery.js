@@ -15,6 +15,8 @@ import {
 import { libraryManager } from "../services/libraryManager.js";
 import { dbOps, userOps } from "../config/db-helpers.js";
 import { imagePrefetchService } from "../services/imagePrefetchService.js";
+import { hydrateArtistImages } from "../services/artistImageHydration.js";
+import { buildImageProxyUrl } from "../services/imageProxyService.js";
 import { defaultDiscoveryPreferences } from "../config/constants.js";
 import { requireAuth, requireAdmin } from "../middleware/requirePermission.js";
 import { getNearbyShows } from "../services/nearbyShowsService.js";
@@ -37,31 +39,6 @@ let discoveryPreferences = { ...defaultDiscoveryPreferences };
 
 const getDiscoveryStaleMs = () =>
   getDiscoveryAutoRefreshHours() * 60 * 60 * 1000;
-
-const getArtistId = (artist) =>
-  artist?.id || artist?.mbid || artist?.foreignArtistId || null;
-
-const withCachedImages = (artists = []) => {
-  const list = Array.isArray(artists) ? artists : [];
-  const ids = [
-    ...new Set(list.map((artist) => getArtistId(artist)).filter(Boolean)),
-  ];
-  if (!ids.length) return list;
-
-  const cachedImages = dbOps.getImages(ids);
-  return list.map((artist) => {
-    if (!artist || typeof artist !== "object") return artist;
-    if (artist.image || artist.imageUrl) return artist;
-
-    const imageUrl = cachedImages[getArtistId(artist)]?.imageUrl;
-    if (!imageUrl || imageUrl === "NOT_FOUND") return artist;
-    return {
-      ...artist,
-      image: imageUrl,
-      imageUrl,
-    };
-  });
-};
 
 const normalizeTextList = (value) => {
   if (!Array.isArray(value)) return [];
@@ -359,9 +336,21 @@ router.get("/", requireAuth, async (req, res) => {
     (artist) => !existingArtistIds.has(artist.id),
   );
   globalTop = globalTop.filter((artist) => !existingArtistIds.has(artist.id));
-  recommendations = withCachedImages(recommendations);
-  globalTop = withCachedImages(globalTop);
-  basedOn = withCachedImages(basedOn);
+  recommendations = await hydrateArtistImages(recommendations, {
+    limit: Math.min(recommendations.length, 12),
+    batchSize: 6,
+    delayMs: 15,
+  });
+  globalTop = await hydrateArtistImages(globalTop, {
+    limit: Math.min(globalTop.length, 12),
+    batchSize: 6,
+    delayMs: 15,
+  });
+  basedOn = await hydrateArtistImages(basedOn, {
+    limit: Math.min(basedOn.length, 8),
+    batchSize: 4,
+    delayMs: 15,
+  });
 
   const blocklist = getStoredBlocklist();
   recommendations = applyBlocklistToArtistCollection(recommendations, blocklist);
@@ -572,7 +561,7 @@ router.get("/by-tag", async (req, res) => {
                   sortName: artist.name,
                   type: "Artist",
                   tags: [tag],
-                  image: imageUrl,
+                  image: buildImageProxyUrl(imageUrl) || imageUrl,
                 };
               })
               .filter((a) => a.id);

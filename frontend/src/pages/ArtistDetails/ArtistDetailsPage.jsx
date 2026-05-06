@@ -311,7 +311,7 @@ function ArtistDetailsPage() {
         getArtistDetails(mbid, name).catch(() => null),
         getArtistCover(mbid, name, true).catch(() => ({ images: [] })),
         getArtistPreview(mbid, name).catch(() => ({ tracks: [] })),
-        getSimilarArtistsForArtist(mbid).catch(() => ({ artists: [] })),
+        getSimilarArtistsForArtist(mbid, name).catch(() => ({ artists: [] })),
       ]);
       if (details?.id) {
         setArtist(details);

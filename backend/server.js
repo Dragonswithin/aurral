@@ -47,6 +47,7 @@ import discoveryRouter from "./routes/discovery.js";
 import requestsRouter from "./routes/requests.js";
 import healthRouter from "./routes/health.js";
 import weeklyFlowRouter from "./routes/weeklyFlow.js";
+import imageProxyRouter from "./routes/imageProxy.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -105,6 +106,7 @@ app.use("/api/discover", discoveryRouter);
 app.use("/api/requests", requestsRouter);
 app.use("/api/health", healthRouter);
 app.use("/api/weekly-flow", weeklyFlowRouter);
+app.use("/api/image-proxy", imageProxyRouter);
 
 setInterval(updateDiscoveryCache, 24 * 60 * 60 * 1000);
 

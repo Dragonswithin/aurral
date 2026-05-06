@@ -108,3 +108,14 @@ export const getCoverImage = (coverImages) => {
   const front = coverImages.find((img) => img.front);
   return front?.image || coverImages[0]?.image;
 };
+
+export const encodeLastfmPathSegment = (value) =>
+  encodeURIComponent(String(value || "").trim())
+    .replace(/%20/g, "+")
+    .replace(/%26/g, "&");
+
+export const buildLastfmArtistUrl = (artistName) =>
+  `https://www.last.fm/music/${encodeLastfmPathSegment(artistName)}`;
+
+export const buildLastfmAlbumUrl = (artistName, albumTitle) =>
+  `${buildLastfmArtistUrl(artistName)}/${encodeLastfmPathSegment(albumTitle)}`;

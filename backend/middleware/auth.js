@@ -331,7 +331,8 @@ export const createAuthMiddleware = () => {
     if (
       req.path === "/api/health" ||
       req.path === "/api/health/live" ||
-      req.path === "/api/health/bootstrap"
+      req.path === "/api/health/bootstrap" ||
+      req.path === "/api/image-proxy"
     ) {
       return next();
     }

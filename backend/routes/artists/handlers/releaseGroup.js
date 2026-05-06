@@ -5,6 +5,7 @@ import {
 } from "../../../services/apiClients.js";
 import { dbOps } from "../../../config/db-helpers.js";
 import { cacheMiddleware } from "../../../middleware/cache.js";
+import { buildImageProxyUrl } from "../../../services/imageProxyService.js";
 
 export default function registerReleaseGroup(router) {
   router.get("/release-group/:mbid/cover", cacheMiddleware(86400), async (req, res) => {
@@ -23,7 +24,8 @@ export default function registerReleaseGroup(router) {
         cachedImage.imageUrl &&
         cachedImage.imageUrl !== "NOT_FOUND"
       ) {
-        const cachedUrl = cachedImage.imageUrl;
+        const cachedUrl =
+          buildImageProxyUrl(cachedImage.imageUrl) || cachedImage.imageUrl;
         res.set("Cache-Control", "public, max-age=31536000, immutable");
         return res.json({
           images: [
@@ -45,12 +47,14 @@ export default function registerReleaseGroup(router) {
         const cover = await fetchCoverArtArchiveReleaseGroup(mbid);
         if (cover?.imageUrl) {
           dbOps.setImage(cacheKey, cover.imageUrl);
+          const proxiedCoverUrl =
+            buildImageProxyUrl(cover.imageUrl) || cover.imageUrl;
 
           res.set("Cache-Control", "public, max-age=31536000, immutable");
           return res.json({
             images: [
               {
-                image: cover.imageUrl,
+                image: proxiedCoverUrl,
                 front: true,
                 types: cover.types,
               },

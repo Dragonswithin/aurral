@@ -81,6 +81,7 @@ const getTagCardBackground = (tag) => {
 };
 
 const DISCOVER_LAYOUT_KEY = "discoverLayout";
+const DISCOVERY_CACHE_KEY = "discoverData";
 
 const DEFAULT_DISCOVER_SECTIONS = [
   { id: "recentlyAdded", label: "Recently Added", enabled: true },
@@ -126,6 +127,54 @@ const normalizeBlocklistArtists = (artists) => {
 
 const getDiscoverLayoutStorageKey = (userId) =>
   userId ? `${DISCOVER_LAYOUT_KEY}:${userId}` : DISCOVER_LAYOUT_KEY;
+
+const getDiscoveryCacheStorageKey = (userId) =>
+  userId ? `${DISCOVERY_CACHE_KEY}:${userId}` : DISCOVERY_CACHE_KEY;
+
+const normalizeDiscoveryData = (value) => {
+  if (!value || typeof value !== "object") return null;
+  return {
+    recommendations: Array.isArray(value.recommendations)
+      ? value.recommendations
+      : [],
+    globalTop: Array.isArray(value.globalTop) ? value.globalTop : [],
+    basedOn: Array.isArray(value.basedOn) ? value.basedOn : [],
+    topTags: Array.isArray(value.topTags) ? value.topTags : [],
+    topGenres: Array.isArray(value.topGenres) ? value.topGenres : [],
+    lastUpdated: value.lastUpdated || null,
+    isUpdating: !!value.isUpdating,
+    stale: !!value.stale,
+    configured:
+      typeof value.configured === "boolean" ? value.configured : true,
+  };
+};
+
+const readStoredDiscoveryData = (userId) => {
+  try {
+    const primaryKey = getDiscoveryCacheStorageKey(userId);
+    const primary = normalizeDiscoveryData(
+      JSON.parse(localStorage.getItem(primaryKey) || "null"),
+    );
+    if (primary) return primary;
+    if (primaryKey === DISCOVERY_CACHE_KEY) return null;
+    return normalizeDiscoveryData(
+      JSON.parse(localStorage.getItem(DISCOVERY_CACHE_KEY) || "null"),
+    );
+  } catch {
+    return null;
+  }
+};
+
+const writeStoredDiscoveryData = (value, userId) => {
+  const normalized = normalizeDiscoveryData(value);
+  if (!normalized) return;
+  try {
+    localStorage.setItem(
+      getDiscoveryCacheStorageKey(userId),
+      JSON.stringify(normalized),
+    );
+  } catch {}
+};
 
 const normalizeDiscoverLayout = (value) => {
   if (!Array.isArray(value)) return null;
@@ -844,7 +893,8 @@ DiscoverRail.propTypes = {
 };
 
 function DiscoverPage() {
-  const [data, setData] = useState(null);
+  const { user: authUser, hasPermission } = useAuth();
+  const [data, setData] = useState(() => readStoredDiscoveryData(authUser?.id));
   const [recentlyAdded, setRecentlyAdded] = useState([]);
   const [recentReleases, setRecentReleases] = useState([]);
   const [releaseCovers, setReleaseCovers] = useState({});
@@ -873,7 +923,6 @@ function DiscoverPage() {
   const requestedArtistCoversRef = useRef(new Set());
   const lastDiscoveryWsMessageAtRef = useRef(0);
   const navigate = useNavigate();
-  const { user: authUser, hasPermission } = useAuth();
   const { showSuccess, showError } = useToast();
   const canAddArtist = hasPermission("addArtist");
 
@@ -883,7 +932,7 @@ function DiscoverPage() {
     (msg) => {
       if (msg.type === "discovery_update" && msg.recommendations) {
         lastDiscoveryWsMessageAtRef.current = Date.now();
-        setData({
+        const nextData = {
           recommendations: msg.recommendations || [],
           globalTop: msg.globalTop || [],
           basedOn: msg.basedOn || [],
@@ -893,7 +942,9 @@ function DiscoverPage() {
           isUpdating: false,
           stale: false,
           configured: true,
-        });
+        };
+        setData(nextData);
+        writeStoredDiscoveryData(nextData, authUser?.id);
       }
     },
   );
@@ -904,10 +955,11 @@ function DiscoverPage() {
     getDiscovery()
       .then((discoveryData) => {
         setData(discoveryData);
+        writeStoredDiscoveryData(discoveryData, authUser?.id);
         setError(null);
       })
       .catch(() => {});
-  }, [isDiscoverySocketConnected, data?.isUpdating, data?.stale]);
+  }, [authUser?.id, isDiscoverySocketConnected, data?.isUpdating, data?.stale]);
 
   useEffect(() => {
     if (!data?.isUpdating) return;
@@ -918,6 +970,7 @@ function DiscoverPage() {
       getDiscovery(true)
         .then((next) => {
           setData(next);
+          writeStoredDiscoveryData(next, authUser?.id);
           setError(null);
         })
         .catch(() => {});
@@ -925,7 +978,7 @@ function DiscoverPage() {
     pollDiscovery();
     const id = setInterval(pollDiscovery, 10000);
     return () => clearInterval(id);
-  }, [data?.isUpdating, isDiscoverySocketConnected]);
+  }, [authUser?.id, data?.isUpdating, isDiscoverySocketConnected]);
 
   useEffect(() => {
     if (!data?.stale || data?.isUpdating) return;
@@ -934,12 +987,13 @@ function DiscoverPage() {
       getDiscovery(true)
         .then((next) => {
           setData(next);
+          writeStoredDiscoveryData(next, authUser?.id);
           setError(null);
         })
         .catch(() => {});
     }, 15000);
     return () => clearTimeout(id);
-  }, [data?.stale, data?.isUpdating, isDiscoverySocketConnected]);
+  }, [authUser?.id, data?.stale, data?.isUpdating, isDiscoverySocketConnected]);
 
   useEffect(() => {
     if (!data) return;
@@ -949,9 +1003,10 @@ function DiscoverPage() {
   }, [data, data?.isUpdating, data?.stale]);
 
   useEffect(() => {
-    getDiscovery(true)
+    getDiscovery()
       .then((discoveryData) => {
         setData(discoveryData);
+        writeStoredDiscoveryData(discoveryData, authUser?.id);
         setError(null);
       })
       .catch((err) => {
@@ -1007,7 +1062,7 @@ function DiscoverPage() {
       setAppliedNearbyZip(storedZip);
       setNearbyZipDraft(storedZip);
     } catch {}
-  }, []);
+  }, [authUser?.id]);
 
   useEffect(() => {
     const shouldUseZip = nearbyLocationMode === "zip";

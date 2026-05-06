@@ -6,6 +6,8 @@ import {
   musicbrainzRequest,
 } from "./apiClients.js";
 import { getDiscoveryCache } from "./discoveryService.js";
+import { hydrateArtistImages, primeArtistImageCache } from "./artistImageHydration.js";
+import { buildImageProxyUrl } from "./imageProxyService.js";
 import { lidarrClient } from "./lidarrClient.js";
 
 const PRIMARY_RELEASE_TYPES = new Set(["Album", "EP", "Single"]);
@@ -54,12 +56,15 @@ function normalizeArtistImage(cachedImage) {
 
 function normalizeReleaseGroupCover(cachedImage) {
   return cachedImage?.imageUrl && cachedImage.imageUrl !== "NOT_FOUND"
-    ? cachedImage.imageUrl
+    ? buildImageProxyUrl(cachedImage.imageUrl) || cachedImage.imageUrl
     : null;
 }
 
 export function normalizeArtistSearchItem(artist, cachedImages = {}) {
-  const imageUrl = normalizeArtistImage(cachedImages[artist.id]);
+  const rawImageUrl = normalizeArtistImage(cachedImages[artist.id]);
+  const imageUrl = rawImageUrl
+    ? buildImageProxyUrl(rawImageUrl) || rawImageUrl
+    : null;
   const areaName =
     artist?.area?.name || artist?.["begin-area"]?.name || artist?.area || null;
   const lifeSpan = artist?.["life-span"] || artist?.lifeSpan || null;
@@ -237,13 +242,15 @@ function normalizeTagArtistItem(artist, tag) {
     }
   }
 
+  const proxiedImageUrl = imageUrl ? buildImageProxyUrl(imageUrl) || imageUrl : null;
+
   return {
     type: "artist",
     id: artist.id || artist.mbid,
     name: artist.name,
     sortName: artist.sortName || artist.name,
-    image: imageUrl,
-    imageUrl,
+    image: proxiedImageUrl,
+    imageUrl: proxiedImageUrl,
     inLibrary: false,
     tags: [tag],
   };
@@ -298,9 +305,20 @@ export async function searchArtists(query, limit = 24, offset = 0) {
   const artists = Array.isArray(mbData?.artists) ? mbData.artists : [];
   const filteredArtists = artists.filter((artist) => artist?.id);
   const cachedImages = dbOps.getImages(filteredArtists.map((artist) => artist.id));
-  const items = filteredArtists.map((artist) =>
+  let items = filteredArtists.map((artist) =>
     normalizeArtistSearchItem(artist, cachedImages),
   );
+
+  const warmLimit = Math.min(items.length, Math.max(8, Math.min(limitInt, 12)));
+  items = await hydrateArtistImages(items, {
+    limit: warmLimit,
+    batchSize: 6,
+    delayMs: 15,
+  });
+
+  if (items.length > warmLimit) {
+    primeArtistImageCache(items.slice(warmLimit)).catch(() => {});
+  }
 
   return {
     scope: "artist",

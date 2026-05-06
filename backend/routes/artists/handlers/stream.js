@@ -13,6 +13,7 @@ import { noCache } from "../../../middleware/cache.js";
 import { verifyTokenAuth } from "../../../middleware/auth.js";
 import { sendSSE, pendingArtistRequests } from "../utils.js";
 import { getArtistImage } from "../../../services/imageService.js";
+import { buildImageProxyUrl } from "../../../services/imageProxyService.js";
 
 export default function registerStream(router) {
   router.get("/:mbid/stream", noCache, async (req, res) => {
@@ -286,7 +287,9 @@ export default function registerStream(router) {
               sendSSE(res, "cover", {
                 images: [
                   {
-                    image: cachedImage.imageUrl,
+                    image:
+                      buildImageProxyUrl(cachedImage.imageUrl) ||
+                      cachedImage.imageUrl,
                     front: true,
                     types: ["Front"],
                   },
@@ -297,7 +300,12 @@ export default function registerStream(router) {
 
             const cover = await getArtistImage(mbid);
             if (cover?.images?.length) {
-              sendSSE(res, "cover", { images: cover.images });
+              sendSSE(res, "cover", {
+                images: cover.images.map((image) => ({
+                  ...image,
+                  image: buildImageProxyUrl(image.image) || image.image,
+                })),
+              });
               return;
             }
 
@@ -313,10 +321,30 @@ export default function registerStream(router) {
           if (!isClientConnected()) return;
           if (getLastfmApiKey()) {
             try {
-              const similarData = await lastfmRequest("artist.getSimilar", {
+              let similarData = await lastfmRequest("artist.getSimilar", {
                 mbid: resolvedMbid,
                 limit: 10,
               });
+
+              if (!similarData?.similarartists?.artist) {
+                const fallbackArtistName =
+                  streamArtistName ||
+                  (await namePromise.catch(() => null)) ||
+                  (await lastfmGetArtistNameByMbid(resolvedMbid).catch(
+                    () => null,
+                  )) ||
+                  (await musicbrainzGetArtistNameByMbid(resolvedMbid).catch(
+                    () => null,
+                  )) ||
+                  "";
+
+                if (fallbackArtistName) {
+                  similarData = await lastfmRequest("artist.getSimilar", {
+                    artist: fallbackArtistName,
+                    limit: 10,
+                  });
+                }
+              }
 
               if (similarData?.similarartists?.artist) {
                 const artists = Array.isArray(similarData.similarartists.artist)
@@ -340,7 +368,7 @@ export default function registerStream(router) {
                     return {
                       id: a.mbid,
                       name: a.name,
-                      image: img,
+                      image: buildImageProxyUrl(img) || img,
                       match: Math.round((a.match || 0) * 100),
                     };
                   })

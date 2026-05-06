@@ -1,7 +1,13 @@
 import { UUID_REGEX } from "../../../config/constants.js";
-import { getLastfmApiKey, lastfmRequest } from "../../../services/apiClients.js";
+import {
+  getLastfmApiKey,
+  lastfmRequest,
+  lastfmGetArtistNameByMbid,
+  musicbrainzGetArtistNameByMbid,
+} from "../../../services/apiClients.js";
 import { dbOps } from "../../../config/db-helpers.js";
 import { cacheMiddleware } from "../../../middleware/cache.js";
+import { buildImageProxyUrl } from "../../../services/imageProxyService.js";
 
 export default function registerSimilar(router) {
   router.get("/:mbid/similar", cacheMiddleware(300), async (req, res) => {
@@ -13,6 +19,7 @@ export default function registerSimilar(router) {
       }
 
       const { limit = 10 } = req.query;
+      const artistNameParam = String(req.query.artistName || "").trim();
 
       if (!getLastfmApiKey()) {
         return res.json({ artists: [] });
@@ -21,10 +28,25 @@ export default function registerSimilar(router) {
       const limitInt = Math.min(Math.max(parseInt(limit, 10) || 7, 1), 20);
       const override = dbOps.getArtistOverride(mbid);
       const resolvedMbid = override?.musicbrainzId || mbid;
-      const data = await lastfmRequest("artist.getSimilar", {
+      let data = await lastfmRequest("artist.getSimilar", {
         mbid: resolvedMbid,
         limit: limitInt,
       });
+
+      if (!data?.similarartists?.artist) {
+        const fallbackArtistName =
+          artistNameParam ||
+          (await lastfmGetArtistNameByMbid(resolvedMbid).catch(() => null)) ||
+          (await musicbrainzGetArtistNameByMbid(resolvedMbid).catch(() => null)) ||
+          "";
+
+        if (fallbackArtistName) {
+          data = await lastfmRequest("artist.getSimilar", {
+            artist: fallbackArtistName,
+            limit: limitInt,
+          });
+        }
+      }
 
       if (!data?.similarartists?.artist) {
         return res.json({ artists: [] });
@@ -51,7 +73,7 @@ export default function registerSimilar(router) {
           return {
             id: a.mbid,
             name: a.name,
-            image: img,
+            image: buildImageProxyUrl(img) || img,
             match: Math.round((a.match || 0) * 100),
           };
         })

@@ -32,6 +32,7 @@ import requestsRouter from "./backend/routes/requests.js";
 import healthRouter from "./backend/routes/health.js";
 import weeklyFlowRouter from "./backend/routes/weeklyFlow.js";
 import authRouter from "./backend/routes/auth.js";
+import imageProxyRouter from "./backend/routes/imageProxy.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -138,6 +139,7 @@ app.use("/api/requests", requestsRouter);
 app.use("/api/health", healthRouter);
 app.use("/api/weekly-flow", weeklyFlowRouter);
 app.use("/api/auth", authRouter);
+app.use("/api/image-proxy", imageProxyRouter);
 
 const HOUR_MS = 60 * 60 * 1000;
 setInterval(() => {

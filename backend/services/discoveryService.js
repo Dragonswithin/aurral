@@ -7,7 +7,7 @@ import {
   musicbrainzGetCachedArtistMbidByName,
   musicbrainzResolveArtistMbidByName,
 } from "./apiClients.js";
-import { getArtistImage } from "./imageService.js";
+import { hydrateArtistImages } from "./artistImageHydration.js";
 import { websocketService } from "./websocketService.js";
 import { libraryManager } from "./libraryManager.js";
 import {
@@ -882,12 +882,24 @@ export const updateDiscoveryCache = async () => {
       lastUpdated: new Date().toISOString(),
     };
 
+    const allToHydrate = [
+      ...(discoveryData.globalTop || []),
+      ...recommendationsArray,
+    ].filter((a) => !a.image);
+    console.log(`Hydrating images for ${allToHydrate.length} artists...`);
+    emitDiscoveryProgress("hydrating_images", "Hydrating artist images", 90);
+    await hydrateArtistImages(allToHydrate, {
+      limit: allToHydrate.length,
+      batchSize: 10,
+      delayMs: 50,
+    });
+
     Object.assign(discoveryCache, discoveryData);
     dbOps.updateDiscoveryCache(discoveryData);
     emitDiscoveryProgress(
       "saving_results",
       "Saving refreshed discovery cache",
-      82,
+      96,
     );
     const { notifyDiscoveryUpdated } = await import("./notificationService.js");
     notifyDiscoveryUpdated().catch((err) =>
@@ -896,45 +908,6 @@ export const updateDiscoveryCache = async () => {
     console.log(
       `Discovery data written to database: ${discoveryData.recommendations.length} recommendations, ${discoveryData.topGenres.length} genres, ${discoveryData.globalTop.length} trending`,
     );
-
-    const allToHydrate = [
-      ...(discoveryCache.globalTop || []),
-      ...recommendationsArray,
-    ].filter((a) => !a.image);
-    console.log(`Hydrating images for ${allToHydrate.length} artists...`);
-    emitDiscoveryProgress("hydrating_images", "Hydrating artist images", 90);
-
-    const batchSize = 10;
-    for (let i = 0; i < allToHydrate.length; i += batchSize) {
-      const batch = allToHydrate.slice(i, i + batchSize);
-      await Promise.all(
-        batch.map(async (item) => {
-          try {
-            try {
-              const artistName = item.name || item.artistName;
-
-              if (artistName) {
-                const resolvedMbid =
-                  item.id ||
-                  item.mbid ||
-                  musicbrainzGetCachedArtistMbidByName(artistName) ||
-                  (await musicbrainzResolveArtistMbidByName(artistName));
-                const cover = resolvedMbid
-                  ? await getArtistImage(resolvedMbid)
-                  : null;
-                if (cover?.url) {
-                  item.image = cover.url;
-                }
-              }
-            } catch (e) {}
-          } catch (e) {}
-        }),
-      );
-
-      if (i + batchSize < allToHydrate.length) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-    }
 
     console.log("Discovery cache updated successfully.");
     console.log(
@@ -1077,33 +1050,11 @@ export const updateUserDiscoveryCache = async (listenHistoryProfile) => {
       40,
     );
 
-    // Hydrate images
-    const toHydrate = recommendationsArray.filter((a) => !a.image);
-    const batchSize = 10;
-    for (let i = 0; i < toHydrate.length; i += batchSize) {
-      const batch = toHydrate.slice(i, i + batchSize);
-      await Promise.all(
-        batch.map(async (item) => {
-          try {
-            const artistName = item.name || item.artistName;
-            if (artistName) {
-              const resolvedMbid =
-                item.id ||
-                item.mbid ||
-                musicbrainzGetCachedArtistMbidByName(artistName) ||
-                (await musicbrainzResolveArtistMbidByName(artistName));
-              const cover = resolvedMbid
-                ? await getArtistImage(resolvedMbid)
-                : null;
-              if (cover?.url) item.image = cover.url;
-            }
-          } catch {}
-        }),
-      );
-      if (i + batchSize < toHydrate.length) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-    }
+    await hydrateArtistImages(recommendationsArray, {
+      limit: recommendationsArray.length,
+      batchSize: 10,
+      delayMs: 50,
+    });
 
     const userData = {
       recommendations: recommendationsArray,

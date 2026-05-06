@@ -2,6 +2,7 @@ import { UUID_REGEX } from "../../../config/constants.js";
 import { dbOps } from "../../../config/db-helpers.js";
 import { pendingCoverRequests, fetchCoverInBackground } from "../utils.js";
 import { getArtistImage } from "../../../services/imageService.js";
+import { buildImageProxyUrl } from "../../../services/imageProxyService.js";
 
 export default function registerCover(router) {
   router.get("/:mbid/cover", async (req, res) => {
@@ -34,7 +35,8 @@ export default function registerCover(router) {
         cachedImage.imageUrl !== "NOT_FOUND"
       ) {
         console.log(`[Cover Route] Cache hit for ${mbid}`);
-        const cachedUrl = cachedImage.imageUrl;
+        const cachedUrl =
+          buildImageProxyUrl(cachedImage.imageUrl) || cachedImage.imageUrl;
         res.set("Cache-Control", "public, max-age=31536000, immutable");
 
         const cacheAge = cachedImage.cacheAge;
@@ -88,6 +90,10 @@ export default function registerCover(router) {
       const result = await fetchPromise;
 
       if (result.images && result.images.length > 0) {
+        result.images = result.images.map((image) => ({
+          ...image,
+          image: buildImageProxyUrl(image.image) || image.image,
+        }));
         console.log(`[Cover Route] Successfully returning cover for ${mbid}`);
         res.set("Cache-Control", "public, max-age=31536000, immutable");
       } else {

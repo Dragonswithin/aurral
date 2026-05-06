@@ -1,5 +1,6 @@
 import { UUID_REGEX } from "../../../config/constants.js";
 import { dbOps } from "../../../config/db-helpers.js";
+import { buildImageProxyUrl } from "../../../services/imageProxyService.js";
 import { libraryManager } from "../../../services/libraryManager.js";
 import { qualityManager } from "../../../services/qualityManager.js";
 
@@ -250,7 +251,10 @@ export default function registerMisc(router) {
           : null;
         return {
           ...album,
-          coverUrl: coverUrl && coverUrl !== "NOT_FOUND" ? coverUrl : null,
+          coverUrl:
+            coverUrl && coverUrl !== "NOT_FOUND"
+              ? buildImageProxyUrl(coverUrl) || coverUrl
+              : null,
         };
       });
 

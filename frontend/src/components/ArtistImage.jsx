@@ -56,7 +56,7 @@ const ArtistImage = ({
   const [hasError, setHasError] = useState(false);
   const fetchingRef = useRef(false);
   const triedBackendFallbackRef = useRef(false);
-
+  const imgRef = useRef(null);
   const abortRef = useRef(null);
 
   const fetchBackendCover = useCallback(
@@ -131,6 +131,38 @@ const ArtistImage = ({
     return () => controller.abort();
   }, [src, mbid, artistName, fetchBackendCover]);
 
+  useEffect(() => {
+    const image = imgRef.current;
+    if (!currentSrc || !image) return;
+
+    // Chrome/Safari can restore cached images without reliably firing a fresh
+    // load event during refresh navigation. If the browser already has decoded
+    // dimensions for the current source, promote the image to visible
+    // immediately instead of waiting on onLoad.
+    if (image.complete && image.naturalWidth > 0) {
+      setIsLoading(false);
+      setHasError(false);
+      return;
+    }
+
+    let cancelled = false;
+    if (typeof image.decode === "function") {
+      image
+        .decode()
+        .then(() => {
+          if (!cancelled) {
+            setIsLoading(false);
+            setHasError(false);
+          }
+        })
+        .catch(() => {});
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSrc]);
+
   const handleLoad = () => {
     setIsLoading(false);
   };
@@ -147,6 +179,8 @@ const ArtistImage = ({
     setIsLoading(false);
   };
 
+  const showPlaceholder = !currentSrc;
+
   if (hasError) {
     return (
       <div
@@ -158,22 +192,38 @@ const ArtistImage = ({
     );
   }
 
-  if (!currentSrc && !isLoading && !hasError) {
+  if (showPlaceholder) {
     return (
       <div
         className={`relative overflow-hidden ${className}`}
-        style={{ backgroundColor: "#211f27" }}
+        style={{
+          background:
+            "linear-gradient(135deg, rgba(33,31,39,1) 0%, rgba(46,43,54,1) 100%)",
+        }}
       >
-        {showLoading && (
-          <div
-            className="absolute inset-0 flex items-center justify-center z-10"
-            style={{ backgroundColor: "#211f27" }}
-          >
+        <div
+          className="absolute inset-0 flex items-center justify-center z-10"
+          style={{ backgroundColor: "transparent" }}
+        >
+          {isLoading ? (
             <Loader
-              className="w-6 h-6 animate-spin"
+              className={`w-6 h-6 ${showLoading ? "animate-spin" : "opacity-60"}`}
               style={{ color: "#c1c1c3" }}
             />
-          </div>
+          ) : (
+            <Music className="w-1/3 h-1/3" style={{ color: "#c1c1c3" }} />
+          )}
+        </div>
+        {isLoading && (
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                "linear-gradient(110deg, rgba(255,255,255,0.02) 8%, rgba(255,255,255,0.08) 18%, rgba(255,255,255,0.02) 33%)",
+              backgroundSize: "200% 100%",
+              animation: "shimmer 1.6s linear infinite",
+            }}
+          />
         )}
       </div>
     );
@@ -189,11 +239,14 @@ const ArtistImage = ({
           className="absolute inset-0 flex items-center justify-center z-10"
           style={{ backgroundColor: "#211f27" }}
         >
-          <Loader className="w-6 h-6 text-primary-500 animate-spin" />
+          <Loader
+            className="w-6 h-6 text-primary-500 animate-spin"
+          />
         </div>
       )}
       {currentSrc && (
         <img
+          ref={imgRef}
           src={currentSrc}
           alt={alt || "Artist cover"}
           className={`w-full h-full object-cover transition-opacity duration-200 ${
@@ -201,9 +254,8 @@ const ArtistImage = ({
           }`}
           onLoad={handleLoad}
           onError={handleError}
-          loading="lazy"
+          loading="eager"
           decoding="async"
-          style={{ contentVisibility: "auto" }}
         />
       )}
     </div>
