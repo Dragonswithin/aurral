@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 const IMAGE_PROXY_ROUTE = "/api/image-proxy";
 const IMAGE_PROXY_DIR = path.join(__dirname, "..", "data", "image-proxy");
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const FETCH_TIMEOUT_MS = 5000;
+const FETCH_TIMEOUT_MS = 15000;
 const inflightRequests = new Map();
 
 const PRIVATE_HOST_PATTERNS = [
@@ -130,7 +130,7 @@ const fetchAndCacheImage = async (sourceUrl) => {
   const response = await axios.get(sourceUrl, {
     responseType: "arraybuffer",
     timeout: FETCH_TIMEOUT_MS,
-    maxRedirects: 5,
+    maxRedirects: 10,
     headers: {
       Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
       "User-Agent": "Aurral Image Proxy",
@@ -210,7 +210,8 @@ export const handleImageProxyRequest = async (req, res) => {
         );
         return res.sendFile(cached.imagePath);
       }
-      return res.status(502).json({ error: "Failed to fetch image" });
+      res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=86400");
+      return res.redirect(sourceUrl);
     }
   }
 
@@ -230,7 +231,30 @@ export const handleImageProxyRequest = async (req, res) => {
       res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=86400");
       return res.sendFile(cached.imagePath);
     }
-    console.warn("[Image Proxy] Failed to fetch image:", error.message);
-    return res.status(502).json({ error: "Failed to fetch image" });
+    const upstreamStatus = error?.response?.status;
+    const upstreamCode = error?.code;
+    const upstreamHost = (() => {
+      try {
+        return new URL(sourceUrl).hostname;
+      } catch {
+        return "unknown";
+      }
+    })();
+
+    console.warn(
+      "[Image Proxy] Failed to fetch image:",
+      JSON.stringify({
+        sourceUrl,
+        upstreamHost,
+        message: error?.message || "Unknown error",
+        code: upstreamCode || null,
+        status: upstreamStatus || null,
+      }),
+    );
+
+    // Degrade gracefully: if the proxy cannot warm the image, let the browser
+    // fetch the original source directly instead of showing a broken square.
+    res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=86400");
+    return res.redirect(sourceUrl);
   }
 };
