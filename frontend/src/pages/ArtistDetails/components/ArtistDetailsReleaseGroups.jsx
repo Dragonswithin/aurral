@@ -503,7 +503,7 @@ export function ArtistDetailsReleaseGroups({
                 }}
               >
                 <div
-                  className="flex cursor-pointer items-start justify-between gap-3 px-3 py-3 sm:items-center"
+                  className="flex min-w-0 cursor-pointer items-start justify-between gap-3 px-3 py-3 sm:items-center"
                   onClick={() =>
                     handleReleaseGroupAlbumClick(
                       releaseGroup.id,
@@ -511,7 +511,7 @@ export function ArtistDetailsReleaseGroups({
                     )
                   }
                 >
-                  <div className="flex flex-1 items-start gap-3 sm:items-center">
+                  <div className="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
                     <button
                       type="button"
                       onClick={(e) => {

@@ -7,7 +7,12 @@ import { weeklyFlowWorker } from "../services/weeklyFlowWorker.js";
 import { playlistSource } from "../services/weeklyFlowPlaylistSource.js";
 import { soulseekClient } from "../services/simpleSoulseekClient.js";
 import { playlistManager } from "../services/weeklyFlowPlaylistManager.js";
-import { flowPlaylistConfig } from "../services/weeklyFlowPlaylistConfig.js";
+import {
+  buildSharedTrackIdentity,
+  dedupeSharedTracks,
+  filterMissingSharedTracks,
+  flowPlaylistConfig,
+} from "../services/weeklyFlowPlaylistConfig.js";
 import { weeklyFlowOperationQueue } from "../services/weeklyFlowOperationQueue.js";
 import { getWeeklyFlowStatusSnapshot } from "../services/weeklyFlowStatusSnapshot.js";
 import { noCache } from "../middleware/cache.js";
@@ -37,7 +42,8 @@ const isPathInsideRoot = (candidatePath, rootPath) => {
 
 const normalizeImportedTrackList = (value) => {
   if (!Array.isArray(value)) return [];
-  return value
+  return dedupeSharedTracks(
+    value
     .map((track) => {
       if (!track || typeof track !== "object" || Array.isArray(track))
         return null;
@@ -93,19 +99,11 @@ const normalizeImportedTrackList = (value) => {
         reason: reason || null,
       };
     })
-    .filter(Boolean);
+    .filter(Boolean),
+  );
 };
 
-const buildTrackIdentity = (track) =>
-  [
-    String(track?.artistName || "").trim(),
-    String(track?.trackName || "").trim(),
-    String(track?.albumName || "").trim(),
-    String(track?.artistMbid || "").trim(),
-    String(track?.albumMbid || "").trim(),
-    String(track?.trackMbid || "").trim(),
-    String(track?.releaseYear || "").trim(),
-  ].join("\u0001");
+const buildTrackIdentity = (track) => buildSharedTrackIdentity(track);
 
 const sortJobsForTrackReuse = (jobs) =>
   [...jobs].sort((a, b) => {
@@ -785,7 +783,14 @@ router.post("/flows/:flowId/static-playlist", async (req, res) => {
       "aurral-weekly-flow",
       flowId,
     );
-    const tracks = completedJobs.map((job) => ({
+    const uniqueCompletedJobsByIdentity = new Map();
+    for (const job of completedJobs) {
+      const identity = buildTrackIdentity(job);
+      if (uniqueCompletedJobsByIdentity.has(identity)) continue;
+      uniqueCompletedJobsByIdentity.set(identity, job);
+    }
+    const uniqueCompletedJobs = [...uniqueCompletedJobsByIdentity.values()];
+    const tracks = uniqueCompletedJobs.map((job) => ({
       artistName: job.artistName,
       trackName: job.trackName,
       albumName: job.albumName || null,
@@ -809,7 +814,7 @@ router.post("/flows/:flowId/static-playlist", async (req, res) => {
       "aurral-weekly-flow",
       playlist.id,
     );
-    for (const job of completedJobs) {
+    for (const job of uniqueCompletedJobs) {
       const safeSourcePath = path.resolve(job.finalPath);
       if (!isPathInsideRoot(safeSourcePath, sourceRoot)) {
         throw new Error(
@@ -852,7 +857,7 @@ router.post("/flows/:flowId/static-playlist", async (req, res) => {
     res.json({
       success: true,
       playlist,
-      trackCount: completedJobs.length,
+      trackCount: uniqueCompletedJobs.length,
     });
   } catch (error) {
     if (playlist?.id) {
@@ -1022,9 +1027,13 @@ router.post("/shared-playlists/:playlistId/tracks", async (req, res) => {
       });
     }
 
+    const tracksToAdd = filterMissingSharedTracks(
+      playlist.tracks,
+      normalizedTracks,
+    );
     const updatedPlaylist = flowPlaylistConfig.appendSharedPlaylistTracks(
       playlistId,
-      normalizedTracks,
+      tracksToAdd,
     );
     const reusableJobsByIdentity = buildReusableJobsByIdentity(
       downloadTracker
@@ -1033,7 +1042,7 @@ router.post("/shared-playlists/:playlistId/tracks", async (req, res) => {
     );
     const reusedJobIds = [];
     const tracksToQueue = [];
-    for (const track of normalizedTracks) {
+    for (const track of tracksToAdd) {
       const reusableJob = (reusableJobsByIdentity.get(buildTrackIdentity(track)) || [])[0];
       if (!reusableJob) {
         tracksToQueue.push(track);

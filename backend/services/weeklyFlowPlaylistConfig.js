@@ -373,11 +373,52 @@ const normalizeSharedTrack = (track) => {
   };
 };
 
+export const buildSharedTrackIdentity = (track) =>
+  [
+    String(track?.artistName || "").trim().toLocaleLowerCase(),
+    String(track?.trackName || "").trim().toLocaleLowerCase(),
+    String(track?.albumName || "").trim().toLocaleLowerCase(),
+    String(track?.artistMbid || "").trim(),
+    String(track?.albumMbid || "").trim(),
+    String(track?.trackMbid || "").trim(),
+    String(track?.releaseYear || "").trim(),
+  ].join("\u0001");
+
+export const dedupeSharedTracks = (tracks) => {
+  const seen = new Set();
+  const uniqueTracks = [];
+  for (const track of Array.isArray(tracks) ? tracks : []) {
+    const normalizedTrack = normalizeSharedTrack(track);
+    if (!normalizedTrack) continue;
+    const identity = buildSharedTrackIdentity(normalizedTrack);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    uniqueTracks.push(normalizedTrack);
+  }
+  return uniqueTracks;
+};
+
+export const filterMissingSharedTracks = (existingTracks, incomingTracks) => {
+  const seen = new Set(
+    dedupeSharedTracks(existingTracks).map((track) =>
+      buildSharedTrackIdentity(track),
+    ),
+  );
+  const missingTracks = [];
+  for (const track of Array.isArray(incomingTracks) ? incomingTracks : []) {
+    const normalizedTrack = normalizeSharedTrack(track);
+    if (!normalizedTrack) continue;
+    const identity = buildSharedTrackIdentity(normalizedTrack);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    missingTracks.push(normalizedTrack);
+  }
+  return missingTracks;
+};
+
 const normalizeSharedPlaylist = (playlist) => {
   const name = String(playlist?.name || "").trim();
-  const tracks = Array.isArray(playlist?.tracks)
-    ? playlist.tracks.map(normalizeSharedTrack).filter(Boolean)
-    : [];
+  const tracks = dedupeSharedTracks(playlist?.tracks);
   return {
     id: playlist?.id || randomUUID(),
     name: name || "Shared Playlist",
@@ -767,9 +808,7 @@ export const flowPlaylistConfig = {
     const index = playlists.findIndex((playlist) => playlist.id === playlistId);
     if (index === -1) return null;
     const current = playlists[index];
-    const appendedTracks = Array.isArray(tracks)
-      ? tracks.map(normalizeSharedTrack).filter(Boolean)
-      : [];
+    const appendedTracks = filterMissingSharedTracks(current.tracks, tracks);
     const next = normalizeSharedPlaylist({
       ...current,
       tracks: [...current.tracks, ...appendedTracks],
