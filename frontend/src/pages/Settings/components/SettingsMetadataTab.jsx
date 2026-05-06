@@ -2,6 +2,35 @@ import { useState } from "react";
 import { CheckCircle, Pencil } from "lucide-react";
 import FlipSaveButton from "../../../components/FlipSaveButton";
 
+function ProviderStatusNote({ providerHealth, hostedLabel, officialLabel }) {
+  if (!providerHealth) return null;
+
+  const activeLabel =
+    providerHealth.activeProvider === "aurralHosted"
+      ? hostedLabel
+      : providerHealth.activeProvider === "official"
+        ? officialLabel
+        : "Custom provider";
+
+  if (providerHealth.mode !== "auto") {
+    return (
+      <p className="mt-1 text-xs" style={{ color: "#c1c1c3" }}>
+        Using {activeLabel}. Automatic hosted failover is disabled while a
+        manual provider is selected.
+      </p>
+    );
+  }
+
+  return (
+    <p className="mt-1 text-xs" style={{ color: "#c1c1c3" }}>
+      Active route: {activeLabel}.
+      {providerHealth.failoverActive
+        ? " Hosted health checks failed repeatedly, so requests are temporarily using the official endpoint until the hosted route recovers."
+        : " Hosted mode stays pinned to the hosted cache and only fails over after repeated background health check failures."}
+    </p>
+  );
+}
+
 export function SettingsMetadataTab({
   settings,
   updateSettings,
@@ -12,6 +41,7 @@ export function SettingsMetadataTab({
 }) {
   const [musicbrainzEditing, setMusicbrainzEditing] = useState(false);
   const [coverArtArchiveEditing, setCoverArtArchiveEditing] = useState(false);
+  const providerHealth = health?.metadataProviders || {};
 
   return (
     <div className="card animate-fade-in">
@@ -111,6 +141,11 @@ export function SettingsMetadataTab({
                 slower but usually steadier. Custom lets users point at their
                 own MusicBrainz API.
               </p>
+              <ProviderStatusNote
+                providerHealth={providerHealth.musicbrainz}
+                hostedLabel="Aurral-hosted MusicBrainz mirror"
+                officialLabel="Official MusicBrainz API"
+              />
             </div>
             {(settings.integrations?.musicbrainz?.provider || "aurralHosted") ===
               "custom" && (
@@ -220,6 +255,11 @@ export function SettingsMetadataTab({
                 the public Cover Art Archive. Custom lets users point at their
                 own host.
               </p>
+              <ProviderStatusNote
+                providerHealth={providerHealth.coverArtArchive}
+                hostedLabel="Aurral-hosted Cover Art Archive proxy"
+                officialLabel="Official Cover Art Archive"
+              />
             </div>
             {(settings.integrations?.coverArtArchive?.provider ||
               "aurralHosted") === "custom" && (

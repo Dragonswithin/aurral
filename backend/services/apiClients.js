@@ -40,6 +40,33 @@ const musicbrainzReleaseGroupsCache = new NodeCache({
   maxKeys: 500,
 });
 
+const METADATA_PROVIDER_HEALTH_CONFIG = {
+  failureThreshold: 3,
+  recoverySuccessThreshold: 2,
+  healthyProbeIntervalMs: 60 * 1000,
+  unhealthyProbeIntervalMs: 5 * 60 * 1000,
+  probeTimeoutMs: 3000,
+};
+
+const createProviderHealthState = () => ({
+  failoverActive: false,
+  consecutiveFailures: 0,
+  consecutiveSuccesses: 0,
+  lastCheckedAt: null,
+  lastSuccessAt: null,
+  lastFailureAt: null,
+  lastFailureReason: "",
+  lastTransitionAt: null,
+  probeInFlight: null,
+});
+
+const metadataProviderHealth = {
+  musicbrainz: createProviderHealthState(),
+  coverArtArchive: createProviderHealthState(),
+};
+
+let metadataProviderProbeTimer = null;
+
 export const getLastfmApiKey = () => {
   const settings = dbOps.getSettings();
   return settings.integrations?.lastfm?.apiKey || process.env.LASTFM_API_KEY;
@@ -95,6 +122,228 @@ const normalizeBaseUrl = (value, fallback) => {
   }
 };
 
+const nowIso = () => new Date().toISOString();
+
+const getMetadataProviderSelection = (serviceKey) => {
+  const settings = dbOps.getSettings();
+  if (serviceKey === "musicbrainz") {
+    const provider = settings.integrations?.musicbrainz?.provider || "aurralHosted";
+    if (provider === "official") {
+      return {
+        mode: "manual",
+        provider,
+        activeProvider: "official",
+        activeBaseUrl: MUSICBRAINZ_API,
+      };
+    }
+    if (provider === "custom") {
+      return {
+        mode: "manual",
+        provider,
+        activeProvider: "custom",
+        activeBaseUrl: normalizeMusicbrainzApiBaseUrl(
+          settings.integrations?.musicbrainz?.customUrl,
+        ),
+      };
+    }
+    const state = metadataProviderHealth.musicbrainz;
+    return {
+      mode: "auto",
+      provider,
+      activeProvider: state.failoverActive ? "official" : "aurralHosted",
+      activeBaseUrl: state.failoverActive
+        ? MUSICBRAINZ_API
+        : AURRAL_MUSICBRAINZ_API,
+    };
+  }
+
+  const provider =
+    settings.integrations?.coverArtArchive?.provider || "aurralHosted";
+  if (provider === "official") {
+    return {
+      mode: "manual",
+      provider,
+      activeProvider: "official",
+      activeBaseUrl: OFFICIAL_COVER_ART_ARCHIVE_API,
+    };
+  }
+  if (provider === "custom") {
+    return {
+      mode: "manual",
+      provider,
+      activeProvider: "custom",
+      activeBaseUrl: normalizeBaseUrl(
+        settings.integrations?.coverArtArchive?.customUrl,
+        OFFICIAL_COVER_ART_ARCHIVE_API,
+      ),
+    };
+  }
+  const state = metadataProviderHealth.coverArtArchive;
+  return {
+    mode: "auto",
+    provider,
+    activeProvider: state.failoverActive ? "official" : "aurralHosted",
+    activeBaseUrl: state.failoverActive
+      ? OFFICIAL_COVER_ART_ARCHIVE_API
+      : COVER_ART_ARCHIVE_API,
+  };
+};
+
+const markMetadataProviderProbeResult = (serviceKey, { success, reason = "" }) => {
+  const state = metadataProviderHealth[serviceKey];
+  if (!state) return;
+
+  state.lastCheckedAt = nowIso();
+
+  if (success) {
+    state.consecutiveFailures = 0;
+    state.consecutiveSuccesses += 1;
+    state.lastSuccessAt = state.lastCheckedAt;
+    state.lastFailureReason = "";
+
+    if (
+      state.failoverActive &&
+      state.consecutiveSuccesses >=
+        METADATA_PROVIDER_HEALTH_CONFIG.recoverySuccessThreshold
+    ) {
+      state.failoverActive = false;
+      state.lastTransitionAt = state.lastCheckedAt;
+      console.warn(
+        `${serviceKey} hosted endpoint recovered; switching back to hosted`,
+      );
+    }
+    return;
+  }
+
+  state.consecutiveSuccesses = 0;
+  state.consecutiveFailures += 1;
+  state.lastFailureAt = state.lastCheckedAt;
+  state.lastFailureReason = String(reason || "").trim();
+
+  if (
+    !state.failoverActive &&
+    state.consecutiveFailures >= METADATA_PROVIDER_HEALTH_CONFIG.failureThreshold
+  ) {
+    state.failoverActive = true;
+    state.lastTransitionAt = state.lastCheckedAt;
+    console.warn(
+      `${serviceKey} hosted endpoint failed ${state.consecutiveFailures} health checks; switching to official`,
+    );
+  }
+};
+
+const probeMusicbrainzHostedHealth = async () => {
+  const selection = getMetadataProviderSelection("musicbrainz");
+  if (selection.provider !== "aurralHosted") return null;
+
+  const state = metadataProviderHealth.musicbrainz;
+  if (state.probeInFlight) return state.probeInFlight;
+
+  const contact =
+    (getMusicBrainzContact() || "").trim() || "https://github.com/aurral";
+  const userAgent = `${APP_NAME}/${APP_VERSION} ( ${contact} )`;
+
+  state.probeInFlight = axios
+    .get(`${AURRAL_MUSICBRAINZ_API}/artist`, {
+      params: {
+        fmt: "json",
+        query: 'artist:"radiohead"',
+        limit: 1,
+      },
+      headers: { "User-Agent": userAgent },
+      timeout: METADATA_PROVIDER_HEALTH_CONFIG.probeTimeoutMs,
+    })
+    .then(() => {
+      markMetadataProviderProbeResult("musicbrainz", { success: true });
+      return true;
+    })
+    .catch((error) => {
+      const status = error?.response?.status;
+      const reason = status ? `HTTP ${status}` : error?.code || error?.message;
+      markMetadataProviderProbeResult("musicbrainz", {
+        success: false,
+        reason,
+      });
+      return false;
+    })
+    .finally(() => {
+      state.probeInFlight = null;
+    });
+
+  return state.probeInFlight;
+};
+
+const probeCoverArtArchiveHostedHealth = async () => {
+  const selection = getMetadataProviderSelection("coverArtArchive");
+  if (selection.provider !== "aurralHosted") return null;
+
+  const state = metadataProviderHealth.coverArtArchive;
+  if (state.probeInFlight) return state.probeInFlight;
+
+  state.probeInFlight = axios
+    .head(
+      `${COVER_ART_ARCHIVE_API}/release-group/00000000-0000-0000-0000-000000000000/front-250`,
+      {
+        timeout: METADATA_PROVIDER_HEALTH_CONFIG.probeTimeoutMs,
+        validateStatus: (status) => status >= 200 && status < 500,
+      },
+    )
+    .then(() => {
+      markMetadataProviderProbeResult("coverArtArchive", { success: true });
+      return true;
+    })
+    .catch((error) => {
+      const status = error?.response?.status;
+      const reason = status ? `HTTP ${status}` : error?.code || error?.message;
+      markMetadataProviderProbeResult("coverArtArchive", {
+        success: false,
+        reason,
+      });
+      return false;
+    })
+    .finally(() => {
+      state.probeInFlight = null;
+    });
+
+  return state.probeInFlight;
+};
+
+const runMetadataProviderHealthProbes = () =>
+  Promise.allSettled([
+    probeMusicbrainzHostedHealth(),
+    probeCoverArtArchiveHostedHealth(),
+  ]);
+
+const getMetadataProviderProbeIntervalMs = () => {
+  const states = Object.values(metadataProviderHealth);
+  return states.some((state) => state.failoverActive)
+    ? METADATA_PROVIDER_HEALTH_CONFIG.unhealthyProbeIntervalMs
+    : METADATA_PROVIDER_HEALTH_CONFIG.healthyProbeIntervalMs;
+};
+
+const ensureMetadataProviderProbeLoop = () => {
+  if (metadataProviderProbeTimer) return;
+
+  const tick = async () => {
+    await runMetadataProviderHealthProbes();
+    clearInterval(metadataProviderProbeTimer);
+    metadataProviderProbeTimer = setInterval(
+      tick,
+      getMetadataProviderProbeIntervalMs(),
+    );
+    metadataProviderProbeTimer.unref?.();
+  };
+
+  metadataProviderProbeTimer = setInterval(
+    tick,
+    getMetadataProviderProbeIntervalMs(),
+  );
+  metadataProviderProbeTimer.unref?.();
+  queueMicrotask(() => {
+    tick().catch(() => {});
+  });
+};
+
 const getMusicbrainzProvider = () => {
   const settings = dbOps.getSettings();
   return settings.integrations?.musicbrainz?.provider || "aurralHosted";
@@ -106,48 +355,81 @@ const getCoverArtArchiveProvider = () => {
 };
 
 export const getMusicbrainzApiBaseUrl = () => {
-  const settings = dbOps.getSettings();
-  const provider = settings.integrations?.musicbrainz?.provider || "aurralHosted";
-  if (provider === "official") {
-    return MUSICBRAINZ_API;
-  }
-  if (provider === "custom") {
-    return normalizeMusicbrainzApiBaseUrl(
-      settings.integrations?.musicbrainz?.customUrl,
-    );
-  }
-  return AURRAL_MUSICBRAINZ_API;
+  ensureMetadataProviderProbeLoop();
+  return getMetadataProviderSelection("musicbrainz").activeBaseUrl;
 };
 
 export const getMusicbrainzApiBaseUrls = () => {
-  if (getMusicbrainzProvider() === "aurralHosted") {
-    return [AURRAL_MUSICBRAINZ_API, MUSICBRAINZ_API];
-  }
   return [getMusicbrainzApiBaseUrl()];
 };
 
 export const getCoverArtArchiveApiBaseUrl = () => {
-  const settings = dbOps.getSettings();
-  const provider =
-    settings.integrations?.coverArtArchive?.provider || "aurralHosted";
-  if (provider === "official") {
-    return OFFICIAL_COVER_ART_ARCHIVE_API;
-  }
-  if (provider === "custom") {
-    return normalizeBaseUrl(
-      settings.integrations?.coverArtArchive?.customUrl,
-      OFFICIAL_COVER_ART_ARCHIVE_API,
-    );
-  }
-  return COVER_ART_ARCHIVE_API;
+  ensureMetadataProviderProbeLoop();
+  return getMetadataProviderSelection("coverArtArchive").activeBaseUrl;
 };
 
 export const getCoverArtArchiveApiBaseUrls = () => {
-  if (getCoverArtArchiveProvider() === "aurralHosted") {
-    return [COVER_ART_ARCHIVE_API, OFFICIAL_COVER_ART_ARCHIVE_API];
-  }
   return [getCoverArtArchiveApiBaseUrl()];
 };
+
+export const getMetadataProviderHealthSnapshot = () => {
+  const musicbrainzSelection = getMetadataProviderSelection("musicbrainz");
+  const coverArtArchiveSelection = getMetadataProviderSelection(
+    "coverArtArchive",
+  );
+
+  return {
+    musicbrainz: {
+      mode: musicbrainzSelection.mode,
+      configuredProvider: musicbrainzSelection.provider,
+      activeProvider: musicbrainzSelection.activeProvider,
+      activeBaseUrl: musicbrainzSelection.activeBaseUrl,
+      failoverActive:
+        musicbrainzSelection.mode === "auto"
+          ? metadataProviderHealth.musicbrainz.failoverActive
+          : false,
+      consecutiveFailures: metadataProviderHealth.musicbrainz.consecutiveFailures,
+      consecutiveSuccesses:
+        metadataProviderHealth.musicbrainz.consecutiveSuccesses,
+      lastCheckedAt: metadataProviderHealth.musicbrainz.lastCheckedAt,
+      lastSuccessAt: metadataProviderHealth.musicbrainz.lastSuccessAt,
+      lastFailureAt: metadataProviderHealth.musicbrainz.lastFailureAt,
+      lastFailureReason: metadataProviderHealth.musicbrainz.lastFailureReason,
+      lastTransitionAt: metadataProviderHealth.musicbrainz.lastTransitionAt,
+    },
+    coverArtArchive: {
+      mode: coverArtArchiveSelection.mode,
+      configuredProvider: coverArtArchiveSelection.provider,
+      activeProvider: coverArtArchiveSelection.activeProvider,
+      activeBaseUrl: coverArtArchiveSelection.activeBaseUrl,
+      failoverActive:
+        coverArtArchiveSelection.mode === "auto"
+          ? metadataProviderHealth.coverArtArchive.failoverActive
+          : false,
+      consecutiveFailures:
+        metadataProviderHealth.coverArtArchive.consecutiveFailures,
+      consecutiveSuccesses:
+        metadataProviderHealth.coverArtArchive.consecutiveSuccesses,
+      lastCheckedAt: metadataProviderHealth.coverArtArchive.lastCheckedAt,
+      lastSuccessAt: metadataProviderHealth.coverArtArchive.lastSuccessAt,
+      lastFailureAt: metadataProviderHealth.coverArtArchive.lastFailureAt,
+      lastFailureReason:
+        metadataProviderHealth.coverArtArchive.lastFailureReason,
+      lastTransitionAt: metadataProviderHealth.coverArtArchive.lastTransitionAt,
+    },
+  };
+};
+
+export const __setMetadataProviderHealthStateForTests = (serviceKey, patch = {}) => {
+  if (!metadataProviderHealth[serviceKey]) return;
+  Object.assign(
+    metadataProviderHealth[serviceKey],
+    createProviderHealthState(),
+    patch,
+  );
+};
+
+ensureMetadataProviderProbeLoop();
 
 const requestMusicbrainz = async (
   baseUrl,
@@ -168,8 +450,8 @@ const mbLimiter = new Bottleneck({
 });
 
 const configureMusicbrainzLimiter = async () => {
-  const provider = getMusicbrainzProvider();
-  if (provider === "official") {
+  const { activeProvider } = getMetadataProviderSelection("musicbrainz");
+  if (activeProvider === "official") {
     await mbLimiter.updateSettings({
       maxConcurrent: 1,
       minTime: 1000,
@@ -248,31 +530,29 @@ const musicbrainzRequestWithRetry = async (
     isConnectionError(error) ||
     (error.response && [429, 500, 502, 503, 504].includes(error.response.status));
 
-  const baseUrls = getMusicbrainzApiBaseUrls();
+  const baseUrl = getMusicbrainzApiBaseUrl();
   let error;
-  for (const [index, baseUrl] of baseUrls.entries()) {
-    try {
-      const response = await requestMusicbrainz(
-        baseUrl,
-        endpoint,
-        queryParams,
-        userAgent,
-        forceIpv4,
-      );
-      const responseData = response.data;
+  try {
+    const response = await requestMusicbrainz(
+      baseUrl,
+      endpoint,
+      queryParams,
+      userAgent,
+      forceIpv4,
+    );
+    const responseData = response.data;
 
-      mbCache.set(cacheKey, responseData);
-      return responseData;
-    } catch (requestError) {
-      error = requestError;
-      const hasFallbackBaseUrl = index < baseUrls.length - 1;
-      if (hasFallbackBaseUrl && shouldTryFallbackBaseUrl(requestError)) {
-        console.warn(
-          `MusicBrainz endpoint ${baseUrl} failed, falling back to the public API`,
-        );
-        continue;
-      }
-      break;
+    mbCache.set(cacheKey, responseData);
+    return responseData;
+  } catch (requestError) {
+    error = requestError;
+    if (
+      getMusicbrainzProvider() === "aurralHosted" &&
+      getMetadataProviderSelection("musicbrainz").activeProvider ===
+        "aurralHosted" &&
+      shouldTryFallbackBaseUrl(requestError)
+    ) {
+      probeMusicbrainzHostedHealth().catch(() => {});
     }
   }
 
@@ -333,43 +613,56 @@ export const musicbrainzRequest = async (endpoint, params = {}) => {
 
 export async function fetchCoverArtArchiveReleaseGroup(releaseGroupMbid) {
   if (!releaseGroupMbid) return null;
-  for (const baseUrl of getCoverArtArchiveApiBaseUrls()) {
-    const directUrl = `${baseUrl}/release-group/${releaseGroupMbid}/front-250`;
-    try {
-      const response = await axios.head(directUrl, {
-        timeout: 2000,
-        maxRedirects: 0,
-        validateStatus: (status) =>
-          status === 200 || status === 301 || status === 302 || status === 307,
-      });
+  const baseUrl = getCoverArtArchiveApiBaseUrl();
+  const directUrl = `${baseUrl}/release-group/${releaseGroupMbid}/front-250`;
 
-      if (response.status >= 200 && response.status < 400) {
-        return {
-          imageUrl: directUrl,
-          types: ["Front"],
-        };
-      }
-    } catch {}
+  try {
+    const response = await axios.head(directUrl, {
+      timeout: 2000,
+      maxRedirects: 0,
+      validateStatus: (status) =>
+        status === 200 || status === 301 || status === 302 || status === 307,
+    });
 
-    try {
-      const response = await axios.get(
-        `${baseUrl}/release-group/${releaseGroupMbid}`,
-        {
-          headers: { Accept: "application/json" },
-          timeout: 2000,
-        },
-      );
-      const images = Array.isArray(response?.data?.images)
-        ? response.data.images
-        : [];
-      if (!images.length) continue;
-
-      const frontImage = images.find((img) => img.front) || images[0];
+    if (response.status >= 200 && response.status < 400) {
       return {
         imageUrl: directUrl,
-        types: frontImage?.types || ["Front"],
+        types: ["Front"],
       };
-    } catch {}
+    }
+  } catch (error) {
+    if (
+      getCoverArtArchiveProvider() === "aurralHosted" &&
+      getMetadataProviderSelection("coverArtArchive").activeProvider ===
+        "aurralHosted"
+    ) {
+      probeCoverArtArchiveHostedHealth().catch(() => {});
+    }
+  }
+
+  try {
+    const response = await axios.get(`${baseUrl}/release-group/${releaseGroupMbid}`, {
+      headers: { Accept: "application/json" },
+      timeout: 2000,
+    });
+    const images = Array.isArray(response?.data?.images)
+      ? response.data.images
+      : [];
+    if (!images.length) return null;
+
+    const frontImage = images.find((img) => img.front) || images[0];
+    return {
+      imageUrl: directUrl,
+      types: frontImage?.types || ["Front"],
+    };
+  } catch (error) {
+    if (
+      getCoverArtArchiveProvider() === "aurralHosted" &&
+      getMetadataProviderSelection("coverArtArchive").activeProvider ===
+        "aurralHosted"
+    ) {
+      probeCoverArtArchiveHostedHealth().catch(() => {});
+    }
   }
 
   return null;
