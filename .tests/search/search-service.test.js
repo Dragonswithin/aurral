@@ -26,10 +26,7 @@ test("normalizeArtistSearchItem preserves sort name and cached image", () => {
   assert.equal(item.id, "artist-mbid");
   assert.equal(item.name, "Boards of Canada");
   assert.equal(item.sortName, "Canada, Boards of");
-  assert.match(
-    item.image,
-    /^\/api\/image-proxy\?src=https%3A%2F%2Fimages\.example%2Fartist\.jpg&sig=/,
-  );
+  assert.equal(item.image, "https://images.example/artist.jpg");
   assert.equal(item.imageUrl, item.image);
   assert.equal(item.artistType, null);
   assert.equal(item.country, null);
