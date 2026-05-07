@@ -485,13 +485,38 @@ export async function searchTags(
     };
   }
 
+  const getDiscoveryTagFallback = () => {
+    const discoveryCache = getDiscoveryCache();
+    const tagLower = tag.toLowerCase();
+    const matches = (discoveryCache.recommendations || []).filter((artist) => {
+      const tags = Array.isArray(artist.tags) ? artist.tags : [];
+      return tags.some((entry) => String(entry).toLowerCase() === tagLower);
+    });
+    const items = matches
+      .slice(offsetInt, offsetInt + limitInt)
+      .map((artist) => normalizeTagArtistItem(artist, tag));
+    return {
+      scope: "tag",
+      query: tag,
+      count: matches.length,
+      offset: offsetInt,
+      items,
+    };
+  };
+
   if (tagScope === "all" && getLastfmApiKey()) {
     const page = Math.floor(offsetInt / limitInt) + 1;
     const data = await lastfmRequest("tag.getTopArtists", {
       tag,
       limit: limitInt,
       page,
+    }, {
+      timeoutMs: 2500,
+      maxRetries: 0,
     });
+    if (!data?.topartists?.artist) {
+      return getDiscoveryTagFallback();
+    }
     const rawArtists = Array.isArray(data?.topartists?.artist)
       ? data.topartists.artist
       : data?.topartists?.artist
@@ -511,21 +536,5 @@ export async function searchTags(
     };
   }
 
-  const discoveryCache = getDiscoveryCache();
-  const tagLower = tag.toLowerCase();
-  const matches = (discoveryCache.recommendations || []).filter((artist) => {
-    const tags = Array.isArray(artist.tags) ? artist.tags : [];
-    return tags.some((entry) => String(entry).toLowerCase() === tagLower);
-  });
-  const items = matches
-    .slice(offsetInt, offsetInt + limitInt)
-    .map((artist) => normalizeTagArtistItem(artist, tag));
-
-  return {
-    scope: "tag",
-    query: tag,
-    count: matches.length,
-    offset: offsetInt,
-    items,
-  };
+  return getDiscoveryTagFallback();
 }

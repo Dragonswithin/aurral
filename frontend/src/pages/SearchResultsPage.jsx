@@ -30,7 +30,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
 import { useReleaseTypeFilter } from "./ArtistDetails/hooks/useReleaseTypeFilter";
 
-const PAGE_SIZE = 24;
+const PAGE_SIZE = 20;
 const MBID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -315,7 +315,7 @@ function SearchResultsPage() {
   ]);
 
   useEffect(() => {
-    if (isAlbumSearch || results.length === 0) return undefined;
+    if (isAlbumSearch || isTagSearch || results.length === 0) return undefined;
 
     let cancelled = false;
     const pendingArtists = results.filter((artist) => {
@@ -368,7 +368,7 @@ function SearchResultsPage() {
     return () => {
       cancelled = true;
     };
-  }, [artistImages, isAlbumSearch, results]);
+  }, [artistImages, isAlbumSearch, isTagSearch, results]);
 
   useEffect(() => {
     if (isAlbumSearch) return undefined;

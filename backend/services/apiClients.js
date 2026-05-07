@@ -673,7 +673,8 @@ export async function fetchCoverArtArchiveReleaseGroup(releaseGroupMbid) {
   return { imageUrl: null, types: [], notFound: true };
 }
 
-export const lastfmRequest = lastfmLimiter.wrap(async (method, params = {}) => {
+export const lastfmRequest = lastfmLimiter.wrap(
+  async (method, params = {}, options = {}) => {
   const apiKey = getLastfmApiKey();
   if (!apiKey) return null;
 
@@ -682,6 +683,12 @@ export const lastfmRequest = lastfmLimiter.wrap(async (method, params = {}) => {
   if (cached) return cached;
   const inflight = lastfmInflightRequests.get(cacheKey);
   if (inflight) return inflight;
+  const timeoutMs = Number.isFinite(Number(options?.timeoutMs))
+    ? Math.max(500, Math.floor(Number(options.timeoutMs)))
+    : LASTFM_TIMEOUT_MS;
+  const maxRetries = Number.isFinite(Number(options?.maxRetries))
+    ? Math.max(0, Math.floor(Number(options.maxRetries)))
+    : LASTFM_MAX_RETRIES;
 
   const requestPromise = (async () => {
     const isRetryable = (error) => {
@@ -707,7 +714,7 @@ export const lastfmRequest = lastfmLimiter.wrap(async (method, params = {}) => {
       console.error(message, details);
     };
     let lastError = null;
-    for (let retryCount = 0; retryCount <= LASTFM_MAX_RETRIES; retryCount++) {
+    for (let retryCount = 0; retryCount <= maxRetries; retryCount++) {
       try {
         const response = await axios.get(LASTFM_API, {
           params: {
@@ -716,13 +723,13 @@ export const lastfmRequest = lastfmLimiter.wrap(async (method, params = {}) => {
             format: "json",
             ...params,
           },
-          timeout: LASTFM_TIMEOUT_MS,
+          timeout: timeoutMs,
         });
         lastfmCache.set(cacheKey, response.data);
         return response.data;
       } catch (error) {
         lastError = error;
-        if (retryCount < LASTFM_MAX_RETRIES && isRetryable(error)) {
+        if (retryCount < maxRetries && isRetryable(error)) {
           const backoffMs = 300 * Math.pow(2, retryCount) + retryCount * 200;
           await new Promise((resolve) => setTimeout(resolve, backoffMs));
           continue;
