@@ -375,7 +375,9 @@ function SearchResultsPage() {
     let cancelled = false;
     const ids = results.map((artist) => getArtistId(artist)).filter(Boolean);
     if (ids.length === 0) {
-      setLibraryLookup({});
+      if (Object.keys(libraryLookup).length > 0) {
+        setLibraryLookup({});
+      }
       return () => {
         cancelled = true;
       };
@@ -393,11 +395,7 @@ function SearchResultsPage() {
         if (!cancelled && lookup) {
           setLibraryLookup((prev) => ({ ...prev, ...lookup }));
         }
-      } catch {
-        if (!cancelled) {
-          setLibraryLookup((prev) => ({ ...prev }));
-        }
-      }
+      } catch {}
     };
 
     fetchLookup();
@@ -814,12 +812,12 @@ function SearchResultsPage() {
           )}
         </div>
 
-        {isTagSearch && lastfmConfigured === false && (
+        {isTagSearch && !showAllTagResults && lastfmConfigured === false && (
           <div className="mt-4 bg-yellow-500/20 p-4">
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-sm text-yellow-300">
-                Tag search and discovery recommendations use Last.fm. Add an
-                API key to enable full results.
+                Recommended tag results use the hydrated Last.fm discovery
+                cache. Add an API key to enable that path.
               </p>
               <button
                 type="button"
