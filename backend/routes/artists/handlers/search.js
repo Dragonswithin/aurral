@@ -1,4 +1,4 @@
-import { cacheMiddleware } from "../../../middleware/cache.js";
+import { noCache } from "../../../middleware/cache.js";
 import { searchArtistsLegacy } from "../../../services/searchService.js";
 
 const handleSearch = async (req, res) => {
@@ -19,6 +19,6 @@ const handleSearch = async (req, res) => {
 };
 
 export default function registerSearch(router) {
-  router.get("/search", cacheMiddleware(300), handleSearch);
-  router.get("/artists", cacheMiddleware(300), handleSearch);
+  router.get("/search", noCache, handleSearch);
+  router.get("/artists", noCache, handleSearch);
 }

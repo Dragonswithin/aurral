@@ -15,6 +15,7 @@ import {
   getBlocklist,
   getDiscovery,
   getBootstrapStatus,
+  getArtistCover,
   getReleaseGroupCover,
   lookupAlbumsInLibraryBatch,
   lookupArtistsInLibraryBatch,
@@ -62,6 +63,8 @@ function dedupeAlbums(albums) {
     return true;
   });
 }
+
+const ARTIST_IMAGE_HYDRATION_CONCURRENCY = 6;
 
 function normalizeBlocklistArtists(artists) {
   const source = Array.isArray(artists) ? artists : [];
@@ -223,14 +226,14 @@ function SearchResultsPage() {
           setVisibleCount(PAGE_SIZE);
           setHasMore(list.length > PAGE_SIZE);
           setSearchTotalCount(list.length);
-          if (list.length > 0) {
-            const imagesMap = {};
-            list.forEach((artist) => {
-              const artistId = getArtistId(artist);
-              if (artist.image && artistId) imagesMap[artistId] = artist.image;
-            });
-            setArtistImages(imagesMap);
-          }
+          const imagesMap = {};
+          list.forEach((artist) => {
+            const artistId = getArtistId(artist);
+            if ((artist.image || artist.imageUrl) && artistId) {
+              imagesMap[artistId] = artist.image || artist.imageUrl;
+            }
+          });
+          setArtistImages(imagesMap);
         } catch (err) {
           setError(
             err.response?.data?.message || "Failed to load. Please try again.",
@@ -285,6 +288,8 @@ function SearchResultsPage() {
             }
           });
           setArtistImages(imagesMap);
+        } else if (!isAlbumSearch) {
+          setArtistImages({});
         }
       } catch (err) {
         setError(
@@ -307,6 +312,64 @@ function SearchResultsPage() {
     isTagSearch,
     selectedReleaseTypes,
   ]);
+
+  useEffect(() => {
+    if (isAlbumSearch || results.length === 0) return undefined;
+
+    let cancelled = false;
+    const pendingArtists = results.filter((artist) => {
+      const artistId = getArtistId(artist);
+      if (!artistId) return false;
+      if (artistImages[artistId]) return false;
+      if (artist.image || artist.imageUrl) return false;
+      return true;
+    });
+
+    if (pendingArtists.length === 0) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const hydrateArtistImages = async () => {
+      let nextIndex = 0;
+      const workers = Array.from(
+        {
+          length: Math.min(
+            ARTIST_IMAGE_HYDRATION_CONCURRENCY,
+            pendingArtists.length,
+          ),
+        },
+        async () => {
+          while (!cancelled && nextIndex < pendingArtists.length) {
+            const artist = pendingArtists[nextIndex++];
+            const artistId = getArtistId(artist);
+            if (!artistId) continue;
+            try {
+              const data = await getArtistCover(artistId, artist.name);
+              const imageUrl = data?.images?.[0]?.image || null;
+              if (!imageUrl || cancelled) continue;
+              setArtistImages((prev) => {
+                if (prev[artistId] === imageUrl) return prev;
+                return {
+                  ...prev,
+                  [artistId]: imageUrl,
+                };
+              });
+            } catch {}
+          }
+        },
+      );
+
+      await Promise.allSettled(workers);
+    };
+
+    hydrateArtistImages();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [artistImages, isAlbumSearch, results]);
 
   useEffect(() => {
     if (isAlbumSearch) return undefined;
