@@ -1,10 +1,7 @@
 import NodeCache from "node-cache";
+import axios from "axios";
 import { dbOps } from "../config/db-helpers.js";
-import {
-  getLastfmApiKey,
-  lastfmRequest,
-  musicbrainzRequest,
-} from "./apiClients.js";
+import { musicbrainzRequest } from "./apiClients.js";
 import { getDiscoveryCache } from "./discoveryService.js";
 import { primeArtistImageCache } from "./artistImageHydration.js";
 import { buildImageProxyUrl } from "./imageProxyService.js";
@@ -30,6 +27,7 @@ const albumLibraryLookupCache = new NodeCache({
   checkperiod: 60,
   maxKeys: 10,
 });
+const MUSICBRAINZ_TAG_PAGE_URL = "https://musicbrainz.org";
 
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(value, 10);
@@ -38,6 +36,25 @@ function parsePositiveInt(value, fallback) {
 
 function escapeMusicbrainzQueryTerm(value) {
   return String(value || "").replace(/["\\]/g, "\\$&");
+}
+
+function normalizeTagValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
+      String.fromCodePoint(Number.parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);/g, (_, dec) =>
+      String.fromCodePoint(Number.parseInt(dec, 10)),
+    );
 }
 
 function normalizePercentOfTracks(value) {
@@ -212,6 +229,44 @@ function buildAlbumSearchQuery(query, selectedReleaseTypes) {
   }
 
   return clauses.join(" AND ");
+}
+
+async function fetchMusicbrainzTagArtistPage(tag, page) {
+  const normalizedTag = encodeURIComponent(String(tag || "").trim());
+  const url = `${MUSICBRAINZ_TAG_PAGE_URL}/tag/${normalizedTag}/artist?page=${page}`;
+  const response = await axios.get(url, {
+    timeout: 5000,
+    headers: {
+      "User-Agent": "Aurral Tag Search",
+      Accept: "text/html,application/xhtml+xml",
+    },
+  });
+  const html = String(response.data || "");
+  const countMatch = html.match(/<p>([\d,]+)\s+artists found<\/p>/i);
+  const totalCount = Number.parseInt(
+    String(countMatch?.[1] || "0").replace(/,/g, ""),
+    10,
+  ) || 0;
+  const itemPattern =
+    /<li>(\d+)\s*-\s*<a href="\/artist\/([0-9a-f-]+)" title="([^"]*)"><bdi>(.*?)<\/bdi><\/a>(?:\s*<span class="comment">\(<bdi>(.*?)<\/bdi>\)<\/span>)?<\/li>/gisu;
+  const items = [];
+  let match;
+  while ((match = itemPattern.exec(html)) !== null) {
+    items.push({
+      id: match[2],
+      name: decodeHtmlEntities(match[4] || match[3] || ""),
+      sortName: decodeHtmlEntities(match[4] || match[3] || ""),
+      disambiguation: decodeHtmlEntities(match[5] || ""),
+      tagCount: Number.parseInt(match[1], 10) || 0,
+      type: "artist",
+    });
+  }
+
+  return {
+    totalCount,
+    items,
+    pageSize: items.length,
+  };
 }
 
 function canUseDirectPrimaryTypeSearch(selectedReleaseTypes) {
@@ -485,56 +540,62 @@ export async function searchTags(
     };
   }
 
-  const getDiscoveryTagFallback = () => {
-    const discoveryCache = getDiscoveryCache();
-    const tagLower = tag.toLowerCase();
-    const matches = (discoveryCache.recommendations || []).filter((artist) => {
-      const tags = Array.isArray(artist.tags) ? artist.tags : [];
-      return tags.some((entry) => String(entry).toLowerCase() === tagLower);
-    });
-    const items = matches
-      .slice(offsetInt, offsetInt + limitInt)
-      .map((artist) => normalizeTagArtistItem(artist, tag));
-    return {
-      scope: "tag",
-      query: tag,
-      count: matches.length,
-      offset: offsetInt,
-      items,
-    };
-  };
+  if (tagScope === "all") {
+    const firstPageNumber = Math.floor(offsetInt / 100) + 1;
+    const pages = [];
+    let totalCount = 0;
+    let pageSize = 100;
+    let currentPage = firstPageNumber;
+    let combined = [];
 
-  if (tagScope === "all" && getLastfmApiKey()) {
-    const page = Math.floor(offsetInt / limitInt) + 1;
-    const data = await lastfmRequest("tag.getTopArtists", {
-      tag,
-      limit: limitInt,
-      page,
-    }, {
-      timeoutMs: 2500,
-      maxRetries: 0,
-    });
-    if (!data?.topartists?.artist) {
-      return getDiscoveryTagFallback();
+    while (combined.length < limitInt + (offsetInt % pageSize || 0)) {
+      const pageData = await fetchMusicbrainzTagArtistPage(tag, currentPage);
+      totalCount = pageData.totalCount;
+      pageSize = pageData.pageSize || pageSize;
+      if (pageData.items.length === 0) break;
+      pages.push(pageData);
+      combined = pages.flatMap((entry) => entry.items);
+      currentPage += 1;
+      if (pageData.items.length < pageSize) break;
+      const absoluteLoaded =
+        (firstPageNumber - 1) * pageSize + combined.length;
+      if (totalCount > 0 && absoluteLoaded >= totalCount) break;
     }
-    const rawArtists = Array.isArray(data?.topartists?.artist)
-      ? data.topartists.artist
-      : data?.topartists?.artist
-        ? [data.topartists.artist]
-        : [];
-    const items = rawArtists
-      .map((artist) => normalizeTagArtistItem(artist, tag))
-      .filter((artist) => artist.id);
+
+    const withinPageOffset = offsetInt - (firstPageNumber - 1) * pageSize;
+    const pageArtists = combined.slice(withinPageOffset, withinPageOffset + limitInt);
+    const cachedImages = dbOps.getImages(pageArtists.map((artist) => artist.id));
+    const items = pageArtists.map((artist) => ({
+      ...normalizeArtistSearchItem(artist, cachedImages),
+      tags: [tag],
+    }));
+    primeArtistImageCache(items.slice(0, Math.min(items.length, limitInt))).catch(() => {});
 
     return {
       scope: "tag",
       query: tag,
-      count:
-        Number.parseInt(data?.topartists?.["@attr"]?.total, 10) || items.length,
+      count: totalCount || items.length,
+      hasMore: totalCount > offsetInt + items.length,
       offset: offsetInt,
       items,
     };
   }
 
-  return getDiscoveryTagFallback();
+  const discoveryCache = getDiscoveryCache();
+  const tagLower = tag.toLowerCase();
+  const matches = (discoveryCache.recommendations || []).filter((artist) => {
+    const tags = Array.isArray(artist.tags) ? artist.tags : [];
+    return tags.some((entry) => String(entry).toLowerCase() === tagLower);
+  });
+  const items = matches
+    .slice(offsetInt, offsetInt + limitInt)
+    .map((artist) => normalizeTagArtistItem(artist, tag));
+
+  return {
+    scope: "tag",
+    query: tag,
+    count: matches.length,
+    offset: offsetInt,
+    items,
+  };
 }
