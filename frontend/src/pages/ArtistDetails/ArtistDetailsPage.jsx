@@ -82,6 +82,10 @@ function ArtistDetailsPage() {
   const [playlistModalError, setPlaylistModalError] = useState("");
   const [blockingArtist, setBlockingArtist] = useState(false);
   const [artistBlocked, setArtistBlocked] = useState(false);
+  const [visibleReleaseGroupCoverIds, setVisibleReleaseGroupCoverIds] = useState(
+    [],
+  );
+  const [visibleLibraryCoverIds, setVisibleLibraryCoverIds] = useState([]);
 
   const filter = useReleaseTypeFilter();
   const {
@@ -95,6 +99,12 @@ function ArtistDetailsPage() {
     mbid,
     artistNameFromNav,
     selectedReleaseTypes,
+    {
+      visibleCoverIds: [
+        ...visibleReleaseGroupCoverIds,
+        ...visibleLibraryCoverIds,
+      ],
+    },
   );
   const canAddArtist = hasPermission("addArtist");
   const canAddAlbum = hasPermission("addAlbum");
@@ -575,6 +585,7 @@ function ArtistDetailsPage() {
           handleReSearchAlbum={library.handleReSearchAlbum}
           handleReSearchMissingDownloads={library.handleReSearchMissingDownloads}
           onAddTrackToPlaylist={handleLibraryTrackAdd}
+          onVisibleCoverIdsChange={setVisibleLibraryCoverIds}
         />
       )}
 
@@ -613,6 +624,7 @@ function ArtistDetailsPage() {
             library.isReleaseGroupDownloadedInLibrary
           }
           onAddTrackToPlaylist={handleReleaseTrackAdd}
+          onVisibleCoverIdsChange={setVisibleReleaseGroupCoverIds}
         />
       )}
 

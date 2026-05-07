@@ -12,6 +12,9 @@ const IMAGE_PROXY_DIR = path.join(__dirname, "..", "data", "image-proxy");
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 25000;
 const inflightRequests = new Map();
+const cacheEntriesByKey = new Map();
+const cacheKeysBySourceUrl = new Map();
+let cacheIndexInitialized = false;
 
 const PRIVATE_HOST_PATTERNS = [
   /^localhost$/i,
@@ -35,6 +38,43 @@ const MIME_EXTENSION_MAP = {
 
 const ensureCacheDir = () => {
   fs.mkdirSync(IMAGE_PROXY_DIR, { recursive: true });
+};
+
+const initializeCacheIndex = () => {
+  if (cacheIndexInitialized) return;
+  ensureCacheDir();
+  cacheIndexInitialized = true;
+
+  const files = fs.readdirSync(IMAGE_PROXY_DIR);
+  for (const file of files) {
+    const match = file.match(/^([a-f0-9]{64})\.json$/i);
+    if (!match) continue;
+    const cacheKey = match[1].toLowerCase();
+    const metaPath = path.join(IMAGE_PROXY_DIR, file);
+    let meta = null;
+    try {
+      meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+    } catch {
+      continue;
+    }
+    if (!meta?.extension) continue;
+    const imagePath = path.join(IMAGE_PROXY_DIR, `${cacheKey}.${meta.extension}`);
+    if (!fs.existsSync(imagePath)) continue;
+    const sourceUrl = normalizeKnownImageUrl(meta.sourceUrl);
+    const entry = {
+      cacheKey,
+      meta,
+      imagePath,
+      localUrl: buildLocalImageUrl(cacheKey, meta.extension),
+      isFresh:
+        Number(meta.fetchedAt || 0) > 0 &&
+        Date.now() - Number(meta.fetchedAt || 0) < CACHE_TTL_MS,
+    };
+    cacheEntriesByKey.set(cacheKey, entry);
+    if (sourceUrl) {
+      cacheKeysBySourceUrl.set(sourceUrl, cacheKey);
+    }
+  }
 };
 
 const isPrivateHostname = (hostname) => {
@@ -88,28 +128,24 @@ const readCacheMetadata = (metaPath) => {
 
 const getCachedEntryFromKey = (cacheKey) => {
   if (!cacheKey) return null;
-  const { metaPath, baseImagePath } = getCachePaths(cacheKey);
-  const meta = readCacheMetadata(metaPath);
-  if (!meta?.extension) return null;
-
-  const imagePath = `${baseImagePath}.${meta.extension}`;
-  if (!fs.existsSync(imagePath)) return null;
-
+  initializeCacheIndex();
+  const entry = cacheEntriesByKey.get(cacheKey);
+  if (!entry) return null;
   return {
-    cacheKey,
-    meta,
-    imagePath,
-    localUrl: buildLocalImageUrl(cacheKey, meta.extension),
+    ...entry,
     isFresh:
-      Number(meta.fetchedAt || 0) > 0 &&
-      Date.now() - Number(meta.fetchedAt || 0) < CACHE_TTL_MS,
+      Number(entry.meta?.fetchedAt || 0) > 0 &&
+      Date.now() - Number(entry.meta?.fetchedAt || 0) < CACHE_TTL_MS,
   };
 };
 
 const getCachedEntry = (sourceUrl) => {
   const normalizedSourceUrl = normalizeKnownImageUrl(sourceUrl);
   if (!normalizedSourceUrl) return null;
-  return getCachedEntryFromKey(hashValue(normalizedSourceUrl));
+  initializeCacheIndex();
+  const cacheKey =
+    cacheKeysBySourceUrl.get(normalizedSourceUrl) || hashValue(normalizedSourceUrl);
+  return getCachedEntryFromKey(cacheKey);
 };
 
 const writeCacheEntry = (cacheKey, buffer, contentType, sourceUrl) => {
@@ -128,14 +164,18 @@ const writeCacheEntry = (cacheKey, buffer, contentType, sourceUrl) => {
 
   fs.writeFileSync(imagePath, buffer);
   fs.writeFileSync(metaPath, JSON.stringify(meta));
-
-  return {
+  const entry = {
     cacheKey,
     meta,
     imagePath,
     localUrl: buildLocalImageUrl(cacheKey, extension),
     isFresh: true,
   };
+  cacheEntriesByKey.set(cacheKey, entry);
+  if (sourceUrl) {
+    cacheKeysBySourceUrl.set(sourceUrl, cacheKey);
+  }
+  return entry;
 };
 
 const fetchAndCacheImage = async (sourceUrl) => {
@@ -249,4 +289,22 @@ export const handleImageProxyRequest = async (req, res) => {
   res.set("Content-Type", cached.meta.contentType || "image/jpeg");
   res.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
   return res.sendFile(cached.imagePath);
+};
+
+export const handleLegacyImageProxyRequest = async (req, res) => {
+  const rawSourceUrl =
+    typeof req.query.src === "string" ? req.query.src.trim() : "";
+  if (!rawSourceUrl) {
+    return res.status(404).json({ error: "Image not found" });
+  }
+
+  try {
+    const cached = await warmImageProxy(rawSourceUrl);
+    if (!cached?.localUrl) {
+      return res.status(404).json({ error: "Image not found" });
+    }
+    return res.redirect(302, cached.localUrl);
+  } catch {
+    return res.status(404).json({ error: "Image not found" });
+  }
 };

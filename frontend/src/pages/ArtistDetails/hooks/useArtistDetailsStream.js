@@ -13,21 +13,24 @@ import {
 import { emptyArtistShape } from "../constants";
 import { matchesReleaseTypeFilter } from "../utils";
 
+const buildInitialArtist = (mbid, artistNameFromNav) =>
+  mbid && artistNameFromNav
+    ? {
+        id: mbid,
+        name: artistNameFromNav,
+        "sort-name": artistNameFromNav,
+        ...emptyArtistShape,
+        "release-groups": [],
+      }
+    : null;
+
 export function useArtistDetailsStream(
   mbid,
   artistNameFromNav,
   selectedReleaseTypes = [],
+  { visibleCoverIds = [] } = {},
 ) {
-  const initialArtist =
-    mbid && artistNameFromNav
-      ? {
-          id: mbid,
-          name: artistNameFromNav,
-          "sort-name": artistNameFromNav,
-          ...emptyArtistShape,
-          "release-groups": [],
-        }
-      : null;
+  const initialArtist = buildInitialArtist(mbid, artistNameFromNav);
 
   const [artist, setArtist] = useState(initialArtist);
   const [coverImages, setCoverImages] = useState([]);
@@ -61,6 +64,10 @@ export function useArtistDetailsStream(
 
   useEffect(() => {
     if (!mbid) return;
+    setArtist(buildInitialArtist(mbid, artistNameFromNav));
+    setCoverImages([]);
+    setAlbumCovers({});
+    setSimilarArtists([]);
     setLoading(!(mbid && artistNameFromNav));
     setError(null);
     setLoadingCover(true);
@@ -93,31 +100,106 @@ export function useArtistDetailsStream(
     let coverReceived = false;
     let similarReceived = false;
     let libraryReceived = false;
+    let restFallbackStarted = false;
 
-    const fallbackTimeout = setTimeout(() => {
+    const loadCoverAndSimilarFallback = async (nameForCover, refreshCover = false) => {
+      const requests = [];
       if (!coverReceived) {
-        const nameForCover = artistNameRef.current || artistNameFromNav;
-        getArtistCover(mbid, nameForCover)
-          .then((coverData) => {
-            if (coverData.images && coverData.images.length > 0) {
-              setCoverImages(coverData.images);
-            }
-          })
-          .catch(() => {})
-          .finally(() => setLoadingCover(false));
+        requests.push(
+          getArtistCover(mbid, nameForCover, refreshCover)
+            .then((coverData) => {
+              if (coverData.images && coverData.images.length > 0) {
+                setCoverImages(coverData.images);
+              }
+            })
+            .catch(() => {})
+            .finally(() => setLoadingCover(false)),
+        );
       }
       if (!similarReceived) {
-        getSimilarArtistsForArtist(
-          mbid,
-          artistNameRef.current || artistNameFromNav || "",
-        )
-          .then((similarData) => {
-            setSimilarArtists(similarData.artists || []);
-          })
-          .catch(() => {})
-          .finally(() => setLoadingSimilar(false));
+        requests.push(
+          getSimilarArtistsForArtist(mbid, nameForCover || "")
+            .then((similarData) => {
+              setSimilarArtists(similarData.artists || []);
+            })
+            .catch(() => {})
+            .finally(() => setLoadingSimilar(false)),
+        );
       }
-    }, 10000);
+      await Promise.allSettled(requests);
+    };
+
+    const loadLibraryFallback = async () => {
+      setLoadingLibrary(true);
+      try {
+        const lookup = await lookupArtistInLibrary(mbid);
+        setExistsInLibrary(lookup.exists);
+        if (!lookup.exists || !lookup.artist) return;
+
+        const fullArtist = await getLibraryArtist(
+          lookup.artist.mbid || lookup.artist.foreignArtistId,
+        ).catch((err) => {
+          console.error("Failed to fetch full artist details:", err);
+          return lookup.artist;
+        });
+
+        setLibraryArtist(fullArtist);
+
+        const artistId = fullArtist.id || lookup.artist.id;
+        if (!artistId) return;
+
+        const albums = await getLibraryAlbums(artistId).catch((err) => {
+          console.error("Failed to fetch library albums:", err);
+          return [];
+        });
+        setLibraryAlbums(albums);
+      } catch {}
+      finally {
+        setLoadingLibrary(false);
+      }
+    };
+
+    const loadRestFallback = async () => {
+      if (restFallbackStarted) return;
+      restFallbackStarted = true;
+      clearTimeout(fallbackTimeout);
+      eventSource.close();
+
+      try {
+        const artistData = await getArtistDetails(mbid, artistNameFromNav, {
+          mode: "core",
+        });
+        if (!artistData || !artistData.id) {
+          throw new Error("Invalid artist data received");
+        }
+        setArtist(artistData);
+        setLoading(false);
+
+        const nameForCover = artistData?.name || artistNameRef.current || artistNameFromNav || "";
+        artistNameRef.current = nameForCover;
+        await Promise.allSettled([
+          loadCoverAndSimilarFallback(nameForCover),
+          libraryReceived ? Promise.resolve() : loadLibraryFallback(),
+        ]);
+      } catch (err) {
+        console.error("Error fetching artist data:", err);
+        setError(
+          err.response?.data?.message ||
+            err.response?.data?.error ||
+            err.message ||
+            "Failed to fetch artist details",
+        );
+        setLoading(false);
+        setLoadingCover(false);
+        setLoadingSimilar(false);
+        setLoadingLibrary(false);
+      }
+    };
+
+    const fallbackTimeout = setTimeout(() => {
+      const nameForCover = artistNameRef.current || artistNameFromNav || "";
+      loadCoverAndSimilarFallback(nameForCover).catch(() => {});
+    }, 2500);
 
     eventSource.addEventListener("connected", () => {});
 
@@ -203,49 +285,16 @@ export function useArtistDetailsStream(
         return;
       }
 
-      setLoadingLibrary(true);
-      lookupArtistInLibrary(mbid)
-        .then((lookup) => {
-          setExistsInLibrary(lookup.exists);
-          if (lookup.exists && lookup.artist) {
-            return Promise.all([
-              getLibraryArtist(
-                lookup.artist.mbid || lookup.artist.foreignArtistId,
-              ).catch((err) => {
-                console.error("Failed to fetch full artist details:", err);
-                return lookup.artist;
-              }),
-            ]).then(([fullArtist]) => {
-              setLibraryArtist(fullArtist);
-              return fullArtist.id || lookup.artist.id;
-            });
-          }
-          return null;
-        })
-        .then((artistId) => {
-          if (artistId) {
-            setTimeout(() => {
-              getLibraryAlbums(artistId)
-                .then((albums) => {
-                  setLibraryAlbums(albums);
-                })
-                .catch(() => {
-                  setTimeout(() => {
-                    getLibraryAlbums(artistId)
-                      .then((albums) => setLibraryAlbums(albums))
-                      .catch(() => {});
-                  }, 2000);
-                });
-            }, 1000);
-          }
-        })
-        .catch(() => {})
-        .finally(() => setLoadingLibrary(false));
+      loadLibraryFallback().catch(() => {});
     });
 
     eventSource.addEventListener("error", (event) => {
       try {
         const errorData = JSON.parse(event.data);
+        if (!artistReceived) {
+          loadRestFallback().catch(() => {});
+          return;
+        }
         setError(
           errorData.message ||
             errorData.error ||
@@ -255,92 +304,14 @@ export function useArtistDetailsStream(
         eventSource.close();
       } catch {
         if (eventSource.readyState === EventSource.CLOSED) {
-          eventSource.close();
-
-          getArtistDetails(mbid, artistNameFromNav)
-            .then((artistData) => {
-              if (!artistData || !artistData.id) {
-                throw new Error("Invalid artist data received");
-              }
-              setArtist(artistData);
-              setLoading(false);
-
-              const nameForCover = artistNameFromNav || artistData?.name;
-              getArtistCover(mbid, nameForCover)
-                .then((coverData) => {
-                  if (coverData.images && coverData.images.length > 0) {
-                    setCoverImages(coverData.images);
-                  }
-                })
-                .catch(() => {})
-                .finally(() => setLoadingCover(false));
-
-              getSimilarArtistsForArtist(
-                mbid,
-                artistData?.name || artistNameFromNav || "",
-              )
-                .then((similarData) => {
-                  setSimilarArtists(similarData.artists || []);
-                })
-                .catch(() => {})
-                .finally(() => setLoadingSimilar(false));
-            })
-            .catch((err) => {
-              console.error("Error fetching artist data:", err);
-              setError(
-                err.response?.data?.message ||
-                  err.response?.data?.error ||
-                  err.message ||
-                  "Failed to fetch artist details",
-              );
-              setLoading(false);
-            });
+          loadRestFallback().catch(() => {});
         }
       }
     });
 
     eventSource.onerror = () => {
       if (!artistReceived && !streamComplete) {
-        eventSource.close();
-
-        getArtistDetails(mbid, artistNameFromNav)
-          .then((artistData) => {
-            if (!artistData || !artistData.id) {
-              throw new Error("Invalid artist data received");
-            }
-            setArtist(artistData);
-            setLoading(false);
-
-            const nameForCover = artistNameFromNav || artistData?.name;
-            getArtistCover(mbid, nameForCover)
-              .then((coverData) => {
-                if (coverData.images && coverData.images.length > 0) {
-                  setCoverImages(coverData.images);
-                }
-              })
-              .catch(() => {})
-              .finally(() => setLoadingCover(false));
-
-            getSimilarArtistsForArtist(
-              mbid,
-              artistData?.name || artistNameFromNav || "",
-            )
-              .then((similarData) => {
-                setSimilarArtists(similarData.artists || []);
-              })
-              .catch(() => {})
-              .finally(() => setLoadingSimilar(false));
-          })
-          .catch((err) => {
-            console.error("Error fetching artist data:", err);
-            setError(
-              err.response?.data?.message ||
-                err.response?.data?.error ||
-                err.message ||
-                "Failed to fetch artist details",
-            );
-            setLoading(false);
-          });
+        loadRestFallback().catch(() => {});
       }
     };
 
@@ -364,7 +335,9 @@ export function useArtistDetailsStream(
     const needed = [...new Set([...releaseGroupIds, ...libraryMbids])];
     if (!needed.length) return;
 
-    const prioritized = needed.slice(0, 24);
+    const prioritized = visibleCoverIds.length
+      ? visibleCoverIds.filter((id) => needed.includes(id))
+      : needed.slice(0, 8);
     const missing = prioritized.filter(
       (id) => !albumCovers[id] && !requestedAlbumCoversRef.current.has(id),
     );
@@ -377,24 +350,45 @@ export function useArtistDetailsStream(
       for (let i = 0; i < missing.length; i += BATCH_SIZE) {
         if (cancelled) return;
         const batch = missing.slice(i, i + BATCH_SIZE);
-        await Promise.allSettled(
+        const batchResults = await Promise.allSettled(
           batch.map(async (rgId) => {
             requestedAlbumCoversRef.current.add(rgId);
             try {
-              const data = await getReleaseGroupCover(rgId);
+              const releaseGroup = artist?.["release-groups"]?.find(
+                (item) => item?.id === rgId,
+              );
+              const data = await getReleaseGroupCover(rgId, {
+                artistName: artistNameRef.current || artist?.name || "",
+                albumTitle:
+                  releaseGroup?.title ||
+                  libraryAlbums?.find(
+                    (album) => (album.mbid || album.foreignAlbumId) === rgId,
+                  )?.albumName ||
+                  "",
+              });
               if (cancelled || !data?.images?.length) return;
               const front =
                 data.images.find((img) => img.front) || data.images[0];
               const url = front?.image;
               if (url) {
-                setAlbumCovers((prev) => ({ ...prev, [rgId]: url }));
+                return [rgId, url];
               }
             } catch {
             } finally {
               requestedAlbumCoversRef.current.delete(rgId);
             }
+            return null;
           }),
         );
+        if (cancelled) return;
+        const nextBatch = Object.fromEntries(
+          batchResults.filter(
+            (entry) => Array.isArray(entry.value) && entry.value[0] && entry.value[1],
+          ).map((entry) => entry.value),
+        );
+        if (Object.keys(nextBatch).length > 0) {
+          setAlbumCovers((prev) => ({ ...prev, ...nextBatch }));
+        }
       }
     };
 
@@ -403,7 +397,14 @@ export function useArtistDetailsStream(
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [mbid, artist, libraryAlbums, albumCovers, selectedReleaseTypes]);
+  }, [
+    mbid,
+    artist,
+    libraryAlbums,
+    albumCovers,
+    selectedReleaseTypes,
+    visibleCoverIds,
+  ]);
 
   return {
     artist,

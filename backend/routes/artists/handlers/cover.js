@@ -42,11 +42,11 @@ export default function registerCover(router) {
           !cacheAge || Date.now() - cacheAge > 7 * 24 * 60 * 60 * 1000;
 
         if (shouldRefresh) {
-          fetchCoverInBackground(mbid).catch(() => {});
+          fetchCoverInBackground(mbid, artistNameFromQuery).catch(() => {});
         }
         warmImageProxy(cachedImage.imageUrl).catch(() => {
           dbOps.deleteImage(mbid);
-          fetchCoverInBackground(mbid).catch(() => {});
+          fetchCoverInBackground(mbid, artistNameFromQuery).catch(() => {});
         });
 
         return res.json({
@@ -70,7 +70,7 @@ export default function registerCover(router) {
         res.set("Cache-Control", "public, max-age=3600");
 
         setTimeout(() => {
-          fetchCoverInBackground(mbid).catch(() => {});
+          fetchCoverInBackground(mbid, artistNameFromQuery).catch(() => {});
         }, 60000);
 
         return res.json({ images: [] });
@@ -80,7 +80,10 @@ export default function registerCover(router) {
 
       const fetchPromise = (async () => {
         try {
-          const result = await getArtistImage(mbid, !!refresh);
+          const result = await getArtistImage(mbid, {
+            forceRefresh: !!refresh,
+            artistName: artistNameFromQuery,
+          });
           return {
             images: result.images || [],
             notFound: !!result.notFound,

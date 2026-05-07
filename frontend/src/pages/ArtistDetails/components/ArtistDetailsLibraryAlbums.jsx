@@ -36,8 +36,10 @@ export function ArtistDetailsLibraryAlbums({
   handleReSearchAlbum,
   handleReSearchMissingDownloads,
   onAddTrackToPlaylist,
+  onVisibleCoverIdsChange,
 }) {
   const railRef = useRef(null);
+  const visibleCoverIdsRef = useRef(new Set());
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [completionFilter, setCompletionFilter] = useState("all");
@@ -93,6 +95,10 @@ export function ArtistDetailsLibraryAlbums({
     if (completionFilter === "incomplete") return !isComplete;
     return true;
   });
+  const visibleCoverSourceKey = visibleAlbums
+    .map((album) => album.mbid || album.foreignAlbumId || album.id)
+    .filter(Boolean)
+    .join(",");
   const incompleteAlbumCount = sortedAlbums.filter(
     (album) => !getAlbumState(album).isComplete
   ).length;
@@ -186,6 +192,54 @@ export function ArtistDetailsLibraryAlbums({
       window.removeEventListener("resize", updateScrollState);
     };
   }, [visibleAlbums, updateScrollState]);
+
+  useEffect(() => {
+    if (!onVisibleCoverIdsChange || !visibleCoverSourceKey) return undefined;
+
+    visibleCoverIdsRef.current = new Set();
+    const node = railRef.current;
+    if (!node) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let changed = false;
+        for (const entry of entries) {
+          const id = entry.target.getAttribute("data-cover-id");
+          if (!id) continue;
+          if (entry.isIntersecting) {
+            if (!visibleCoverIdsRef.current.has(id)) {
+              visibleCoverIdsRef.current.add(id);
+              changed = true;
+            }
+          } else if (visibleCoverIdsRef.current.delete(id)) {
+            changed = true;
+          }
+        }
+        if (changed) {
+          onVisibleCoverIdsChange(Array.from(visibleCoverIdsRef.current));
+        }
+      },
+      {
+        root: node,
+        threshold: 0.6,
+      },
+    );
+
+    node.querySelectorAll("[data-cover-id]").forEach((target) => {
+      observer.observe(target);
+    });
+
+    return () => {
+      observer.disconnect();
+      visibleCoverIdsRef.current = new Set();
+    };
+  }, [onVisibleCoverIdsChange, visibleCoverSourceKey]);
+
+  useEffect(() => {
+    if (!onVisibleCoverIdsChange) return undefined;
+    if (visibleCoverSourceKey) return undefined;
+    onVisibleCoverIdsChange([]);
+  }, [onVisibleCoverIdsChange, visibleCoverSourceKey]);
 
   if (downloadedAlbums.length === 0) return null;
 
@@ -303,6 +357,7 @@ export function ArtistDetailsLibraryAlbums({
             <article
               key={libraryAlbum.id}
               className="group flex w-[170px] min-w-[170px] flex-shrink-0 flex-col items-center"
+              data-cover-id={rgId}
             >
               <div
                 onClick={() => handleLibraryAlbumClick(rgId, libraryAlbum.id)}
@@ -628,4 +683,5 @@ ArtistDetailsLibraryAlbums.propTypes = {
   handleReSearchAlbum: PropTypes.func,
   handleReSearchMissingDownloads: PropTypes.func,
   onAddTrackToPlaylist: PropTypes.func,
+  onVisibleCoverIdsChange: PropTypes.func,
 };

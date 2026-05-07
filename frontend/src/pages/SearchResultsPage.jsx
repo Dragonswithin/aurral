@@ -332,36 +332,34 @@ function SearchResultsPage() {
     }
 
     const hydrateArtistImages = async () => {
-      let nextIndex = 0;
-      const workers = Array.from(
-        {
-          length: Math.min(
-            ARTIST_IMAGE_HYDRATION_CONCURRENCY,
-            pendingArtists.length,
-          ),
-        },
-        async () => {
-          while (!cancelled && nextIndex < pendingArtists.length) {
-            const artist = pendingArtists[nextIndex++];
+      for (
+        let index = 0;
+        index < pendingArtists.length && !cancelled;
+        index += ARTIST_IMAGE_HYDRATION_CONCURRENCY
+      ) {
+        const batch = pendingArtists.slice(
+          index,
+          index + ARTIST_IMAGE_HYDRATION_CONCURRENCY,
+        );
+        const results = await Promise.allSettled(
+          batch.map(async (artist) => {
             const artistId = getArtistId(artist);
-            if (!artistId) continue;
-            try {
-              const data = await getArtistCover(artistId, artist.name);
-              const imageUrl = data?.images?.[0]?.image || null;
-              if (!imageUrl || cancelled) continue;
-              setArtistImages((prev) => {
-                if (prev[artistId] === imageUrl) return prev;
-                return {
-                  ...prev,
-                  [artistId]: imageUrl,
-                };
-              });
-            } catch {}
-          }
-        },
-      );
-
-      await Promise.allSettled(workers);
+            if (!artistId) return null;
+            const data = await getArtistCover(artistId, artist.name);
+            const imageUrl = data?.images?.[0]?.image || null;
+            return imageUrl ? [artistId, imageUrl] : null;
+          }),
+        );
+        if (cancelled) return;
+        const nextBatch = Object.fromEntries(
+          results.filter(
+            (entry) => Array.isArray(entry.value) && entry.value[0] && entry.value[1],
+          ).map((entry) => entry.value),
+        );
+        if (Object.keys(nextBatch).length > 0) {
+          setArtistImages((prev) => ({ ...prev, ...nextBatch }));
+        }
+      }
     };
 
     hydrateArtistImages();
@@ -424,8 +422,12 @@ function SearchResultsPage() {
     const hydrateCovers = async () => {
       const coverResults = await Promise.all(
         missingCoverIds.map(async (id) => {
+          const album = results.find((item) => item.id === id);
           try {
-            const data = await getReleaseGroupCover(id);
+            const data = await getReleaseGroupCover(id, {
+              artistName: album?.artistName || "",
+              albumTitle: album?.title || "",
+            });
             return [id, data?.images?.[0]?.image || null];
           } catch {
             return [id, null];

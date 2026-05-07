@@ -66,7 +66,9 @@ export const hydrateArtistImages = async (
     await Promise.all(
       batch.map(async ({ artist, id }) => {
         try {
-          const cover = await getArtistImage(id);
+          const cover = await getArtistImage(id, {
+            artistName: artist.name || artist.sortName || null,
+          });
           if (!cover?.url) return;
           const proxiedImage = buildImageProxyUrl(cover.url) || cover.url;
           artist.image = proxiedImage;
@@ -84,12 +86,26 @@ export const hydrateArtistImages = async (
 };
 
 export const primeArtistImageCache = (artists = []) => {
-  const ids = [...new Set(
+  return Promise.allSettled(
     (Array.isArray(artists) ? artists : [])
-      .map((artist) => getArtistId(artist))
-      .filter(Boolean),
-  )];
-  if (!ids.length) return Promise.resolve();
-
-  return Promise.allSettled(ids.map((id) => getArtistImage(id))).then(() => {});
+      .map((artist) => ({
+        id: getArtistId(artist),
+        artistName:
+          typeof artist?.name === "string" && artist.name.trim()
+            ? artist.name.trim()
+            : typeof artist?.sortName === "string" && artist.sortName.trim()
+              ? artist.sortName.trim()
+              : null,
+      }))
+      .filter((artist) => artist.id)
+      .filter(
+        (artist, index, list) =>
+          list.findIndex((entry) => entry.id === artist.id) === index,
+      )
+      .map(({ id, artistName }) =>
+        getArtistImage(id, {
+          artistName,
+        }),
+      ),
+  ).then(() => {});
 };

@@ -61,7 +61,7 @@ const getCachedUrl = (cacheKey) => {
   return undefined;
 };
 
-const fetchReleaseGroupCoverUrl = async (
+export const fetchReleaseGroupCoverUrl = async (
   releaseGroupMbid,
   { artistName = "", albumTitle = "" } = {},
 ) => {
@@ -112,8 +112,41 @@ const typeRank = (primaryType) => {
   return 3;
 };
 
-export const getArtistImage = async (mbid, forceRefresh = false) => {
+const normalizeGetArtistImageOptions = (forceRefreshOrOptions, artistNameHint) => {
+  if (
+    forceRefreshOrOptions &&
+    typeof forceRefreshOrOptions === "object" &&
+    !Array.isArray(forceRefreshOrOptions)
+  ) {
+    return {
+      forceRefresh: !!forceRefreshOrOptions.forceRefresh,
+      artistName:
+        typeof forceRefreshOrOptions.artistName === "string" &&
+        forceRefreshOrOptions.artistName.trim()
+          ? forceRefreshOrOptions.artistName.trim()
+          : null,
+    };
+  }
+
+  return {
+    forceRefresh: !!forceRefreshOrOptions,
+    artistName:
+      typeof artistNameHint === "string" && artistNameHint.trim()
+        ? artistNameHint.trim()
+        : null,
+  };
+};
+
+export const getArtistImage = async (
+  mbid,
+  forceRefreshOrOptions = false,
+  artistNameHint = null,
+) => {
   if (!mbid) return { url: null, images: [] };
+  const { forceRefresh, artistName } = normalizeGetArtistImageOptions(
+    forceRefreshOrOptions,
+    artistNameHint,
+  );
 
   const cachedImage = dbOps.getImage(mbid);
   if (
@@ -151,9 +184,9 @@ export const getArtistImage = async (mbid, forceRefresh = false) => {
     try {
       const override = dbOps.getArtistOverride(mbid);
       const resolvedMbid = override?.musicbrainzId || mbid;
-      const resolvedArtistName = await musicbrainzGetArtistNameByMbid(resolvedMbid).catch(
-        () => null,
-      );
+      const resolvedArtistName =
+        artistName ||
+        (await musicbrainzGetArtistNameByMbid(resolvedMbid).catch(() => null));
       const rgCacheKey = `artist_rg:${resolvedMbid}`;
       const cachedRg = forceRefresh ? null : dbOps.getDeezerMbidCache(rgCacheKey);
       const releaseGroups = cachedRg

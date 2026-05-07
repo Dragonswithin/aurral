@@ -277,9 +277,20 @@ export const searchCatalog = async (
   });
 };
 
-export const getArtistDetails = async (mbid, artistName) => {
+export const getArtistDetails = async (
+  mbid,
+  artistName,
+  { mode = "" } = {},
+) => {
+  const params = {};
+  if (artistName) {
+    params.artistName = artistName;
+  }
+  if (mode) {
+    params.mode = mode;
+  }
   const response = await api.get(`/artists/${mbid}`, {
-    params: artistName ? { artistName } : {},
+    params,
   });
   return response.data;
 };
@@ -311,10 +322,22 @@ export const getArtistCover = async (mbid, artistName, refresh = false) => {
   );
 };
 
-export const getReleaseGroupCover = async (mbid) => {
+export const getReleaseGroupCover = async (
+  mbid,
+  { artistName = "", albumTitle = "" } = {},
+) => {
   const cacheKey = `release-group:${mbid}`;
   return fetchCoverWithMemo(cacheKey, async () => {
-    const response = await api.get(`/artists/release-group/${mbid}/cover`);
+    const params = {};
+    if (typeof artistName === "string" && artistName.trim()) {
+      params.artistName = artistName.trim();
+    }
+    if (typeof albumTitle === "string" && albumTitle.trim()) {
+      params.albumTitle = albumTitle.trim();
+    }
+    const response = await api.get(`/artists/release-group/${mbid}/cover`, {
+      params,
+    });
     return response.data;
   });
 };

@@ -15,6 +15,14 @@ export default function registerReleaseGroup(router) {
   router.get("/release-group/:mbid/cover", cacheMiddleware(86400), async (req, res) => {
     try {
       const { mbid } = req.params;
+      const artistName =
+        typeof req.query.artistName === "string" && req.query.artistName.trim()
+          ? req.query.artistName.trim()
+          : "";
+      const albumTitleFromQuery =
+        typeof req.query.albumTitle === "string" && req.query.albumTitle.trim()
+          ? req.query.albumTitle.trim()
+          : "";
 
       if (!UUID_REGEX.test(mbid)) {
         return res.status(400).json({ error: "Invalid MBID format", images: [] });
@@ -59,18 +67,30 @@ export default function registerReleaseGroup(router) {
       }
 
       try {
-        const rgData = await musicbrainzRequest(`/release-group/${mbid}`, {
-          inc: "artist-credits",
-        });
-        const artistName = Array.isArray(rgData?.["artist-credit"])
-          ? rgData["artist-credit"]
-              .map((credit) => credit?.name || credit?.artist?.name || "")
-              .join(" ")
-              .trim()
-          : "";
-        const albumTitle = String(rgData?.title || "").trim();
+        let resolvedArtistName = artistName;
+        let albumTitle = albumTitleFromQuery;
 
-        const itunesImageUrl = await fetchItunesAlbumArt(artistName, albumTitle);
+        if (!resolvedArtistName || !albumTitle) {
+          const rgData = await musicbrainzRequest(`/release-group/${mbid}`, {
+            inc: "artist-credits",
+          });
+          if (!resolvedArtistName) {
+            resolvedArtistName = Array.isArray(rgData?.["artist-credit"])
+              ? rgData["artist-credit"]
+                  .map((credit) => credit?.name || credit?.artist?.name || "")
+                  .join(" ")
+                  .trim()
+              : "";
+          }
+          if (!albumTitle) {
+            albumTitle = String(rgData?.title || "").trim();
+          }
+        }
+
+        const itunesImageUrl = await fetchItunesAlbumArt(
+          resolvedArtistName,
+          albumTitle,
+        );
         if (itunesImageUrl) {
           const cachedImage = await warmImageProxy(itunesImageUrl);
           dbOps.setImage(cacheKey, cachedImage.localUrl);

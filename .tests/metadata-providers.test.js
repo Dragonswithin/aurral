@@ -17,27 +17,22 @@ const originalSettings = dbOps.getSettings();
 test.after(() => {
   dbOps.updateSettings(originalSettings);
   __setMetadataProviderHealthStateForTests("musicbrainz");
-  __setMetadataProviderHealthStateForTests("coverArtArchive");
 });
 
-test("default settings use hosted metadata providers", () => {
+test("default settings use hosted MusicBrainz and official Cover Art Archive", () => {
   assert.equal(
     defaultData.settings.integrations.musicbrainz.provider,
     "aurralHosted",
   );
-  assert.equal(
-    defaultData.settings.integrations.coverArtArchive.provider,
-    "aurralHosted",
-  );
+  assert.equal(getCoverArtArchiveApiBaseUrl(), "https://coverartarchive.org");
 });
 
-test("backend metadata providers default to hosted when unset", () => {
+test("backend metadata providers default to hosted MusicBrainz when unset", () => {
   dbOps.updateSettings({
     ...originalSettings,
     integrations: {
       ...(originalSettings.integrations || {}),
       musicbrainz: { email: "test@example.com" },
-      coverArtArchive: {},
     },
   });
 
@@ -45,23 +40,16 @@ test("backend metadata providers default to hosted when unset", () => {
     getMusicbrainzApiBaseUrl(),
     "https://mb.lkly.net/ws/2",
   );
-  assert.equal(
-    getCoverArtArchiveApiBaseUrl(),
-    "https://caa.lkly.net",
-  );
+  assert.equal(getCoverArtArchiveApiBaseUrl(), "https://coverartarchive.org");
 });
 
-test("hosted metadata providers stay pinned to hosted by default", () => {
+test("MusicBrainz hosted mode stays pinned to hosted by default", () => {
   dbOps.updateSettings({
     ...originalSettings,
     integrations: {
       ...(originalSettings.integrations || {}),
       musicbrainz: {
         email: "test@example.com",
-        provider: "aurralHosted",
-        customUrl: "",
-      },
-      coverArtArchive: {
         provider: "aurralHosted",
         customUrl: "",
       },
@@ -69,20 +57,16 @@ test("hosted metadata providers stay pinned to hosted by default", () => {
   });
 
   assert.deepEqual(getMusicbrainzApiBaseUrls(), ["https://mb.lkly.net/ws/2"]);
-  assert.deepEqual(getCoverArtArchiveApiBaseUrls(), ["https://caa.lkly.net"]);
+  assert.deepEqual(getCoverArtArchiveApiBaseUrls(), ["https://coverartarchive.org"]);
 });
 
-test("automatic provider failover only changes the active base after hosted health degrades", () => {
+test("automatic provider failover only changes the MusicBrainz base after hosted health degrades", () => {
   dbOps.updateSettings({
     ...originalSettings,
     integrations: {
       ...(originalSettings.integrations || {}),
       musicbrainz: {
         email: "test@example.com",
-        provider: "aurralHosted",
-        customUrl: "",
-      },
-      coverArtArchive: {
         provider: "aurralHosted",
         customUrl: "",
       },
@@ -94,11 +78,6 @@ test("automatic provider failover only changes the active base after hosted heal
     consecutiveFailures: 3,
     lastFailureReason: "HTTP 503",
   });
-  __setMetadataProviderHealthStateForTests("coverArtArchive", {
-    failoverActive: true,
-    consecutiveFailures: 3,
-    lastFailureReason: "ETIMEDOUT",
-  });
 
   assert.equal(getMusicbrainzApiBaseUrl(), "https://musicbrainz.org/ws/2");
   assert.equal(getCoverArtArchiveApiBaseUrl(), "https://coverartarchive.org");
@@ -108,12 +87,9 @@ test("automatic provider failover only changes the active base after hosted heal
   assert.equal(snapshot.musicbrainz.activeProvider, "official");
   assert.equal(snapshot.musicbrainz.failoverActive, true);
   assert.equal(snapshot.musicbrainz.lastFailureReason, "HTTP 503");
-  assert.equal(snapshot.coverArtArchive.activeProvider, "official");
-  assert.equal(snapshot.coverArtArchive.failoverActive, true);
-  assert.equal(snapshot.coverArtArchive.lastFailureReason, "ETIMEDOUT");
 });
 
-test("manual official and custom provider selections bypass automatic failover state", () => {
+test("manual MusicBrainz provider selection bypasses automatic failover state", () => {
   dbOps.updateSettings({
     ...originalSettings,
     integrations: {
@@ -123,10 +99,6 @@ test("manual official and custom provider selections bypass automatic failover s
         provider: "official",
         customUrl: "",
       },
-      coverArtArchive: {
-        provider: "custom",
-        customUrl: "https://covers.example.net/api",
-      },
     },
   });
 
@@ -134,22 +106,14 @@ test("manual official and custom provider selections bypass automatic failover s
     failoverActive: true,
     consecutiveFailures: 5,
   });
-  __setMetadataProviderHealthStateForTests("coverArtArchive", {
-    failoverActive: true,
-    consecutiveFailures: 5,
-  });
 
   assert.deepEqual(getMusicbrainzApiBaseUrls(), ["https://musicbrainz.org/ws/2"]);
   assert.deepEqual(getCoverArtArchiveApiBaseUrls(), [
-    "https://covers.example.net/api",
+    "https://coverartarchive.org",
   ]);
 
   const snapshot = getMetadataProviderHealthSnapshot();
   assert.equal(snapshot.musicbrainz.mode, "manual");
   assert.equal(snapshot.musicbrainz.activeProvider, "official");
   assert.equal(snapshot.musicbrainz.failoverActive, false);
-  assert.equal(snapshot.coverArtArchive.mode, "manual");
-  assert.equal(snapshot.coverArtArchive.activeProvider, "custom");
-  assert.equal(snapshot.coverArtArchive.activeBaseUrl, "https://covers.example.net/api");
-  assert.equal(snapshot.coverArtArchive.failoverActive, false);
 });

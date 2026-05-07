@@ -51,6 +51,7 @@ const ArtistImage = ({
   className = "",
   showLoading = true,
   enableBackendFallback = true,
+  loading = "lazy",
 }) => {
   const [currentSrc, setCurrentSrc] = useState(src);
   const [isLoading, setIsLoading] = useState(true);
@@ -255,7 +256,7 @@ const ArtistImage = ({
           }`}
           onLoad={handleLoad}
           onError={handleError}
-          loading="eager"
+          loading={loading}
           decoding="async"
         />
       )}
@@ -271,6 +272,7 @@ ArtistImage.propTypes = {
   className: PropTypes.string,
   showLoading: PropTypes.bool,
   enableBackendFallback: PropTypes.bool,
+  loading: PropTypes.oneOf(["eager", "lazy"]),
 };
 
 export default ArtistImage;

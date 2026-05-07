@@ -1,6 +1,7 @@
 import { UUID_REGEX } from "../../../config/constants.js";
 import { dbOps } from "../../../config/db-helpers.js";
 import { buildImageProxyUrl } from "../../../services/imageProxyService.js";
+import { fetchReleaseGroupCoverUrl } from "../../../services/imageService.js";
 import { libraryManager } from "../../../services/libraryManager.js";
 import { qualityManager } from "../../../services/qualityManager.js";
 
@@ -244,11 +245,42 @@ export default function registerMisc(router) {
           .map((id) => `rg:${id}`),
       );
 
+      const coverTargets = recentMissing.slice(0, 6);
+      const warmedVisibleCovers = await Promise.all(
+        coverTargets.map(async (album) => {
+          const coverId = album.mbid || album.foreignAlbumId;
+          if (!coverId) return [null, null];
+
+          const cachedUrl = cachedCovers[`rg:${coverId}`]?.imageUrl || null;
+          if (cachedUrl && cachedUrl !== "NOT_FOUND") {
+            return [coverId, buildImageProxyUrl(cachedUrl) || cachedUrl];
+          }
+
+          const cover = await fetchReleaseGroupCoverUrl(coverId, {
+            artistName: album.artistName || "",
+            albumTitle: album.albumName || "",
+          }).catch(() => null);
+
+          if (!cover?.imageUrl) {
+            return [coverId, null];
+          }
+
+          return [
+            coverId,
+            buildImageProxyUrl(cover.imageUrl) || cover.imageUrl,
+          ];
+        }),
+      );
+
+      const warmedCoverMap = Object.fromEntries(
+        warmedVisibleCovers.filter(([coverId, coverUrl]) => coverId && coverUrl),
+      );
+
       const withCachedCovers = recentMissing.map((album) => {
         const coverId = album.mbid || album.foreignAlbumId;
-        const coverUrl = coverId
-          ? cachedCovers[`rg:${coverId}`]?.imageUrl || null
-          : null;
+        const coverUrl =
+          (coverId ? warmedCoverMap[coverId] : null) ||
+          (coverId ? cachedCovers[`rg:${coverId}`]?.imageUrl || null : null);
         return {
           ...album,
           coverUrl:

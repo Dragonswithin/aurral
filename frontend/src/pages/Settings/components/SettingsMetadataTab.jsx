@@ -40,7 +40,6 @@ export function SettingsMetadataTab({
   handleSaveSettings,
 }) {
   const [musicbrainzEditing, setMusicbrainzEditing] = useState(false);
-  const [coverArtArchiveEditing, setCoverArtArchiveEditing] = useState(false);
   const providerHealth = health?.metadataProviders || {};
 
   return (
@@ -178,120 +177,6 @@ export function SettingsMetadataTab({
                 <p className="mt-1 text-xs" style={{ color: "#c1c1c3" }}>
                   Enter the MusicBrainz API base URL. If you omit `/ws/2`, it
                   will be added automatically.
-                </p>
-              </div>
-            )}
-          </fieldset>
-        </div>
-        <div
-          className="p-6 rounded-lg space-y-4"
-          style={{
-            backgroundColor: "#1a1a1e",
-            border: "1px solid #2a2a2e",
-          }}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <h3
-              className="text-lg font-medium flex items-center"
-              style={{ color: "#fff" }}
-            >
-              Cover Art Archive
-            </h3>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className={`btn ${
-                  coverArtArchiveEditing ? "btn-primary" : "btn-secondary"
-                } px-2 py-1`}
-                onClick={() => setCoverArtArchiveEditing((value) => !value)}
-                aria-label={
-                  coverArtArchiveEditing
-                    ? "Lock Cover Art Archive settings"
-                    : "Edit Cover Art Archive settings"
-                }
-              >
-                <Pencil className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-          <fieldset
-            disabled={!coverArtArchiveEditing}
-            className={`space-y-4 ${coverArtArchiveEditing ? "" : "opacity-60"}`}
-          >
-            <div>
-              <label
-                className="block text-sm font-medium mb-1"
-                style={{ color: "#fff" }}
-              >
-                Cover art source
-              </label>
-              <select
-                className="input"
-                value={
-                  settings.integrations?.coverArtArchive?.provider ||
-                  "aurralHosted"
-                }
-                onChange={(e) =>
-                  updateSettings({
-                    ...settings,
-                    integrations: {
-                      ...settings.integrations,
-                      coverArtArchive: {
-                        ...(settings.integrations?.coverArtArchive || {}),
-                        provider: e.target.value,
-                      },
-                    },
-                  })
-                }
-              >
-                <option value="aurralHosted">
-                  Aurral-hosted Cover Art Archive proxy
-                </option>
-                <option value="official">Official Cover Art Archive</option>
-                <option value="custom">Custom self-hosted instance</option>
-              </select>
-              <p className="mt-1 text-xs" style={{ color: "#c1c1c3" }}>
-                Aurral-hosted uses your default proxy. Official goes back to
-                the public Cover Art Archive. Custom lets users point at their
-                own host.
-              </p>
-              <ProviderStatusNote
-                providerHealth={providerHealth.coverArtArchive}
-                hostedLabel="Aurral-hosted Cover Art Archive proxy"
-                officialLabel="Official Cover Art Archive"
-              />
-            </div>
-            {(settings.integrations?.coverArtArchive?.provider ||
-              "aurralHosted") === "custom" && (
-              <div>
-                <label
-                  className="block text-sm font-medium mb-1"
-                  style={{ color: "#fff" }}
-                >
-                  Custom API URL
-                </label>
-                <input
-                  type="url"
-                  className="input"
-                  placeholder="https://coverartarchive.example.com"
-                  autoComplete="off"
-                  value={settings.integrations?.coverArtArchive?.customUrl || ""}
-                  onChange={(e) =>
-                    updateSettings({
-                      ...settings,
-                      integrations: {
-                        ...settings.integrations,
-                        coverArtArchive: {
-                          ...(settings.integrations?.coverArtArchive || {}),
-                          customUrl: e.target.value,
-                        },
-                      },
-                    })
-                  }
-                />
-                <p className="mt-1 text-xs" style={{ color: "#c1c1c3" }}>
-                  Enter the Cover Art Archive base URL without a trailing
-                  release-group path.
                 </p>
               </div>
             )}

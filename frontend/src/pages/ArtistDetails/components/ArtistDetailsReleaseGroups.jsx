@@ -52,12 +52,15 @@ export function ArtistDetailsReleaseGroups({
   previewVolume,
   isReleaseGroupDownloadedInLibrary,
   onAddTrackToPlaylist,
+  onVisibleCoverIdsChange,
 }) {
   const [sortMode, setSortMode] = useState("date");
   const [playingTrackId, setPlayingTrackId] = useState(null);
   const [loadingTrackId, setLoadingTrackId] = useState(null);
   const [showMobileFilterMenu, setShowMobileFilterMenu] = useState(false);
   const previewAudioRef = useRef(null);
+  const listRef = useRef(null);
+  const visibleCoverIdsRef = useRef(new Set());
   const releaseGroups = artist["release-groups"] || [];
   const sortTitle =
     sortMode === "date"
@@ -251,11 +254,10 @@ export function ArtistDetailsReleaseGroups({
     }
   };
 
-  if (releaseGroups.length === 0) return null;
-
   const filtered = releaseGroups
     .filter((rg) => matchesReleaseTypeFilter(rg, selectedReleaseTypes))
     .filter((rg) => !isReleaseGroupDownloadedInLibrary(rg.id));
+  const visibleCoverSourceKey = filtered.map((rg) => rg.id).join(",");
   const totalCount = releaseGroups.length;
   const filteredCount = filtered.length;
   const { pivot: popularityPivot } = getPopularityScale(releaseGroups);
@@ -273,6 +275,53 @@ export function ArtistDetailsReleaseGroups({
     const dateB = b["first-release-date"] || "";
     return dateB.localeCompare(dateA);
   });
+
+  useEffect(() => {
+    if (!onVisibleCoverIdsChange || !visibleCoverSourceKey) return undefined;
+
+    visibleCoverIdsRef.current = new Set();
+    const root = listRef.current;
+    if (!root) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let changed = false;
+        for (const entry of entries) {
+          const id = entry.target.getAttribute("data-cover-id");
+          if (!id) continue;
+          if (entry.isIntersecting) {
+            if (!visibleCoverIdsRef.current.has(id)) {
+              visibleCoverIdsRef.current.add(id);
+              changed = true;
+            }
+          } else if (visibleCoverIdsRef.current.delete(id)) {
+            changed = true;
+          }
+        }
+        if (changed) {
+          onVisibleCoverIdsChange(Array.from(visibleCoverIdsRef.current));
+        }
+      },
+      { root: null, threshold: 0.15 },
+    );
+
+    root.querySelectorAll("[data-cover-id]").forEach((node) => {
+      observer.observe(node);
+    });
+
+    return () => {
+      observer.disconnect();
+      visibleCoverIdsRef.current = new Set();
+    };
+  }, [onVisibleCoverIdsChange, visibleCoverSourceKey]);
+
+  useEffect(() => {
+    if (!onVisibleCoverIdsChange) return undefined;
+    if (visibleCoverSourceKey) return undefined;
+    onVisibleCoverIdsChange([]);
+  }, [onVisibleCoverIdsChange, visibleCoverSourceKey]);
+
+  if (releaseGroups.length === 0) return null;
 
   return (
     <div className="card p-3 sm:p-4">
@@ -377,7 +426,7 @@ export function ArtistDetailsReleaseGroups({
           </div>
         </div>
       </div>
-      <div className="space-y-2">
+      <div ref={listRef} className="space-y-2">
         {sortedReleaseGroups.map((releaseGroup, releaseGroupIdx) => {
             const status = getAlbumStatus(releaseGroup.id);
             const isExpanded = expandedReleaseGroup === releaseGroup.id;
@@ -491,6 +540,7 @@ export function ArtistDetailsReleaseGroups({
                 key={releaseGroup.id}
                 className="overflow-hidden rounded-2xl transition-colors"
                 style={{ backgroundColor: rowBg }}
+                data-cover-id={releaseGroup.id}
                 onMouseEnter={(e) => {
                   if (!isExpanded) {
                     e.currentTarget.style.backgroundColor = rowHoverBg;
@@ -998,4 +1048,5 @@ ArtistDetailsReleaseGroups.propTypes = {
   previewVolume: PropTypes.number,
   isReleaseGroupDownloadedInLibrary: PropTypes.func,
   onAddTrackToPlaylist: PropTypes.func,
+  onVisibleCoverIdsChange: PropTypes.func,
 };
