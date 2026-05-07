@@ -1,7 +1,7 @@
 import NodeCache from "node-cache";
 import axios from "axios";
 import { dbOps } from "../config/db-helpers.js";
-import { musicbrainzRequest } from "./apiClients.js";
+import { getMusicbrainzApiBaseUrl, musicbrainzRequest } from "./apiClients.js";
 import { getDiscoveryCache } from "./discoveryService.js";
 import { primeArtistImageCache } from "./artistImageHydration.js";
 import { buildImageProxyUrl } from "./imageProxyService.js";
@@ -27,7 +27,12 @@ const albumLibraryLookupCache = new NodeCache({
   checkperiod: 60,
   maxKeys: 10,
 });
-const MUSICBRAINZ_TAG_PAGE_URL = "https://musicbrainz.org";
+const MUSICBRAINZ_TAG_PAGE_CACHE_TTL_SECONDS = 15 * 60;
+const musicbrainzTagPageCache = new NodeCache({
+  stdTTL: MUSICBRAINZ_TAG_PAGE_CACHE_TTL_SECONDS,
+  checkperiod: 120,
+  maxKeys: 500,
+});
 
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(value, 10);
@@ -55,6 +60,23 @@ function decodeHtmlEntities(value) {
     .replace(/&#(\d+);/g, (_, dec) =>
       String.fromCodePoint(Number.parseInt(dec, 10)),
     );
+}
+
+function getMusicbrainzSiteBaseUrl() {
+  const apiBaseUrl = String(getMusicbrainzApiBaseUrl() || "").trim();
+  if (!apiBaseUrl) {
+    return "https://mb.lkly.net";
+  }
+
+  try {
+    const parsed = new URL(apiBaseUrl);
+    parsed.pathname = parsed.pathname.replace(/\/ws\/2\/?$/, "") || "/";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return "https://mb.lkly.net";
+  }
 }
 
 function normalizePercentOfTracks(value) {
@@ -232,10 +254,13 @@ function buildAlbumSearchQuery(query, selectedReleaseTypes) {
 }
 
 async function fetchMusicbrainzTagArtistPage(tag, page) {
+  const cacheKey = `tag-page:${normalizeTagValue(tag)}:${page}`;
+  const cached = musicbrainzTagPageCache.get(cacheKey);
+  if (cached) return cached;
   const normalizedTag = encodeURIComponent(String(tag || "").trim());
-  const url = `${MUSICBRAINZ_TAG_PAGE_URL}/tag/${normalizedTag}/artist?page=${page}`;
+  const url = `${getMusicbrainzSiteBaseUrl()}/tag/${normalizedTag}/artist?page=${page}`;
   const response = await axios.get(url, {
-    timeout: 5000,
+    timeout: 15000,
     headers: {
       "User-Agent": "Aurral Tag Search",
       Accept: "text/html,application/xhtml+xml",
@@ -262,10 +287,40 @@ async function fetchMusicbrainzTagArtistPage(tag, page) {
     });
   }
 
-  return {
+  const result = {
     totalCount,
     items,
     pageSize: items.length,
+  };
+  musicbrainzTagPageCache.set(cacheKey, result);
+  return result;
+}
+
+async function searchTagsAllFallbackViaArtistSearch(tag, limitInt, offsetInt) {
+  const mbData = await musicbrainzRequest("/artist", {
+    query: `tag:"${escapeMusicbrainzQueryTerm(tag)}"`,
+    limit: limitInt,
+    offset: offsetInt,
+  });
+  const artists = Array.isArray(mbData?.artists) ? mbData.artists : [];
+  const filteredArtists = artists.filter((artist) => artist?.id);
+  const cachedImages = dbOps.getImages(filteredArtists.map((artist) => artist.id));
+  const items = filteredArtists.map((artist) => ({
+    ...normalizeArtistSearchItem(artist, cachedImages),
+    tags: [tag],
+  }));
+  primeArtistImageCache(items.slice(0, Math.min(items.length, limitInt))).catch(
+    () => {},
+  );
+  return {
+    scope: "tag",
+    query: tag,
+    count: Number.parseInt(mbData?.count, 10) || items.length,
+    hasMore:
+      (Number.parseInt(mbData?.count, 10) || items.length) >
+      offsetInt + items.length,
+    offset: offsetInt,
+    items,
   };
 }
 
@@ -541,44 +596,57 @@ export async function searchTags(
   }
 
   if (tagScope === "all") {
-    const firstPageNumber = Math.floor(offsetInt / 100) + 1;
-    const pages = [];
-    let totalCount = 0;
-    let pageSize = 100;
-    let currentPage = firstPageNumber;
-    let combined = [];
+    try {
+      const firstPageNumber = Math.floor(offsetInt / 100) + 1;
+      const pages = [];
+      let totalCount = 0;
+      let pageSize = 100;
+      let currentPage = firstPageNumber;
+      let combined = [];
 
-    while (combined.length < limitInt + (offsetInt % pageSize || 0)) {
-      const pageData = await fetchMusicbrainzTagArtistPage(tag, currentPage);
-      totalCount = pageData.totalCount;
-      pageSize = pageData.pageSize || pageSize;
-      if (pageData.items.length === 0) break;
-      pages.push(pageData);
-      combined = pages.flatMap((entry) => entry.items);
-      currentPage += 1;
-      if (pageData.items.length < pageSize) break;
-      const absoluteLoaded =
-        (firstPageNumber - 1) * pageSize + combined.length;
-      if (totalCount > 0 && absoluteLoaded >= totalCount) break;
+      while (combined.length < limitInt + (offsetInt % pageSize || 0)) {
+        const pageData = await fetchMusicbrainzTagArtistPage(tag, currentPage);
+        totalCount = pageData.totalCount;
+        pageSize = pageData.pageSize || pageSize;
+        if (pageData.items.length === 0) break;
+        pages.push(pageData);
+        combined = pages.flatMap((entry) => entry.items);
+        currentPage += 1;
+        if (pageData.items.length < pageSize) break;
+        const absoluteLoaded =
+          (firstPageNumber - 1) * pageSize + combined.length;
+        if (totalCount > 0 && absoluteLoaded >= totalCount) break;
+      }
+
+      const withinPageOffset = offsetInt - (firstPageNumber - 1) * pageSize;
+      const pageArtists = combined.slice(
+        withinPageOffset,
+        withinPageOffset + limitInt,
+      );
+      const cachedImages = dbOps.getImages(pageArtists.map((artist) => artist.id));
+      const items = pageArtists.map((artist) => ({
+        ...normalizeArtistSearchItem(artist, cachedImages),
+        tags: [tag],
+      }));
+      primeArtistImageCache(items.slice(0, Math.min(items.length, limitInt))).catch(
+        () => {},
+      );
+
+      return {
+        scope: "tag",
+        query: tag,
+        count: totalCount || items.length,
+        hasMore: totalCount > offsetInt + items.length,
+        offset: offsetInt,
+        items,
+      };
+    } catch (error) {
+      console.warn(
+        `MusicBrainz tag page fetch failed for "${tag}", falling back to artist search:`,
+        error.message,
+      );
+      return searchTagsAllFallbackViaArtistSearch(tag, limitInt, offsetInt);
     }
-
-    const withinPageOffset = offsetInt - (firstPageNumber - 1) * pageSize;
-    const pageArtists = combined.slice(withinPageOffset, withinPageOffset + limitInt);
-    const cachedImages = dbOps.getImages(pageArtists.map((artist) => artist.id));
-    const items = pageArtists.map((artist) => ({
-      ...normalizeArtistSearchItem(artist, cachedImages),
-      tags: [tag],
-    }));
-    primeArtistImageCache(items.slice(0, Math.min(items.length, limitInt))).catch(() => {});
-
-    return {
-      scope: "tag",
-      query: tag,
-      count: totalCount || items.length,
-      hasMore: totalCount > offsetInt + items.length,
-      offset: offsetInt,
-      items,
-    };
   }
 
   const discoveryCache = getDiscoveryCache();
