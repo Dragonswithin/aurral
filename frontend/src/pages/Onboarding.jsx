@@ -16,6 +16,12 @@ const inputStyle = {
   border: "1px solid #4a4a52",
 };
 
+const getApiErrorMessage = (error, fallback) =>
+  error?.response?.data?.message ||
+  error?.response?.data?.error ||
+  error?.message ||
+  fallback;
+
 const STEPS = [
   "welcome",
   "admin",
@@ -53,8 +59,13 @@ function Onboarding() {
     navidromeUrl.trim() && navidromeUsername.trim() && navidromePassword;
   const hasLastfm =
     !!lastfmUsername.trim() && !!lastfmApiKey.trim();
+  const passwordTooShort =
+    authPassword.length > 0 && authPassword.length < 8;
   const adminComplete =
-    authUser.trim() && authPassword && authPassword === authPasswordConfirm;
+    authUser.trim() &&
+    authPassword &&
+    !passwordTooShort &&
+    authPassword === authPasswordConfirm;
   const canNext =
     currentStep === "welcome" ||
     currentStep === "done" ||
@@ -114,7 +125,7 @@ function Onboarding() {
       setNavidromeTestSuccess(true);
       showSuccess("Navidrome connection successful");
     } catch (e) {
-      setError(e.response?.data?.message || e.message || "Connection failed");
+      setError(getApiErrorMessage(e, "Connection failed"));
     } finally {
       setTestingNavidrome(false);
     }
@@ -137,7 +148,7 @@ function Onboarding() {
       setLidarrTestSuccess(true);
       showSuccess("Lidarr connection successful");
     } catch (e) {
-      setError(e.response?.data?.message || e.message || "Connection failed");
+      setError(getApiErrorMessage(e, "Connection failed"));
     } finally {
       setTestingLidarr(false);
     }
@@ -179,7 +190,7 @@ function Onboarding() {
       await refreshAuth();
       showSuccess("Setup complete. Sign in with your admin account.");
     } catch (e) {
-      setError(e.response?.data?.message || e.message || "Failed to save");
+      setError(getApiErrorMessage(e, "Failed to save"));
     } finally {
       setSubmitting(false);
     }
@@ -272,6 +283,9 @@ function Onboarding() {
                 value={authPasswordConfirm}
                 onChange={(e) => setAuthPasswordConfirm(e.target.value)}
               />
+              <p className="text-xs" style={{ color: "#c1c1c3" }}>
+                Password must be at least 8 characters long.
+              </p>
             </div>
           </>
         )}
