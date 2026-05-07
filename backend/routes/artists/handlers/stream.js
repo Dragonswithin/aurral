@@ -287,9 +287,7 @@ export default function registerStream(router) {
               sendSSE(res, "cover", {
                 images: [
                   {
-                    image:
-                      buildImageProxyUrl(cachedImage.imageUrl) ||
-                      cachedImage.imageUrl,
+                    image: cachedImage.imageUrl,
                     front: true,
                     types: ["Front"],
                   },
@@ -301,15 +299,14 @@ export default function registerStream(router) {
             const cover = await getArtistImage(mbid);
             if (cover?.images?.length) {
               sendSSE(res, "cover", {
-                images: cover.images.map((image) => ({
-                  ...image,
-                  image: buildImageProxyUrl(image.image) || image.image,
-                })),
+                images: cover.images,
               });
               return;
             }
 
-            dbOps.setImage(mbid, "NOT_FOUND");
+            if (cover?.notFound) {
+              dbOps.setImage(mbid, "NOT_FOUND");
+            }
             sendSSE(res, "cover", { images: [] });
           } catch (e) {
             sendSSE(res, "cover", { images: [] });

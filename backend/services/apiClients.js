@@ -39,6 +39,11 @@ const musicbrainzReleaseGroupsCache = new NodeCache({
   checkperiod: 120,
   maxKeys: 500,
 });
+const itunesAlbumArtCache = new NodeCache({
+  stdTTL: 24 * 60 * 60,
+  checkperiod: 10 * 60,
+  maxKeys: 2000,
+});
 
 const METADATA_PROVIDER_HEALTH_CONFIG = {
   failureThreshold: 3,
@@ -282,7 +287,7 @@ const probeCoverArtArchiveHostedHealth = async () => {
 
   state.probeInFlight = axios
     .head(
-      `${COVER_ART_ARCHIVE_API}/release-group/00000000-0000-0000-0000-000000000000/front-250`,
+      `${COVER_ART_ARCHIVE_API}/release-group/00000000-0000-0000-0000-000000000000/front`,
       {
         timeout: METADATA_PROVIDER_HEALTH_CONFIG.probeTimeoutMs,
         validateStatus: (status) => status >= 200 && status < 500,
@@ -473,6 +478,13 @@ const listenbrainzLimiter = new Bottleneck({
   maxConcurrent: 4,
   minTime: 250,
 });
+const itunesLimiter = new Bottleneck({
+  reservoir: 20,
+  reservoirRefreshAmount: 20,
+  reservoirRefreshInterval: 1000,
+  maxConcurrent: 20,
+  minTime: 0,
+});
 
 let musicbrainzLast503Log = 0;
 const lastfmInflightRequests = new Map();
@@ -611,10 +623,100 @@ export const musicbrainzRequest = async (endpoint, params = {}) => {
   );
 };
 
+const normalizeItunesArtworkUrl = (url) =>
+  String(url || "")
+    .trim()
+    .replace(/\/100x100([a-z]+)(?=[/?#]|$)/i, "/600x600$1")
+    .replace(/\/\d+x\d+([a-z]+)(?=[/?#]|$)/i, "/600x600$1");
+
+export async function fetchItunesAlbumArt(artistName, albumName) {
+  const normalizedArtist = String(artistName || "").trim();
+  const normalizedAlbum = String(albumName || "").trim();
+  if (!normalizedArtist || !normalizedAlbum) return null;
+
+  const cacheKey = `${normalizedArtist.toLowerCase()}::${normalizedAlbum.toLowerCase()}`;
+  const cached = itunesAlbumArtCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  try {
+    const response = await itunesLimiter.schedule(() =>
+      axios.get("https://itunes.apple.com/search", {
+        params: {
+          term: `${normalizedArtist} ${normalizedAlbum}`,
+          media: "music",
+          entity: "album",
+          limit: 5,
+        },
+        timeout: 3000,
+      }),
+    );
+
+    const results = Array.isArray(response?.data?.results)
+      ? response.data.results
+      : [];
+
+    const normalizedAlbumTitle = normalizeTitle(normalizedAlbum);
+    const normalizedArtistTitle = normalizeTitle(normalizedArtist);
+    const exactMatch =
+      results.find((item) => {
+        const itemAlbum = normalizeTitle(item?.collectionName || "");
+        const itemArtist = normalizeTitle(item?.artistName || "");
+        return itemAlbum === normalizedAlbumTitle && itemArtist === normalizedArtistTitle;
+      }) || results[0];
+
+    const artworkUrl = normalizeItunesArtworkUrl(exactMatch?.artworkUrl100 || "");
+    const value = artworkUrl || null;
+    itunesAlbumArtCache.set(cacheKey, value);
+    return value;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchCoverArtArchiveReleaseGroup(releaseGroupMbid) {
   if (!releaseGroupMbid) return null;
   const baseUrl = getCoverArtArchiveApiBaseUrl();
-  const directUrl = `${baseUrl}/release-group/${releaseGroupMbid}/front-250`;
+  const directUrl = `${baseUrl}/release-group/${releaseGroupMbid}/front`;
+  let sawTransientError = false;
+
+  const markHostedHealth = () => {
+    if (
+      getCoverArtArchiveProvider() === "aurralHosted" &&
+      getMetadataProviderSelection("coverArtArchive").activeProvider ===
+        "aurralHosted"
+    ) {
+      probeCoverArtArchiveHostedHealth().catch(() => {});
+    }
+  };
+
+  const fetchReleaseFront = async (releaseMbid) => {
+    if (!releaseMbid) return null;
+    const releaseDirectUrl = `${baseUrl}/release/${releaseMbid}/front`;
+    try {
+      const response = await axios.head(releaseDirectUrl, {
+        timeout: 2000,
+        maxRedirects: 0,
+        validateStatus: (status) =>
+          status === 200 || status === 301 || status === 302 || status === 307,
+      });
+      if (response.status >= 200 && response.status < 400) {
+        return {
+          imageUrl: releaseDirectUrl,
+          types: ["Front"],
+        };
+      }
+    } catch (error) {
+      const status = error?.response?.status;
+      if (status === 404) return { imageUrl: null, notFound: true, types: [] };
+      if ([408, 425, 429, 500, 502, 503, 504].includes(status) || error?.code) {
+        sawTransientError = true;
+      }
+      markHostedHealth();
+    }
+    return null;
+  };
 
   try {
     const response = await axios.head(directUrl, {
@@ -631,24 +733,30 @@ export async function fetchCoverArtArchiveReleaseGroup(releaseGroupMbid) {
       };
     }
   } catch (error) {
-    if (
-      getCoverArtArchiveProvider() === "aurralHosted" &&
-      getMetadataProviderSelection("coverArtArchive").activeProvider ===
-        "aurralHosted"
-    ) {
-      probeCoverArtArchiveHostedHealth().catch(() => {});
+    const status = error?.response?.status;
+    if (status === 404) {
+      return { imageUrl: null, types: [], notFound: true };
     }
+    if ([408, 425, 429, 500, 502, 503, 504].includes(status) || error?.code) {
+      sawTransientError = true;
+    }
+    markHostedHealth();
   }
 
   try {
-    const response = await axios.get(`${baseUrl}/release-group/${releaseGroupMbid}`, {
-      headers: { Accept: "application/json" },
-      timeout: 2000,
-    });
+    const response = await axios.get(
+      `${baseUrl}/release-group/${releaseGroupMbid}`,
+      {
+        headers: { Accept: "application/json" },
+        timeout: 2000,
+      },
+    );
     const images = Array.isArray(response?.data?.images)
       ? response.data.images
       : [];
-    if (!images.length) return null;
+    if (!images.length) {
+      return { imageUrl: null, types: [], notFound: true };
+    }
 
     const frontImage = images.find((img) => img.front) || images[0];
     return {
@@ -656,16 +764,39 @@ export async function fetchCoverArtArchiveReleaseGroup(releaseGroupMbid) {
       types: frontImage?.types || ["Front"],
     };
   } catch (error) {
-    if (
-      getCoverArtArchiveProvider() === "aurralHosted" &&
-      getMetadataProviderSelection("coverArtArchive").activeProvider ===
-        "aurralHosted"
-    ) {
-      probeCoverArtArchiveHostedHealth().catch(() => {});
+    const status = error?.response?.status;
+    if (status === 404) {
+      return { imageUrl: null, types: [], notFound: true };
+    }
+    if ([408, 425, 429, 500, 502, 503, 504].includes(status) || error?.code) {
+      sawTransientError = true;
+    }
+    markHostedHealth();
+  }
+
+  try {
+    const rgData = await musicbrainzRequest(`/release-group/${releaseGroupMbid}`, {
+      inc: "releases",
+    });
+    const releases = Array.isArray(rgData?.releases) ? rgData.releases : [];
+    for (const release of releases.slice(0, 8)) {
+      const cover = await fetchReleaseFront(release?.id);
+      if (cover?.imageUrl) {
+        return cover;
+      }
+    }
+  } catch (error) {
+    const status = error?.response?.status;
+    if ([408, 425, 429, 500, 502, 503, 504].includes(status) || error?.code) {
+      sawTransientError = true;
     }
   }
 
-  return null;
+  if (sawTransientError) {
+    return { imageUrl: null, types: [], transientError: true };
+  }
+
+  return { imageUrl: null, types: [], notFound: true };
 }
 
 export const lastfmRequest = lastfmLimiter.wrap(async (method, params = {}) => {

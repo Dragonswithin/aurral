@@ -335,6 +335,20 @@ function ArtistDetailsPage() {
     }
   };
 
+  const handleCoverError = async () => {
+    if (!mbid) return;
+    const name = artist?.name || artistNameFromNav || "";
+    setLoadingCover(true);
+    try {
+      const cover = await getArtistCover(mbid, name, true).catch(() => ({
+        images: [],
+      }));
+      setCoverImages(cover?.images || []);
+    } finally {
+      setLoadingCover(false);
+    }
+  };
+
   const loadSharedPlaylists = async () => {
     setPlaylistModalLoading(true);
     try {
@@ -523,6 +537,7 @@ function ArtistDetailsPage() {
         canRefreshArtist={canChangeMonitoring}
         handleRefreshArtist={library.handleRefreshArtist}
         refreshingArtist={library.refreshingArtist}
+        onCoverError={handleCoverError}
         onNavigate={(path) => navigate(path)}
         loadingPreview={loadingPreview}
         previewTracks={previewTracks}

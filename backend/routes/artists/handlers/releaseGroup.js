@@ -1,11 +1,15 @@
 import { UUID_REGEX } from "../../../config/constants.js";
 import {
+  fetchItunesAlbumArt,
   fetchCoverArtArchiveReleaseGroup,
   musicbrainzRequest,
 } from "../../../services/apiClients.js";
 import { dbOps } from "../../../config/db-helpers.js";
 import { cacheMiddleware } from "../../../middleware/cache.js";
-import { buildImageProxyUrl } from "../../../services/imageProxyService.js";
+import { warmImageProxy } from "../../../services/imageProxyService.js";
+
+const LEGACY_COVER_HOST_PATTERN =
+  /https?:\/\/(?:caa\.lkly\.net|coverartarchive\.org|archive\.org|[\w-]+\.ca\.archive\.org)\//i;
 
 export default function registerReleaseGroup(router) {
   router.get("/release-group/:mbid/cover", cacheMiddleware(86400), async (req, res) => {
@@ -22,20 +26,31 @@ export default function registerReleaseGroup(router) {
       if (
         cachedImage &&
         cachedImage.imageUrl &&
-        cachedImage.imageUrl !== "NOT_FOUND"
+        cachedImage.imageUrl !== "NOT_FOUND" &&
+        !LEGACY_COVER_HOST_PATTERN.test(cachedImage.imageUrl)
       ) {
-        const cachedUrl =
-          buildImageProxyUrl(cachedImage.imageUrl) || cachedImage.imageUrl;
+        warmImageProxy(cachedImage.imageUrl).catch(() => {
+          dbOps.deleteImage(cacheKey);
+        });
         res.set("Cache-Control", "public, max-age=31536000, immutable");
         return res.json({
           images: [
             {
-              image: cachedUrl,
+              image: cachedImage.imageUrl,
               front: true,
               types: ["Front"],
             },
           ],
         });
+      }
+
+      if (
+        cachedImage &&
+        cachedImage.imageUrl &&
+        cachedImage.imageUrl !== "NOT_FOUND" &&
+        LEGACY_COVER_HOST_PATTERN.test(cachedImage.imageUrl)
+      ) {
+        dbOps.deleteImage(cacheKey);
       }
 
       if (cachedImage && cachedImage.imageUrl === "NOT_FOUND") {
@@ -44,27 +59,57 @@ export default function registerReleaseGroup(router) {
       }
 
       try {
+        const rgData = await musicbrainzRequest(`/release-group/${mbid}`, {
+          inc: "artist-credits",
+        });
+        const artistName = Array.isArray(rgData?.["artist-credit"])
+          ? rgData["artist-credit"]
+              .map((credit) => credit?.name || credit?.artist?.name || "")
+              .join(" ")
+              .trim()
+          : "";
+        const albumTitle = String(rgData?.title || "").trim();
+
+        const itunesImageUrl = await fetchItunesAlbumArt(artistName, albumTitle);
+        if (itunesImageUrl) {
+          const cachedImage = await warmImageProxy(itunesImageUrl);
+          dbOps.setImage(cacheKey, cachedImage.localUrl);
+          res.set("Cache-Control", "public, max-age=31536000, immutable");
+          return res.json({
+            images: [
+              {
+                image: cachedImage.localUrl,
+                front: true,
+                types: ["Front"],
+              },
+            ],
+          });
+        }
+
         const cover = await fetchCoverArtArchiveReleaseGroup(mbid);
         if (cover?.imageUrl) {
-          dbOps.setImage(cacheKey, cover.imageUrl);
-          const proxiedCoverUrl =
-            buildImageProxyUrl(cover.imageUrl) || cover.imageUrl;
+          const cachedImage = await warmImageProxy(cover.imageUrl);
+          dbOps.setImage(cacheKey, cachedImage.localUrl);
 
           res.set("Cache-Control", "public, max-age=31536000, immutable");
           return res.json({
             images: [
               {
-                image: proxiedCoverUrl,
+                image: cachedImage.localUrl,
                 front: true,
                 types: cover.types,
               },
             ],
           });
         }
+        if (cover?.notFound) {
+          dbOps.setImage(cacheKey, "NOT_FOUND");
+          res.set("Cache-Control", "public, max-age=3600");
+          return res.json({ images: [] });
+        }
       } catch (e) {}
 
-      dbOps.setImage(cacheKey, "NOT_FOUND");
-      res.set("Cache-Control", "public, max-age=3600");
+      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
       res.json({ images: [] });
     } catch (error) {
       console.error(

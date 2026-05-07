@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 const IMAGE_PROXY_ROUTE = "/api/image-proxy";
 const IMAGE_PROXY_DIR = path.join(__dirname, "..", "data", "image-proxy");
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const FETCH_TIMEOUT_MS = 15000;
+const FETCH_TIMEOUT_MS = 25000;
 const inflightRequests = new Map();
 
 const PRIVATE_HOST_PATTERNS = [
@@ -33,14 +33,6 @@ const MIME_EXTENSION_MAP = {
   "image/svg+xml": "svg",
 };
 
-const getProxySecret = () =>
-  String(
-    process.env.IMAGE_PROXY_SECRET ||
-      process.env.AUTH_PASSWORD ||
-      process.env.CONTACT_EMAIL ||
-      "aurral-image-proxy",
-  );
-
 const ensureCacheDir = () => {
   fs.mkdirSync(IMAGE_PROXY_DIR, { recursive: true });
 };
@@ -56,16 +48,35 @@ const isPrivateHostname = (hostname) => {
 const hashValue = (value) =>
   crypto.createHash("sha256").update(String(value)).digest("hex");
 
-const signSourceUrl = (sourceUrl) =>
-  crypto
-    .createHmac("sha256", getProxySecret())
-    .update(String(sourceUrl))
-    .digest("hex");
+const normalizeKnownImageUrl = (value) =>
+  String(value || "")
+    .trim()
+    .replace(
+      /^(https?:\/\/(?:caa\.lkly\.net|coverartarchive\.org)\/release-group\/[0-9a-f-]+)\/front-250(?=[/?#]|$)/i,
+      "$1/front",
+    )
+    .replace(
+      /^(https?:\/\/(?:[\w-]+\.)?ca\.archive\.org\/.*?)-thumb250(\.[a-z0-9]+)(?=[?#]|$)/i,
+      "$1$2",
+    )
+    .replace(
+      /^(https?:\/\/archive\.org\/download\/[^?#]+?)_thumb250(\.[a-z0-9]+)(?=[?#]|$)/i,
+      "$1$2",
+    );
 
 const getCachePaths = (cacheKey) => ({
   metaPath: path.join(IMAGE_PROXY_DIR, `${cacheKey}.json`),
   baseImagePath: path.join(IMAGE_PROXY_DIR, `${cacheKey}`),
 });
+
+const buildLocalImageUrl = (cacheKey, extension) =>
+  `${IMAGE_PROXY_ROUTE}/${cacheKey}.${extension}`;
+
+const getCacheKeyFromLocalUrl = (value) => {
+  const normalized = String(value || "").trim();
+  const match = normalized.match(/\/api\/image-proxy\/([a-f0-9]{64})(?:\.[a-z0-9]+)?$/i);
+  return match?.[1]?.toLowerCase() || null;
+};
 
 const readCacheMetadata = (metaPath) => {
   try {
@@ -75,8 +86,8 @@ const readCacheMetadata = (metaPath) => {
   }
 };
 
-const getCachedEntry = (sourceUrl) => {
-  const cacheKey = hashValue(sourceUrl);
+const getCachedEntryFromKey = (cacheKey) => {
+  if (!cacheKey) return null;
   const { metaPath, baseImagePath } = getCachePaths(cacheKey);
   const meta = readCacheMetadata(metaPath);
   if (!meta?.extension) return null;
@@ -88,10 +99,17 @@ const getCachedEntry = (sourceUrl) => {
     cacheKey,
     meta,
     imagePath,
+    localUrl: buildLocalImageUrl(cacheKey, meta.extension),
     isFresh:
       Number(meta.fetchedAt || 0) > 0 &&
       Date.now() - Number(meta.fetchedAt || 0) < CACHE_TTL_MS,
   };
+};
+
+const getCachedEntry = (sourceUrl) => {
+  const normalizedSourceUrl = normalizeKnownImageUrl(sourceUrl);
+  if (!normalizedSourceUrl) return null;
+  return getCachedEntryFromKey(hashValue(normalizedSourceUrl));
 };
 
 const writeCacheEntry = (cacheKey, buffer, contentType, sourceUrl) => {
@@ -112,28 +130,35 @@ const writeCacheEntry = (cacheKey, buffer, contentType, sourceUrl) => {
   fs.writeFileSync(metaPath, JSON.stringify(meta));
 
   return {
+    cacheKey,
     meta,
     imagePath,
+    localUrl: buildLocalImageUrl(cacheKey, extension),
     isFresh: true,
   };
 };
 
 const fetchAndCacheImage = async (sourceUrl) => {
-  const parsed = new URL(sourceUrl);
+  const normalizedSourceUrl = normalizeKnownImageUrl(sourceUrl);
+  if (!normalizedSourceUrl) {
+    throw new Error("Missing source image URL");
+  }
+
+  const parsed = new URL(normalizedSourceUrl);
   if (!["http:", "https:"].includes(parsed.protocol)) {
     throw new Error("Unsupported image protocol");
   }
   if (isPrivateHostname(parsed.hostname)) {
-    throw new Error("Refusing to proxy private host");
+    throw new Error("Refusing to cache private host");
   }
 
-  const response = await axios.get(sourceUrl, {
+  const response = await axios.get(normalizedSourceUrl, {
     responseType: "arraybuffer",
     timeout: FETCH_TIMEOUT_MS,
     maxRedirects: 10,
     headers: {
       Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-      "User-Agent": "Aurral Image Proxy",
+      "User-Agent": "Aurral Local Image Cache",
     },
   });
 
@@ -146,15 +171,46 @@ const fetchAndCacheImage = async (sourceUrl) => {
   }
 
   return writeCacheEntry(
-    hashValue(sourceUrl),
+    hashValue(normalizedSourceUrl),
     Buffer.from(response.data),
     contentType,
-    sourceUrl,
+    normalizedSourceUrl,
   );
 };
 
+export const warmImageProxy = async (sourceUrl) => {
+  const cacheKeyFromLocalUrl = getCacheKeyFromLocalUrl(sourceUrl);
+  if (cacheKeyFromLocalUrl) {
+    const cachedLocal = getCachedEntryFromKey(cacheKeyFromLocalUrl);
+    if (cachedLocal?.imagePath) {
+      return cachedLocal;
+    }
+    throw new Error("Missing local cached image");
+  }
+
+  const normalizedSourceUrl = normalizeKnownImageUrl(sourceUrl);
+  if (!normalizedSourceUrl) {
+    throw new Error("Missing source image URL");
+  }
+
+  const cached = getCachedEntry(normalizedSourceUrl);
+  if (cached?.isFresh) {
+    return cached;
+  }
+
+  if (inflightRequests.has(normalizedSourceUrl)) {
+    return inflightRequests.get(normalizedSourceUrl);
+  }
+
+  const request = fetchAndCacheImage(normalizedSourceUrl).finally(() => {
+    inflightRequests.delete(normalizedSourceUrl);
+  });
+  inflightRequests.set(normalizedSourceUrl, request);
+  return request;
+};
+
 export const buildImageProxyUrl = (sourceUrl) => {
-  const normalized = String(sourceUrl || "").trim();
+  const normalized = normalizeKnownImageUrl(sourceUrl);
   if (!normalized) return null;
   if (
     normalized.startsWith("/") ||
@@ -173,88 +229,24 @@ export const buildImageProxyUrl = (sourceUrl) => {
     return normalized;
   }
 
-  const sig = signSourceUrl(normalized);
-  return `${IMAGE_PROXY_ROUTE}?src=${encodeURIComponent(normalized)}&sig=${sig}`;
+  const cached = getCachedEntry(normalized);
+  return cached?.localUrl || null;
 };
 
 export const handleImageProxyRequest = async (req, res) => {
-  const sourceUrl = String(req.query.src || "").trim();
-  const signature = String(req.query.sig || "").trim();
-
-  if (!sourceUrl || !signature) {
-    return res.status(400).json({ error: "Missing source image parameters" });
-  }
-  if (signature !== signSourceUrl(sourceUrl)) {
-    return res.status(403).json({ error: "Invalid image proxy signature" });
+  const rawKey = String(req.params.cacheKey || "").trim();
+  const match = rawKey.match(/^([a-f0-9]{64})(?:\.([a-z0-9]+))?$/i);
+  if (!match) {
+    return res.status(404).json({ error: "Image not found" });
   }
 
-  const cached = getCachedEntry(sourceUrl);
-  if (cached?.isFresh) {
-    res.set("Content-Type", cached.meta.contentType || "image/jpeg");
-    res.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
-    return res.sendFile(cached.imagePath);
+  const cacheKey = match[1].toLowerCase();
+  const cached = getCachedEntryFromKey(cacheKey);
+  if (!cached?.imagePath) {
+    return res.status(404).json({ error: "Image not found" });
   }
 
-  if (inflightRequests.has(sourceUrl)) {
-    try {
-      const inflight = await inflightRequests.get(sourceUrl);
-      res.set("Content-Type", inflight.meta.contentType || "image/jpeg");
-      res.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
-      return res.sendFile(inflight.imagePath);
-    } catch (error) {
-      if (cached?.imagePath) {
-        res.set("Content-Type", cached.meta.contentType || "image/jpeg");
-        res.set(
-          "Cache-Control",
-          "public, max-age=300, stale-while-revalidate=86400",
-        );
-        return res.sendFile(cached.imagePath);
-      }
-      res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=86400");
-      return res.redirect(sourceUrl);
-    }
-  }
-
-  const request = fetchAndCacheImage(sourceUrl).finally(() => {
-    inflightRequests.delete(sourceUrl);
-  });
-  inflightRequests.set(sourceUrl, request);
-
-  try {
-    const fresh = await request;
-    res.set("Content-Type", fresh.meta.contentType || "image/jpeg");
-    res.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
-    return res.sendFile(fresh.imagePath);
-  } catch (error) {
-    if (cached?.imagePath) {
-      res.set("Content-Type", cached.meta.contentType || "image/jpeg");
-      res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=86400");
-      return res.sendFile(cached.imagePath);
-    }
-    const upstreamStatus = error?.response?.status;
-    const upstreamCode = error?.code;
-    const upstreamHost = (() => {
-      try {
-        return new URL(sourceUrl).hostname;
-      } catch {
-        return "unknown";
-      }
-    })();
-
-    console.warn(
-      "[Image Proxy] Failed to fetch image:",
-      JSON.stringify({
-        sourceUrl,
-        upstreamHost,
-        message: error?.message || "Unknown error",
-        code: upstreamCode || null,
-        status: upstreamStatus || null,
-      }),
-    );
-
-    // Degrade gracefully: if the proxy cannot warm the image, let the browser
-    // fetch the original source directly instead of showing a broken square.
-    res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=86400");
-    return res.redirect(sourceUrl);
-  }
+  res.set("Content-Type", cached.meta.contentType || "image/jpeg");
+  res.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+  return res.sendFile(cached.imagePath);
 };

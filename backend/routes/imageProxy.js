@@ -3,6 +3,6 @@ import { handleImageProxyRequest } from "../services/imageProxyService.js";
 
 const router = express.Router();
 
-router.get("/", handleImageProxyRequest);
+router.get("/:cacheKey", handleImageProxyRequest);
 
 export default router;
