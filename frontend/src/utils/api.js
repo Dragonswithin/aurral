@@ -78,6 +78,8 @@ const MAX_LIBRARY_LOOKUP_CACHE_SIZE = 1000;
 const coverResponseCache = new Map();
 const coverInflightRequests = new Map();
 const MAX_COVER_CACHE_SIZE = 1000;
+const COVER_CACHE_TTL_MS = 30 * 60 * 1000;
+const EMPTY_COVER_CACHE_TTL_MS = 60 * 1000;
 const searchInflightRequests = new Map();
 
 const setLibraryLookupCacheEntry = (id, value) => {
@@ -96,10 +98,15 @@ const setLibraryLookupCacheEntry = (id, value) => {
 
 const setCoverCacheEntry = (key, value) => {
   if (!key) return;
+  const images = Array.isArray(value?.images) ? value.images : [];
+  const ttlMs = images.length > 0 ? COVER_CACHE_TTL_MS : EMPTY_COVER_CACHE_TTL_MS;
   if (coverResponseCache.has(key)) {
     coverResponseCache.delete(key);
   }
-  coverResponseCache.set(key, value);
+  coverResponseCache.set(key, {
+    value,
+    expiresAt: Date.now() + ttlMs,
+  });
   if (coverResponseCache.size > MAX_COVER_CACHE_SIZE) {
     const oldestKey = coverResponseCache.keys().next().value;
     if (oldestKey !== undefined) {
@@ -108,9 +115,22 @@ const setCoverCacheEntry = (key, value) => {
   }
 };
 
+const getCoverCacheEntry = (key) => {
+  const entry = coverResponseCache.get(key);
+  if (!entry) return null;
+  if (Date.now() >= Number(entry.expiresAt || 0)) {
+    coverResponseCache.delete(key);
+    return null;
+  }
+  return entry.value;
+};
+
 const fetchCoverWithMemo = async (key, requestFactory, { bypassCache = false } = {}) => {
-  if (!bypassCache && coverResponseCache.has(key)) {
-    return coverResponseCache.get(key);
+  if (!bypassCache) {
+    const cached = getCoverCacheEntry(key);
+    if (cached) {
+      return cached;
+    }
   }
 
   if (coverInflightRequests.has(key)) {
@@ -257,9 +277,20 @@ export const searchCatalog = async (
   });
 };
 
-export const getArtistDetails = async (mbid, artistName) => {
+export const getArtistDetails = async (
+  mbid,
+  artistName,
+  { mode = "" } = {},
+) => {
+  const params = {};
+  if (artistName) {
+    params.artistName = artistName;
+  }
+  if (mode) {
+    params.mode = mode;
+  }
   const response = await api.get(`/artists/${mbid}`, {
-    params: artistName ? { artistName } : {},
+    params,
   });
   return response.data;
 };
@@ -291,10 +322,22 @@ export const getArtistCover = async (mbid, artistName, refresh = false) => {
   );
 };
 
-export const getReleaseGroupCover = async (mbid) => {
+export const getReleaseGroupCover = async (
+  mbid,
+  { artistName = "", albumTitle = "" } = {},
+) => {
   const cacheKey = `release-group:${mbid}`;
   return fetchCoverWithMemo(cacheKey, async () => {
-    const response = await api.get(`/artists/release-group/${mbid}/cover`);
+    const params = {};
+    if (typeof artistName === "string" && artistName.trim()) {
+      params.artistName = artistName.trim();
+    }
+    if (typeof albumTitle === "string" && albumTitle.trim()) {
+      params.albumTitle = albumTitle.trim();
+    }
+    const response = await api.get(`/artists/release-group/${mbid}/cover`, {
+      params,
+    });
     return response.data;
   });
 };

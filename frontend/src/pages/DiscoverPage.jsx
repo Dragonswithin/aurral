@@ -1140,7 +1140,17 @@ function DiscoverPage() {
     );
     missing.forEach((id) => {
       requestedReleaseCoversRef.current.add(id);
-      getReleaseGroupCover(id)
+      const release = recentReleases.find(
+        (album) => (album.mbid || album.foreignAlbumId) === id,
+      );
+      getReleaseGroupCover(id, {
+        artistName:
+          release?.artistName ||
+          release?.artist ||
+          release?.artistCredit ||
+          "",
+        albumTitle: release?.title || release?.albumName || "",
+      })
         .then((data) => {
           if (data?.images?.length > 0) {
             const front = data.images.find((img) => img.front) || data.images[0];

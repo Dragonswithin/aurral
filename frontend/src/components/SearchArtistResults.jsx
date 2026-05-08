@@ -214,6 +214,7 @@ function SearchArtistResults({
                 alt={artist.name}
                 className="h-full w-full transition-transform duration-300 group-hover:scale-105"
                 showLoading={false}
+                enableBackendFallback={false}
               />
             </div>
 

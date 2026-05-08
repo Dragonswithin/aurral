@@ -50,6 +50,8 @@ const ArtistImage = ({
   artistName,
   className = "",
   showLoading = true,
+  enableBackendFallback = true,
+  loading = "lazy",
 }) => {
   const [currentSrc, setCurrentSrc] = useState(src);
   const [isLoading, setIsLoading] = useState(true);
@@ -117,7 +119,7 @@ const ArtistImage = ({
       setCurrentSrc(src);
       setHasError(false);
       setIsLoading(true);
-    } else if (mbid) {
+    } else if (mbid && enableBackendFallback) {
       setCurrentSrc(null);
       setHasError(false);
       setIsLoading(true);
@@ -125,11 +127,11 @@ const ArtistImage = ({
     } else {
       setCurrentSrc(null);
       setIsLoading(false);
-      setHasError(true);
+      setHasError(false);
     }
 
     return () => controller.abort();
-  }, [src, mbid, artistName, fetchBackendCover]);
+  }, [src, mbid, artistName, fetchBackendCover, enableBackendFallback]);
 
   useEffect(() => {
     const image = imgRef.current;
@@ -168,7 +170,7 @@ const ArtistImage = ({
   };
 
   const handleError = () => {
-    if (mbid && !triedBackendFallbackRef.current) {
+    if (enableBackendFallback && mbid && !triedBackendFallbackRef.current) {
       triedBackendFallbackRef.current = true;
       setIsLoading(true);
       setHasError(false);
@@ -254,7 +256,7 @@ const ArtistImage = ({
           }`}
           onLoad={handleLoad}
           onError={handleError}
-          loading="eager"
+          loading={loading}
           decoding="async"
         />
       )}
@@ -269,6 +271,8 @@ ArtistImage.propTypes = {
   artistName: PropTypes.string,
   className: PropTypes.string,
   showLoading: PropTypes.bool,
+  enableBackendFallback: PropTypes.bool,
+  loading: PropTypes.oneOf(["eager", "lazy"]),
 };
 
 export default ArtistImage;

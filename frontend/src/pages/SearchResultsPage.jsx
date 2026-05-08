@@ -15,6 +15,7 @@ import {
   getBlocklist,
   getDiscovery,
   getBootstrapStatus,
+  getArtistCover,
   getReleaseGroupCover,
   lookupAlbumsInLibraryBatch,
   lookupArtistsInLibraryBatch,
@@ -29,7 +30,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
 import { useReleaseTypeFilter } from "./ArtistDetails/hooks/useReleaseTypeFilter";
 
-const PAGE_SIZE = 24;
+const PAGE_SIZE = 20;
 const MBID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -62,6 +63,9 @@ function dedupeAlbums(albums) {
     return true;
   });
 }
+
+const ARTIST_IMAGE_HYDRATION_CONCURRENCY = 6;
+const ALBUM_COVER_HYDRATION_CONCURRENCY = 6;
 
 function normalizeBlocklistArtists(artists) {
   const source = Array.isArray(artists) ? artists : [];
@@ -223,14 +227,14 @@ function SearchResultsPage() {
           setVisibleCount(PAGE_SIZE);
           setHasMore(list.length > PAGE_SIZE);
           setSearchTotalCount(list.length);
-          if (list.length > 0) {
-            const imagesMap = {};
-            list.forEach((artist) => {
-              const artistId = getArtistId(artist);
-              if (artist.image && artistId) imagesMap[artistId] = artist.image;
-            });
-            setArtistImages(imagesMap);
-          }
+          const imagesMap = {};
+          list.forEach((artist) => {
+            const artistId = getArtistId(artist);
+            if ((artist.image || artist.imageUrl) && artistId) {
+              imagesMap[artistId] = artist.image || artist.imageUrl;
+            }
+          });
+          setArtistImages(imagesMap);
         } catch (err) {
           setError(
             err.response?.data?.message || "Failed to load. Please try again.",
@@ -285,6 +289,8 @@ function SearchResultsPage() {
             }
           });
           setArtistImages(imagesMap);
+        } else if (!isAlbumSearch) {
+          setArtistImages({});
         }
       } catch (err) {
         setError(
@@ -309,11 +315,69 @@ function SearchResultsPage() {
   ]);
 
   useEffect(() => {
+    if (isAlbumSearch || isTagSearch || results.length === 0) return undefined;
+
+    let cancelled = false;
+    const pendingArtists = results.filter((artist) => {
+      const artistId = getArtistId(artist);
+      if (!artistId) return false;
+      if (artistImages[artistId]) return false;
+      if (artist.image || artist.imageUrl) return false;
+      return true;
+    });
+
+    if (pendingArtists.length === 0) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const hydrateArtistImages = async () => {
+      for (
+        let index = 0;
+        index < pendingArtists.length && !cancelled;
+        index += ARTIST_IMAGE_HYDRATION_CONCURRENCY
+      ) {
+        const batch = pendingArtists.slice(
+          index,
+          index + ARTIST_IMAGE_HYDRATION_CONCURRENCY,
+        );
+        const results = await Promise.allSettled(
+          batch.map(async (artist) => {
+            const artistId = getArtistId(artist);
+            if (!artistId) return null;
+            const data = await getArtistCover(artistId, artist.name);
+            const imageUrl = data?.images?.[0]?.image || null;
+            return imageUrl ? [artistId, imageUrl] : null;
+          }),
+        );
+        if (cancelled) return;
+        const nextBatch = Object.fromEntries(
+          results.filter(
+            (entry) => Array.isArray(entry.value) && entry.value[0] && entry.value[1],
+          ).map((entry) => entry.value),
+        );
+        if (Object.keys(nextBatch).length > 0) {
+          setArtistImages((prev) => ({ ...prev, ...nextBatch }));
+        }
+      }
+    };
+
+    hydrateArtistImages();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [artistImages, isAlbumSearch, isTagSearch, results]);
+
+  useEffect(() => {
     if (isAlbumSearch) return undefined;
     let cancelled = false;
     const ids = results.map((artist) => getArtistId(artist)).filter(Boolean);
     if (ids.length === 0) {
-      setLibraryLookup({});
+      if (Object.keys(libraryLookup).length > 0) {
+        setLibraryLookup({});
+      }
       return () => {
         cancelled = true;
       };
@@ -331,11 +395,7 @@ function SearchResultsPage() {
         if (!cancelled && lookup) {
           setLibraryLookup((prev) => ({ ...prev, ...lookup }));
         }
-      } catch {
-        if (!cancelled) {
-          setLibraryLookup((prev) => ({ ...prev }));
-        }
-      }
+      } catch {}
     };
 
     fetchLookup();
@@ -359,26 +419,43 @@ function SearchResultsPage() {
     }
 
     const hydrateCovers = async () => {
-      const coverResults = await Promise.all(
-        missingCoverIds.map(async (id) => {
-          try {
-            const data = await getReleaseGroupCover(id);
+      for (
+        let index = 0;
+        index < missingCoverIds.length && !cancelled;
+        index += ALBUM_COVER_HYDRATION_CONCURRENCY
+      ) {
+        const batch = missingCoverIds.slice(
+          index,
+          index + ALBUM_COVER_HYDRATION_CONCURRENCY,
+        );
+        const coverResults = await Promise.allSettled(
+          batch.map(async (id) => {
+            const album = results.find((item) => item.id === id);
+            const data = await getReleaseGroupCover(id, {
+              artistName: album?.artistName || "",
+              albumTitle: album?.title || "",
+            });
             return [id, data?.images?.[0]?.image || null];
-          } catch {
-            return [id, null];
-          }
-        }),
-      );
-
-      if (cancelled) return;
-
-      setAlbumCovers((prev) => {
-        const next = { ...prev };
-        for (const [id, image] of coverResults) {
-          next[id] = image;
+          }),
+        );
+        if (cancelled) return;
+        const nextBatch = Object.fromEntries(
+          coverResults
+            .filter(
+              (entry) =>
+                Array.isArray(entry.value) &&
+                entry.value[0] &&
+                entry.value[1] !== undefined,
+            )
+            .map((entry) => entry.value),
+        );
+        if (Object.keys(nextBatch).length > 0) {
+          setAlbumCovers((prev) => ({
+            ...prev,
+            ...nextBatch,
+          }));
         }
-        return next;
-      });
+      }
     };
 
     hydrateCovers();
@@ -735,12 +812,12 @@ function SearchResultsPage() {
           )}
         </div>
 
-        {isTagSearch && lastfmConfigured === false && (
+        {isTagSearch && !showAllTagResults && lastfmConfigured === false && (
           <div className="mt-4 bg-yellow-500/20 p-4">
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-sm text-yellow-300">
-                Tag search and discovery recommendations use Last.fm. Add an
-                API key to enable full results.
+                Recommended tag results use the hydrated Last.fm discovery
+                cache. Add an API key to enable that path.
               </p>
               <button
                 type="button"

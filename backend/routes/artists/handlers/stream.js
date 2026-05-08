@@ -79,62 +79,6 @@ export default function registerStream(router) {
       });
 
       try {
-        const { lidarrClient } =
-          await import("../../../services/lidarrClient.js");
-        const { libraryManager } =
-          await import("../../../services/libraryManager.js");
-
-        let lidarrArtist = null;
-        let lidarrAlbums = [];
-
-        if (lidarrClient.isConfigured()) {
-          try {
-            lidarrArtist = await lidarrClient.getArtistByMbid(mbid);
-            if (lidarrArtist) {
-              console.log(
-                `[Artists Stream] Found artist in Lidarr: ${lidarrArtist.artistName}`,
-              );
-              const libraryArtist = await libraryManager.getArtist(mbid);
-              if (libraryArtist) {
-                lidarrAlbums = await libraryManager.getAlbums(libraryArtist.id);
-              }
-              sendArtist({
-                ...buildArtistBase(lidarrArtist.artistName),
-                _lidarrData: {
-                  id: lidarrArtist.id,
-                  monitored: lidarrArtist.monitored,
-                  statistics: lidarrArtist.statistics,
-                },
-              });
-
-              const libArtist = libraryManager.mapLidarrArtist(lidarrArtist);
-              sendSSE(res, "library", {
-                exists: true,
-                artist: {
-                  ...libArtist,
-                  foreignArtistId: libArtist.foreignArtistId || libArtist.mbid,
-                  added: libArtist.addedAt,
-                },
-                albums: lidarrAlbums.map((a) => ({
-                  ...a,
-                  foreignAlbumId: a.foreignAlbumId || a.mbid,
-                  title: a.albumName,
-                  albumType: "Album",
-                  statistics: a.statistics || {
-                    trackCount: 0,
-                    sizeOnDisk: 0,
-                    percentOfTracks: 0,
-                  },
-                })),
-              });
-            }
-          } catch (error) {
-            console.warn(
-              `[Artists Stream] Failed to fetch from Lidarr: ${error.message}`,
-            );
-          }
-        }
-
         const tasks = [];
         let fullArtistPromise = null;
         const pendingPromise = pendingArtistRequests.has(mbid)
@@ -158,6 +102,66 @@ export default function registerStream(router) {
                 "Unknown Artist";
               return name;
             })();
+
+        const libraryTask = (async () => {
+          const { lidarrClient } =
+            await import("../../../services/lidarrClient.js");
+          const { libraryManager } =
+            await import("../../../services/libraryManager.js");
+
+          if (!lidarrClient.isConfigured()) return;
+
+          try {
+            const lidarrArtist = await lidarrClient.getArtistByMbid(mbid);
+            if (!lidarrArtist || !isClientConnected()) return;
+
+            console.log(
+              `[Artists Stream] Found artist in Lidarr: ${lidarrArtist.artistName}`,
+            );
+
+            sendArtist({
+              ...buildArtistBase(lidarrArtist.artistName),
+              _lidarrData: {
+                id: lidarrArtist.id,
+                monitored: lidarrArtist.monitored,
+                statistics: lidarrArtist.statistics,
+              },
+            });
+
+            const libraryArtist = await libraryManager.getArtist(mbid);
+            const lidarrAlbums = libraryArtist
+              ? await libraryManager.getAlbums(libraryArtist.id)
+              : [];
+
+            if (!isClientConnected()) return;
+
+            const libArtist = libraryManager.mapLidarrArtist(lidarrArtist);
+            sendSSE(res, "library", {
+              exists: true,
+              artist: {
+                ...libArtist,
+                foreignArtistId: libArtist.foreignArtistId || libArtist.mbid,
+                added: libArtist.addedAt,
+              },
+              albums: lidarrAlbums.map((a) => ({
+                ...a,
+                foreignAlbumId: a.foreignAlbumId || a.mbid,
+                title: a.albumName,
+                albumType: "Album",
+                statistics: a.statistics || {
+                  trackCount: 0,
+                  sizeOnDisk: 0,
+                  percentOfTracks: 0,
+                },
+              })),
+            });
+          } catch (error) {
+            console.warn(
+              `[Artists Stream] Failed to fetch from Lidarr: ${error.message}`,
+            );
+          }
+        })();
+        tasks.push(libraryTask);
 
         if (pendingPromise) {
           console.log(
@@ -287,9 +291,7 @@ export default function registerStream(router) {
               sendSSE(res, "cover", {
                 images: [
                   {
-                    image:
-                      buildImageProxyUrl(cachedImage.imageUrl) ||
-                      cachedImage.imageUrl,
+                    image: cachedImage.imageUrl,
                     front: true,
                     types: ["Front"],
                   },
@@ -298,18 +300,21 @@ export default function registerStream(router) {
               return;
             }
 
-            const cover = await getArtistImage(mbid);
+            const artistName =
+              (await namePromise.catch(() => null)) || streamArtistName || null;
+            const cover = await getArtistImage(mbid, {
+              artistName,
+            });
             if (cover?.images?.length) {
               sendSSE(res, "cover", {
-                images: cover.images.map((image) => ({
-                  ...image,
-                  image: buildImageProxyUrl(image.image) || image.image,
-                })),
+                images: cover.images,
               });
               return;
             }
 
-            dbOps.setImage(mbid, "NOT_FOUND");
+            if (cover?.notFound) {
+              dbOps.setImage(mbid, "NOT_FOUND");
+            }
             sendSSE(res, "cover", { images: [] });
           } catch (e) {
             sendSSE(res, "cover", { images: [] });

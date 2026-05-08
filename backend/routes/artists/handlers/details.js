@@ -94,6 +94,11 @@ export default function registerDetails(router) {
   router.get("/:mbid", cacheMiddleware(300), async (req, res) => {
     try {
       const { mbid } = req.params;
+      const responseMode =
+        typeof req.query.mode === "string" && req.query.mode.trim()
+          ? req.query.mode.trim().toLowerCase()
+          : "full";
+      const coreOnly = responseMode === "core";
 
       if (!UUID_REGEX.test(mbid)) {
         console.log(`[Artists Route] Invalid MBID format: ${mbid}`);
@@ -155,18 +160,22 @@ export default function registerDetails(router) {
       if (lidarrArtist) {
         const artistMbid =
           override?.musicbrainzId || lidarrArtist.foreignArtistId || mbid;
-        const [bio, tagsData] = await Promise.all([
-          getArtistBio(lidarrArtist.artistName, artistMbid),
-          getLastfmApiKey()
-            ? lastfmRequest("artist.getTopTags", { mbid: artistMbid })
-            : null,
-        ]);
-        const tags = tagsData?.toptags?.tag
-          ? (Array.isArray(tagsData.toptags.tag)
-              ? tagsData.toptags.tag
-              : [tagsData.toptags.tag]
-            ).map((t) => ({ name: t.name, count: t.count || 0 }))
-          : [];
+        const [bio, tagsData] = coreOnly
+          ? [null, null]
+          : await Promise.all([
+              getArtistBio(lidarrArtist.artistName, artistMbid),
+              getLastfmApiKey()
+                ? lastfmRequest("artist.getTopTags", { mbid: artistMbid })
+                : null,
+            ]);
+        const tags = coreOnly
+          ? []
+          : tagsData?.toptags?.tag
+            ? (Array.isArray(tagsData.toptags.tag)
+                ? tagsData.toptags.tag
+                : [tagsData.toptags.tag]
+              ).map((t) => ({ name: t.name, count: t.count || 0 }))
+            : [];
         const payload = {
           id: artistMbid,
           name: lidarrArtist.artistName,
@@ -213,25 +222,27 @@ export default function registerDetails(router) {
             : null) ||
           (await musicbrainzGetArtistNameByMbid(resolvedMbid)) ||
           "Unknown Artist";
-        const tagsData = getLastfmApiKey()
-          ? await lastfmRequest("artist.getTopTags", { mbid: resolvedMbid })
-          : null;
-        const tags = tagsData?.toptags?.tag
-          ? (Array.isArray(tagsData.toptags.tag)
-              ? tagsData.toptags.tag
-              : [tagsData.toptags.tag]
-            ).map((t) => ({ name: t.name, count: t.count || 0 }))
-          : [];
+        const tagsData =
+          !coreOnly && getLastfmApiKey()
+            ? await lastfmRequest("artist.getTopTags", { mbid: resolvedMbid })
+            : null;
+        const tags =
+          !coreOnly && tagsData?.toptags?.tag
+            ? (Array.isArray(tagsData.toptags.tag)
+                ? tagsData.toptags.tag
+                : [tagsData.toptags.tag]
+              ).map((t) => ({ name: t.name, count: t.count || 0 }))
+            : [];
         const releaseGroups =
           await musicbrainzGetArtistReleaseGroups(resolvedMbid);
-        if (getLastfmApiKey()) {
+        if (!coreOnly && getLastfmApiKey()) {
           await enrichReleaseGroupsWithLastfm(
             releaseGroups,
             name,
             resolvedMbid,
           );
         }
-        const bio = await getArtistBio(name, resolvedMbid);
+        const bio = coreOnly ? null : await getArtistBio(name, resolvedMbid);
         return {
           id: resolvedMbid,
           name,

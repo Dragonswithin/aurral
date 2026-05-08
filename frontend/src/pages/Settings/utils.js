@@ -68,11 +68,6 @@ export const normalizeSettings = (savedSettings) => {
         customUrl: "",
         ...(savedSettings.integrations?.musicbrainz || {}),
       },
-      coverArtArchive: {
-        provider: "aurralHosted",
-        customUrl: "",
-        ...(savedSettings.integrations?.coverArtArchive || {}),
-      },
       general: {
         authUser: "",
         authPassword: "",

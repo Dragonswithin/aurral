@@ -22,12 +22,15 @@ export const sendSSE = (res, event, data) => {
 export const pendingCoverRequests = new Map();
 export const pendingArtistRequests = new Map();
 
-export const fetchCoverInBackground = async (mbid) => {
+export const fetchCoverInBackground = async (mbid, artistName = null) => {
   if (pendingCoverRequests.has(mbid)) return;
 
   const fetchPromise = (async () => {
     try {
-      await getArtistImage(mbid, false);
+      await getArtistImage(mbid, {
+        forceRefresh: false,
+        artistName,
+      });
     } catch (e) {}
   })();
 

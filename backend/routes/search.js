@@ -1,5 +1,5 @@
 import express from "express";
-import { cacheMiddleware } from "../middleware/cache.js";
+import { noCache } from "../middleware/cache.js";
 import {
   searchAlbums,
   searchArtists,
@@ -8,7 +8,7 @@ import {
 
 const router = express.Router();
 
-router.get("/", cacheMiddleware(300), async (req, res) => {
+router.get("/", noCache, async (req, res) => {
   try {
     const {
       q,
@@ -40,7 +40,7 @@ router.get("/", cacheMiddleware(300), async (req, res) => {
   }
 });
 
-router.get("/artists", cacheMiddleware(300), async (req, res) => {
+router.get("/artists", noCache, async (req, res) => {
   try {
     const { query, limit = 24, offset = 0 } = req.query;
     if (!String(query || "").trim()) {

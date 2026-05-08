@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import {
   Loader,
@@ -57,6 +57,7 @@ export function ArtistDetailsHero({
   canRefreshArtist,
   handleRefreshArtist,
   refreshingArtist,
+  onCoverError,
   onNavigate,
   loadingPreview,
   previewTracks,
@@ -75,6 +76,7 @@ export function ArtistDetailsHero({
   const coverImage = getCoverImage(coverImages);
   const lifeSpan = formatLifeSpan(artist["life-span"]);
   const [showHeroMenu, setShowHeroMenu] = useState(false);
+  const [coverFailed, setCoverFailed] = useState(false);
   const lidarrArtistId =
     artist?.id ||
     libraryArtist?.foreignArtistId ||
@@ -92,6 +94,9 @@ export function ArtistDetailsHero({
         }`
       : null;
   const hasPreview = loadingPreview || (previewTracks && previewTracks.length > 0);
+  useEffect(() => {
+    setCoverFailed(false);
+  }, [coverImage]);
   const metadataItems = [
     artist.type
       ? {
@@ -529,7 +534,7 @@ export function ArtistDetailsHero({
           "linear-gradient(180deg, rgba(33,31,39,0.98) 0%, rgba(29,28,35,0.98) 100%)",
       }}
     >
-      {coverImage && (
+      {coverImage && !coverFailed && (
         <>
           <div
             className="absolute inset-0 opacity-30"
@@ -563,8 +568,18 @@ export function ArtistDetailsHero({
                   <div className="flex h-full w-full items-center justify-center">
                     <Loader className="w-10 h-10 animate-spin" style={{ color: "#c1c1c3" }} />
                   </div>
-                ) : coverImage ? (
-                  <img src={coverImage} alt={artist.name} className="h-full w-full object-cover" />
+                ) : coverImage && !coverFailed ? (
+                  <img
+                    src={coverImage}
+                    alt={artist.name}
+                    className="h-full w-full object-cover"
+                    loading="eager"
+                    decoding="async"
+                    onError={() => {
+                      setCoverFailed(true);
+                      onCoverError?.();
+                    }}
+                  />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center">
                     <Music className="w-16 h-16" style={{ color: "#c1c1c3" }} />
@@ -720,6 +735,7 @@ ArtistDetailsHero.propTypes = {
   canRefreshArtist: PropTypes.bool,
   handleRefreshArtist: PropTypes.func,
   refreshingArtist: PropTypes.bool,
+  onCoverError: PropTypes.func,
   onNavigate: PropTypes.func,
   loadingPreview: PropTypes.bool,
   previewTracks: PropTypes.arrayOf(

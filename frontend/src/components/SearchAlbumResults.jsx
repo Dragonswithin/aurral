@@ -1,4 +1,5 @@
 import PropTypes from "prop-types";
+import { useState } from "react";
 import { Loader2, Music } from "lucide-react";
 
 function getAlbumActionLabel(album, isPending, canAddAlbum) {
@@ -15,6 +16,25 @@ function isAlbumActionDisabled(album, isPending, canAddAlbum) {
   if (!canAddAlbum) return true;
   if (album.status === "available") return true;
   return isPending || ["searching", "downloading", "processing"].includes(album.status);
+}
+
+function AlbumCover({ src, alt }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!src || failed) {
+    return <Music className="h-8 w-8" />;
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="h-full w-full object-cover"
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+    />
+  );
 }
 
 function SearchAlbumResults({
@@ -46,15 +66,10 @@ function SearchAlbumResults({
                 className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden"
                 style={{ backgroundColor: "#211f27", color: "#8a8a8f" }}
               >
-                {albumCovers[album.id] || album.coverUrl ? (
-                  <img
-                    src={albumCovers[album.id] || album.coverUrl}
-                    alt={album.title}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <Music className="h-8 w-8" />
-                )}
+                <AlbumCover
+                  src={albumCovers[album.id] || album.coverUrl}
+                  alt={album.title}
+                />
               </div>
 
               <div className="min-w-0 flex-1">

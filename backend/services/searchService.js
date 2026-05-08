@@ -1,12 +1,9 @@
 import NodeCache from "node-cache";
+import axios from "axios";
 import { dbOps } from "../config/db-helpers.js";
-import {
-  getLastfmApiKey,
-  lastfmRequest,
-  musicbrainzRequest,
-} from "./apiClients.js";
+import { getMusicbrainzApiBaseUrl, musicbrainzRequest } from "./apiClients.js";
 import { getDiscoveryCache } from "./discoveryService.js";
-import { hydrateArtistImages, primeArtistImageCache } from "./artistImageHydration.js";
+import { primeArtistImageCache } from "./artistImageHydration.js";
 import { buildImageProxyUrl } from "./imageProxyService.js";
 import { lidarrClient } from "./lidarrClient.js";
 
@@ -30,6 +27,12 @@ const albumLibraryLookupCache = new NodeCache({
   checkperiod: 60,
   maxKeys: 10,
 });
+const MUSICBRAINZ_TAG_PAGE_CACHE_TTL_SECONDS = 15 * 60;
+const musicbrainzTagPageCache = new NodeCache({
+  stdTTL: MUSICBRAINZ_TAG_PAGE_CACHE_TTL_SECONDS,
+  checkperiod: 120,
+  maxKeys: 500,
+});
 
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(value, 10);
@@ -38,6 +41,42 @@ function parsePositiveInt(value, fallback) {
 
 function escapeMusicbrainzQueryTerm(value) {
   return String(value || "").replace(/["\\]/g, "\\$&");
+}
+
+function normalizeTagValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
+      String.fromCodePoint(Number.parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);/g, (_, dec) =>
+      String.fromCodePoint(Number.parseInt(dec, 10)),
+    );
+}
+
+function getMusicbrainzSiteBaseUrl() {
+  const apiBaseUrl = String(getMusicbrainzApiBaseUrl() || "").trim();
+  if (!apiBaseUrl) {
+    return "https://mb.lkly.net";
+  }
+
+  try {
+    const parsed = new URL(apiBaseUrl);
+    parsed.pathname = parsed.pathname.replace(/\/ws\/2\/?$/, "") || "/";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return "https://mb.lkly.net";
+  }
 }
 
 function normalizePercentOfTracks(value) {
@@ -214,6 +253,77 @@ function buildAlbumSearchQuery(query, selectedReleaseTypes) {
   return clauses.join(" AND ");
 }
 
+async function fetchMusicbrainzTagArtistPage(tag, page) {
+  const cacheKey = `tag-page:${normalizeTagValue(tag)}:${page}`;
+  const cached = musicbrainzTagPageCache.get(cacheKey);
+  if (cached) return cached;
+  const normalizedTag = encodeURIComponent(String(tag || "").trim());
+  const url = `${getMusicbrainzSiteBaseUrl()}/tag/${normalizedTag}/artist?page=${page}`;
+  const response = await axios.get(url, {
+    timeout: 15000,
+    headers: {
+      "User-Agent": "Aurral Tag Search",
+      Accept: "text/html,application/xhtml+xml",
+    },
+  });
+  const html = String(response.data || "");
+  const countMatch = html.match(/<p>([\d,]+)\s+artists found<\/p>/i);
+  const totalCount = Number.parseInt(
+    String(countMatch?.[1] || "0").replace(/,/g, ""),
+    10,
+  ) || 0;
+  const itemPattern =
+    /<li>(\d+)\s*-\s*<a href="\/artist\/([0-9a-f-]+)" title="([^"]*)"><bdi>(.*?)<\/bdi><\/a>(?:\s*<span class="comment">\(<bdi>(.*?)<\/bdi>\)<\/span>)?<\/li>/gisu;
+  const items = [];
+  let match;
+  while ((match = itemPattern.exec(html)) !== null) {
+    items.push({
+      id: match[2],
+      name: decodeHtmlEntities(match[4] || match[3] || ""),
+      sortName: decodeHtmlEntities(match[4] || match[3] || ""),
+      disambiguation: decodeHtmlEntities(match[5] || ""),
+      tagCount: Number.parseInt(match[1], 10) || 0,
+      type: "artist",
+    });
+  }
+
+  const result = {
+    totalCount,
+    items,
+    pageSize: items.length,
+  };
+  musicbrainzTagPageCache.set(cacheKey, result);
+  return result;
+}
+
+async function searchTagsAllFallbackViaArtistSearch(tag, limitInt, offsetInt) {
+  const mbData = await musicbrainzRequest("/artist", {
+    query: `tag:"${escapeMusicbrainzQueryTerm(tag)}"`,
+    limit: limitInt,
+    offset: offsetInt,
+  });
+  const artists = Array.isArray(mbData?.artists) ? mbData.artists : [];
+  const filteredArtists = artists.filter((artist) => artist?.id);
+  const cachedImages = dbOps.getImages(filteredArtists.map((artist) => artist.id));
+  const items = filteredArtists.map((artist) => ({
+    ...normalizeArtistSearchItem(artist, cachedImages),
+    tags: [tag],
+  }));
+  primeArtistImageCache(items.slice(0, Math.min(items.length, limitInt))).catch(
+    () => {},
+  );
+  return {
+    scope: "tag",
+    query: tag,
+    count: Number.parseInt(mbData?.count, 10) || items.length,
+    hasMore:
+      (Number.parseInt(mbData?.count, 10) || items.length) >
+      offsetInt + items.length,
+    offset: offsetInt,
+    items,
+  };
+}
+
 function canUseDirectPrimaryTypeSearch(selectedReleaseTypes) {
   const normalizedSelection =
     normalizeAlbumReleaseTypesFilter(selectedReleaseTypes);
@@ -228,7 +338,12 @@ function canUseDirectPrimaryTypeSearch(selectedReleaseTypes) {
 }
 
 function normalizeTagArtistItem(artist, tag) {
-  let imageUrl = artist.image || artist.imageUrl || null;
+  let imageUrl =
+    typeof artist.imageUrl === "string" && artist.imageUrl.trim()
+      ? artist.imageUrl.trim()
+      : typeof artist.image === "string" && artist.image.trim()
+        ? artist.image.trim()
+        : null;
   if (!imageUrl && Array.isArray(artist.image)) {
     const img =
       artist.image.find((entry) => entry.size === "extralarge") ||
@@ -305,20 +420,12 @@ export async function searchArtists(query, limit = 24, offset = 0) {
   const artists = Array.isArray(mbData?.artists) ? mbData.artists : [];
   const filteredArtists = artists.filter((artist) => artist?.id);
   const cachedImages = dbOps.getImages(filteredArtists.map((artist) => artist.id));
-  let items = filteredArtists.map((artist) =>
+  const items = filteredArtists.map((artist) =>
     normalizeArtistSearchItem(artist, cachedImages),
   );
-
-  const warmLimit = Math.min(items.length, Math.max(8, Math.min(limitInt, 12)));
-  items = await hydrateArtistImages(items, {
-    limit: warmLimit,
-    batchSize: 6,
-    delayMs: 15,
-  });
-
-  if (items.length > warmLimit) {
-    primeArtistImageCache(items.slice(warmLimit)).catch(() => {});
-  }
+  primeArtistImageCache(items.slice(0, Math.min(items.length, limitInt))).catch(
+    () => {},
+  );
 
   return {
     scope: "artist",
@@ -488,30 +595,58 @@ export async function searchTags(
     };
   }
 
-  if (tagScope === "all" && getLastfmApiKey()) {
-    const page = Math.floor(offsetInt / limitInt) + 1;
-    const data = await lastfmRequest("tag.getTopArtists", {
-      tag,
-      limit: limitInt,
-      page,
-    });
-    const rawArtists = Array.isArray(data?.topartists?.artist)
-      ? data.topartists.artist
-      : data?.topartists?.artist
-        ? [data.topartists.artist]
-        : [];
-    const items = rawArtists
-      .map((artist) => normalizeTagArtistItem(artist, tag))
-      .filter((artist) => artist.id);
+  if (tagScope === "all") {
+    try {
+      const firstPageNumber = Math.floor(offsetInt / 100) + 1;
+      const pages = [];
+      let totalCount = 0;
+      let pageSize = 100;
+      let currentPage = firstPageNumber;
+      let combined = [];
 
-    return {
-      scope: "tag",
-      query: tag,
-      count:
-        Number.parseInt(data?.topartists?.["@attr"]?.total, 10) || items.length,
-      offset: offsetInt,
-      items,
-    };
+      while (combined.length < limitInt + (offsetInt % pageSize || 0)) {
+        const pageData = await fetchMusicbrainzTagArtistPage(tag, currentPage);
+        totalCount = pageData.totalCount;
+        pageSize = pageData.pageSize || pageSize;
+        if (pageData.items.length === 0) break;
+        pages.push(pageData);
+        combined = pages.flatMap((entry) => entry.items);
+        currentPage += 1;
+        if (pageData.items.length < pageSize) break;
+        const absoluteLoaded =
+          (firstPageNumber - 1) * pageSize + combined.length;
+        if (totalCount > 0 && absoluteLoaded >= totalCount) break;
+      }
+
+      const withinPageOffset = offsetInt - (firstPageNumber - 1) * pageSize;
+      const pageArtists = combined.slice(
+        withinPageOffset,
+        withinPageOffset + limitInt,
+      );
+      const cachedImages = dbOps.getImages(pageArtists.map((artist) => artist.id));
+      const items = pageArtists.map((artist) => ({
+        ...normalizeArtistSearchItem(artist, cachedImages),
+        tags: [tag],
+      }));
+      primeArtistImageCache(items.slice(0, Math.min(items.length, limitInt))).catch(
+        () => {},
+      );
+
+      return {
+        scope: "tag",
+        query: tag,
+        count: totalCount || items.length,
+        hasMore: totalCount > offsetInt + items.length,
+        offset: offsetInt,
+        items,
+      };
+    } catch (error) {
+      console.warn(
+        `MusicBrainz tag page fetch failed for "${tag}", falling back to artist search:`,
+        error.message,
+      );
+      return searchTagsAllFallbackViaArtistSearch(tag, limitInt, offsetInt);
+    }
   }
 
   const discoveryCache = getDiscoveryCache();
