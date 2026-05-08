@@ -151,7 +151,7 @@ test("weekly flow worker settings default to concurrency 2", async () => {
   await server?.stop();
   dbOps.updateSettings({
     ...dbOps.getSettings(),
-    weeklyFlowWorker: {},
+    weeklyFlowWorker: null,
   });
   server = await startServerProcess();
   const settingsToken = await loginAsAdmin();

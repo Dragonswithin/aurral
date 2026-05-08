@@ -4,6 +4,7 @@ import path from "path";
 import { dirname, join } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { spawn } from "child_process";
+import http from "http";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..", "..");
@@ -66,7 +67,7 @@ export function buildApiUrl(port, pathname = "") {
 }
 
 async function waitForServer(port, child) {
-  const deadline = Date.now() + 15000;
+  const deadline = Date.now() + 30000;
   let lastError = "";
   while (Date.now() < deadline) {
     if (child.exitCode != null) {
@@ -75,11 +76,28 @@ async function waitForServer(port, child) {
       );
     }
     try {
-      const response = await fetch(buildApiUrl(port, "/api/health/live"));
-      if (response.ok) {
+      const status = await new Promise((resolve, reject) => {
+        const request = http.get(
+          {
+            host: "127.0.0.1",
+            port,
+            path: "/api/health/live",
+            timeout: 1000,
+          },
+          (response) => {
+            response.resume();
+            resolve(response.statusCode || 0);
+          },
+        );
+        request.on("timeout", () => {
+          request.destroy(new Error("Health probe timed out"));
+        });
+        request.on("error", reject);
+      });
+      if (status >= 200 && status < 300) {
         return;
       }
-      lastError = `Unexpected status ${response.status}`;
+      lastError = `Unexpected status ${status}`;
     } catch (error) {
       lastError = error?.message || String(error);
     }
@@ -126,8 +144,13 @@ export async function startServerProcess({
       if (child.exitCode != null) return;
       child.kill("SIGTERM");
       await new Promise((resolve) => {
-        child.once("exit", resolve);
-        setTimeout(resolve, 5000);
+        const timeout = setTimeout(() => {
+          child.kill("SIGKILL");
+        }, 5000);
+        child.once("exit", () => {
+          clearTimeout(timeout);
+          resolve();
+        });
       });
     },
   };
