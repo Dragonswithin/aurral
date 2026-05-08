@@ -1047,6 +1047,7 @@ export function useArtistDetailsLibrary({
     if (!libraryAlbums.length || !libraryArtist) return;
     const viewedArtistId = artist?.id || null;
     const libraryArtistId = libraryArtist.id;
+    const refreshTimeouts = libraryRefreshTimeoutsRef.current;
     const pollDownloadStatus = async () => {
       try {
         const albumIds = libraryAlbums.map((a) => a.id).filter(Boolean);
@@ -1116,7 +1117,7 @@ export function useArtistDetailsLibrary({
             );
             if (hasNewlyAdded || hasActiveDownloads) {
               const timeoutId = setTimeout(async () => {
-                libraryRefreshTimeoutsRef.current.delete(timeoutId);
+                refreshTimeouts.delete(timeoutId);
                 if (
                   viewedArtistIdRef.current !== viewedArtistId ||
                   currentLibraryArtistIdRef.current !== libraryArtistId
@@ -1146,7 +1147,7 @@ export function useArtistDetailsLibrary({
                   console.error("Failed to refresh albums:", err);
                 }
               }, hasNewlyAdded ? 2000 : 5000);
-              libraryRefreshTimeoutsRef.current.add(timeoutId);
+              refreshTimeouts.add(timeoutId);
             }
             return nextStatuses;
           });
@@ -1159,10 +1160,10 @@ export function useArtistDetailsLibrary({
     const interval = setInterval(pollDownloadStatus, 15000);
     return () => {
       clearInterval(interval);
-      for (const timeoutId of libraryRefreshTimeoutsRef.current) {
+      for (const timeoutId of refreshTimeouts) {
         clearTimeout(timeoutId);
       }
-      libraryRefreshTimeoutsRef.current.clear();
+      refreshTimeouts.clear();
     };
   }, [artist?.id, libraryAlbums, libraryArtist, requestingAlbum, setLibraryAlbums]);
 

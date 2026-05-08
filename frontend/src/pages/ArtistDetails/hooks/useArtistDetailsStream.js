@@ -83,6 +83,7 @@ export function useArtistDetailsStream(
   const requestedAlbumCoversRef = useRef(new Set());
   const artistMbidRef = useRef(mbid);
   const artistNameRef = useRef(artistNameFromNav || "");
+  const selectedReleaseTypesRef = useRef(selectedReleaseTypes);
   const fetchedReleaseTypesRef = useRef(
     normalizeReleaseTypesSelection(selectedReleaseTypes),
   );
@@ -101,6 +102,10 @@ export function useArtistDetailsStream(
   useEffect(() => {
     if (artist?.name) artistNameRef.current = artist.name;
   }, [artist?.name]);
+
+  useEffect(() => {
+    selectedReleaseTypesRef.current = selectedReleaseTypes;
+  }, [selectedReleaseTypes]);
 
   useEffect(() => {
     if (!mbid) return;
@@ -129,7 +134,7 @@ export function useArtistDetailsStream(
     setExistsInLibrary(nextSeededExistsInLibrary === true);
     setLoadingLibrary(nextSeededExistsInLibrary === undefined);
     fetchedReleaseTypesRef.current = normalizeReleaseTypesSelection(
-      selectedReleaseTypes,
+      selectedReleaseTypesRef.current,
     );
     releaseRefreshRequestRef.current += 1;
 
@@ -153,9 +158,12 @@ export function useArtistDetailsStream(
       streamParams.push(`artistName=${encodeURIComponent(artistNameFromNav)}`);
     }
     if (streamParams.length) streamUrl += `?${streamParams.join("&")}`;
-    if (Array.isArray(selectedReleaseTypes) && selectedReleaseTypes.length > 0) {
+    if (
+      Array.isArray(selectedReleaseTypesRef.current) &&
+      selectedReleaseTypesRef.current.length > 0
+    ) {
       streamUrl += `${streamParams.length ? "&" : "?"}releaseTypes=${encodeURIComponent(
-        selectedReleaseTypes.join(","),
+        selectedReleaseTypesRef.current.join(","),
       )}`;
     }
 
@@ -248,7 +256,7 @@ export function useArtistDetailsStream(
       try {
         const artistData = await getArtistDetails(mbid, artistNameFromNav, {
           mode: "core",
-          releaseTypes: selectedReleaseTypes,
+          releaseTypes: selectedReleaseTypesRef.current,
         });
         if (!artistData || !artistData.id) {
           throw new Error("Invalid artist data received");
