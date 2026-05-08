@@ -374,6 +374,9 @@ const itunesLimiter = new Bottleneck({
 });
 
 let musicbrainzLast503Log = 0;
+const musicbrainzInflightRequests = new Map();
+const musicbrainzRetryLogAt = new Map();
+const musicbrainzErrorLogAt = new Map();
 const lastfmInflightRequests = new Map();
 const lastfmErrorLogAt = new Map();
 const listenbrainzInflightRequests = new Map();
@@ -384,13 +387,24 @@ const LASTFM_MAX_RETRIES = 2;
 const LISTENBRAINZ_TIMEOUT_MS = 6000;
 const LISTENBRAINZ_MAX_RETRIES = 2;
 
+const getProviderRequestCacheKey = (prefix, endpointOrPath, params = {}) =>
+  `${prefix}:${endpointOrPath}:${JSON.stringify(params)}`;
+
+const shouldEmitThrottledLog = (logMap, key, throttleMs = 15000) => {
+  const now = Date.now();
+  const last = logMap.get(key) || 0;
+  if (now - last < throttleMs) return false;
+  logMap.set(key, now);
+  return true;
+};
+
 const musicbrainzRequestWithRetry = async (
   endpoint,
   params = {},
   retryCount = 0,
   forceIpv4 = false,
 ) => {
-  const cacheKey = `mb:${endpoint}:${JSON.stringify(params)}`;
+  const cacheKey = getProviderRequestCacheKey("mb", endpoint, params);
   const cached = mbCache.get(cacheKey);
   if (cached) return cached;
 
@@ -467,11 +481,14 @@ const musicbrainzRequestWithRetry = async (
     const errorType = error.response
       ? `HTTP ${error.response.status}`
       : error.code || error.message;
-    console.warn(
-      `MusicBrainz error (${errorType}), retrying in ${delay}ms... (attempt ${
-        retryCount + 1
-      }/${MAX_RETRIES})`,
-    );
+    const logKey = `${errorType}:retry:${retryCount + 1}`;
+    if (shouldEmitThrottledLog(musicbrainzRetryLogAt, logKey, 5000)) {
+      console.warn(
+        `MusicBrainz error (${errorType}), retrying in ${delay}ms... (attempt ${
+          retryCount + 1
+        }/${MAX_RETRIES})`,
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, delay));
     return musicbrainzRequestWithRetry(
       endpoint,
@@ -498,16 +515,33 @@ const musicbrainzRequestWithRetry = async (
       );
     }
   } else {
-    console.error("MusicBrainz API error:", error.message);
+    const errorType = status ? `HTTP ${status}` : error.code || error.message;
+    const logKey = `${errorType}:final`;
+    if (shouldEmitThrottledLog(musicbrainzErrorLogAt, logKey)) {
+      console.error("MusicBrainz API error:", error.message);
+    }
   }
   throw error;
 };
 
 export const musicbrainzRequest = async (endpoint, params = {}) => {
+  const cacheKey = getProviderRequestCacheKey("mb", endpoint, params);
+  const cached = mbCache.get(cacheKey);
+  if (cached) return cached;
+
+  const inflight = musicbrainzInflightRequests.get(cacheKey);
+  if (inflight) return inflight;
+
   await configureMusicbrainzLimiter();
-  return mbLimiter.schedule(() =>
+  const requestPromise = mbLimiter.schedule(() =>
     musicbrainzRequestWithRetry(endpoint, params),
   );
+  musicbrainzInflightRequests.set(cacheKey, requestPromise);
+  try {
+    return await requestPromise;
+  } finally {
+    musicbrainzInflightRequests.delete(cacheKey);
+  }
 };
 
 const normalizeItunesArtworkUrl = (url) =>
