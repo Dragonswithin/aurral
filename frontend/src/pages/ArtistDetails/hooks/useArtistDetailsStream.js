@@ -14,11 +14,11 @@ import { emptyArtistShape } from "../constants";
 import { matchesReleaseTypeFilter } from "../utils";
 
 const buildInitialArtist = (mbid, artistNameFromNav) =>
-  mbid && artistNameFromNav
+  mbid
     ? {
         id: mbid,
-        name: artistNameFromNav,
-        "sort-name": artistNameFromNav,
+        name: artistNameFromNav || "Loading artist",
+        "sort-name": artistNameFromNav || "Loading artist",
         ...emptyArtistShape,
         "release-groups": [],
       }
@@ -37,7 +37,7 @@ export function useArtistDetailsStream(
   const [libraryArtist, setLibraryArtist] = useState(null);
   const [libraryAlbums, setLibraryAlbums] = useState([]);
   const [similarArtists, setSimilarArtists] = useState([]);
-  const [loading, setLoading] = useState(!initialArtist);
+  const [loading, setLoading] = useState(!mbid);
   const [error, setError] = useState(null);
   const [existsInLibrary, setExistsInLibrary] = useState(false);
   const [loadingCover, setLoadingCover] = useState(true);
@@ -68,7 +68,7 @@ export function useArtistDetailsStream(
     setCoverImages([]);
     setAlbumCovers({});
     setSimilarArtists([]);
-    setLoading(!(mbid && artistNameFromNav));
+    setLoading(!mbid);
     setError(null);
     setLoadingCover(true);
     setLoadingSimilar(true);

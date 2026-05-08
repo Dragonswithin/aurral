@@ -128,14 +128,21 @@ export default function registerStream(router) {
               },
             });
 
-            const libraryArtist = await libraryManager.getArtist(mbid);
-            const lidarrAlbums = libraryArtist
-              ? await libraryManager.getAlbums(libraryArtist.id)
-              : [];
+            const libArtist = libraryManager.mapLidarrArtist(lidarrArtist);
+            sendSSE(res, "library", {
+              exists: true,
+              artist: {
+                ...libArtist,
+                foreignArtistId: libArtist.foreignArtistId || libArtist.mbid,
+                added: libArtist.addedAt,
+              },
+              albums: [],
+            });
+
+            const lidarrAlbums = await libraryManager.getAlbums(libArtist.id);
 
             if (!isClientConnected()) return;
 
-            const libArtist = libraryManager.mapLidarrArtist(lidarrArtist);
             sendSSE(res, "library", {
               exists: true,
               artist: {
