@@ -998,14 +998,15 @@ export class LibraryManager {
     };
   }
 
-  async getAlbums(artistId) {
+  async getAlbums(artistId, lidarrArtist = null) {
     const lidarr = await getLidarrClient();
     if (!lidarr || !lidarr.isConfigured()) {
       return [];
     }
     try {
-      const lidarrArtist = await lidarr.getArtist(artistId);
-      if (!lidarrArtist) {
+      const resolvedArtist =
+        lidarrArtist || (await lidarr.getArtist(artistId));
+      if (!resolvedArtist) {
         return [];
       }
       const allAlbums = await lidarr.request(
@@ -1014,7 +1015,7 @@ export class LibraryManager {
       const artistAlbums = Array.isArray(allAlbums)
         ? allAlbums.filter((a) => a.artistId === parseInt(artistId))
         : [];
-      return artistAlbums.map((a) => this.mapLidarrAlbum(a, lidarrArtist));
+      return artistAlbums.map((a) => this.mapLidarrAlbum(a, resolvedArtist));
     } catch (error) {
       console.error(
         `[LibraryManager] Failed to fetch albums from Lidarr: ${error.message}`,

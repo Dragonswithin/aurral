@@ -203,7 +203,11 @@ function LibraryPage() {
                     style={{ backgroundColor: "#211f27" }}
                     onClick={() =>
                       navigate(`/artist/${artist.foreignArtistId}`, {
-                        state: { artistName: artist.artistName },
+                        state: {
+                          artistName: artist.artistName,
+                          inLibrary: true,
+                          libraryArtist: artist,
+                        },
                       })
                     }
                   >
@@ -230,7 +234,11 @@ function LibraryPage() {
                     style={{ color: "#fff" }}
                     onClick={() =>
                       navigate(`/artist/${artist.foreignArtistId}`, {
-                        state: { artistName: artist.artistName },
+                        state: {
+                          artistName: artist.artistName,
+                          inLibrary: true,
+                          libraryArtist: artist,
+                        },
                       })
                     }
                     title={artist.artistName}

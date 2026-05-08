@@ -280,7 +280,7 @@ export const searchCatalog = async (
 export const getArtistDetails = async (
   mbid,
   artistName,
-  { mode = "" } = {},
+  { mode = "", releaseTypes = [] } = {},
 ) => {
   const params = {};
   if (artistName) {
@@ -288,6 +288,9 @@ export const getArtistDetails = async (
   }
   if (mode) {
     params.mode = mode;
+  }
+  if (Array.isArray(releaseTypes) && releaseTypes.length > 0) {
+    params.releaseTypes = releaseTypes.join(",");
   }
   const response = await api.get(`/artists/${mbid}`, {
     params,

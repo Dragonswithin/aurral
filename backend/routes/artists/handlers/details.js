@@ -14,6 +14,14 @@ import { requireAuth } from "../../../middleware/requirePermission.js";
 import { pendingArtistRequests } from "../utils.js";
 
 export default function registerDetails(router) {
+  const parseSelectedReleaseTypes = (value) =>
+    typeof value === "string" && value.trim()
+      ? value
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : null;
+
   router.get("/", async (req, res) => {
     res.status(404).json({
       error: "Not found",
@@ -99,6 +107,9 @@ export default function registerDetails(router) {
           ? req.query.mode.trim().toLowerCase()
           : "full";
       const coreOnly = responseMode === "core";
+      const selectedReleaseTypes = parseSelectedReleaseTypes(
+        req.query.releaseTypes,
+      );
 
       if (!UUID_REGEX.test(mbid)) {
         console.log(`[Artists Route] Invalid MBID format: ${mbid}`);
@@ -147,7 +158,10 @@ export default function registerDetails(router) {
             );
             const libraryArtist = await libraryManager.getArtist(mbid);
             if (libraryArtist) {
-              lidarrAlbums = await libraryManager.getAlbums(libraryArtist.id);
+              lidarrAlbums = await libraryManager.getAlbums(
+                libraryArtist.id,
+                lidarrArtist,
+              );
             }
           }
         } catch (error) {
@@ -234,7 +248,10 @@ export default function registerDetails(router) {
               ).map((t) => ({ name: t.name, count: t.count || 0 }))
             : [];
         const releaseGroups =
-          await musicbrainzGetArtistReleaseGroups(resolvedMbid);
+          await musicbrainzGetArtistReleaseGroups(
+            resolvedMbid,
+            selectedReleaseTypes,
+          );
         if (!coreOnly && getLastfmApiKey()) {
           await enrichReleaseGroupsWithLastfm(
             releaseGroups,

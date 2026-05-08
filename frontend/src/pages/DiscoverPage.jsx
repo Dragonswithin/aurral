@@ -328,10 +328,13 @@ const ArtistCard = memo(
       const handleClick = useCallback(() => {
         if (hasValidMbid) {
           onNavigate(`/artist/${navigateTo}`, {
-            state: { artistName: artist.name },
+            state: {
+              artistName: artist.name,
+              inLibrary: isInLibrary,
+            },
           });
         }
-      }, [navigateTo, hasValidMbid, artist.name, onNavigate]);
+      }, [navigateTo, hasValidMbid, artist.name, isInLibrary, onNavigate]);
 
       useEffect(() => {
         if (!showMenu) return;

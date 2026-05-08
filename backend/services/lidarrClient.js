@@ -2,6 +2,7 @@ import axios from "axios";
 import http from "http";
 import https from "https";
 import { dbOps } from "../config/db-helpers.js";
+import { logger } from "./logger.js";
 
 const CIRCUIT_COOLDOWN_MS = 60000;
 const CIRCUIT_FAILURE_THRESHOLD = 3;
@@ -11,6 +12,7 @@ const LIDARR_ARTIST_ALBUM_CACHE_MAX = 10;
 const LIDARR_RETRY_ATTEMPTS = 2;
 const LIDARR_RETRY_DELAY_MS = 800;
 const LIDARR_STATUS_CACHE_MS = 10000;
+const LIDARR_ARTIST_INDEX_TTL_MS = 15 * 60 * 1000;
 
 function normalizeRootFolderPath(value) {
   const normalized = String(value || "").trim();
@@ -105,6 +107,8 @@ export class LidarrClient {
     this._concurrent = 0;
     this._waitQueue = [];
     this._artistListCache = null;
+    this._artistByMbidCache = new Map();
+    this._artistByMbidInflight = new Map();
     this._albumCache = new Map();
     this._statusCache = new Map();
     this._httpAgent = new http.Agent({
@@ -127,6 +131,44 @@ export class LidarrClient {
       timeout: 60000,
     });
     this.updateConfig();
+  }
+
+  _setArtistByMbidCacheEntry(mbid, artist) {
+    const normalizedMbid = String(mbid || "").trim();
+    if (!normalizedMbid) return;
+    this._artistByMbidCache.set(normalizedMbid, {
+      artist: artist || null,
+      at: Date.now(),
+    });
+  }
+
+  _getArtistByMbidCacheEntry(mbid) {
+    const normalizedMbid = String(mbid || "").trim();
+    if (!normalizedMbid) return undefined;
+    const cached = this._artistByMbidCache.get(normalizedMbid);
+    if (!cached) return undefined;
+    if (Date.now() - cached.at >= LIDARR_ARTIST_INDEX_TTL_MS) {
+      this._artistByMbidCache.delete(normalizedMbid);
+      return undefined;
+    }
+    return cached.artist;
+  }
+
+  _populateArtistIndexes(artists) {
+    const list = Array.isArray(artists) ? artists : [];
+    const seenMbids = new Set();
+    for (const artist of list) {
+      const mbid = String(artist?.foreignArtistId || "").trim();
+      if (!mbid) continue;
+      seenMbids.add(mbid);
+      this._setArtistByMbidCacheEntry(mbid, artist);
+    }
+    return seenMbids;
+  }
+
+  _invalidateArtistIndexes() {
+    this._artistByMbidCache.clear();
+    this._artistByMbidInflight.clear();
   }
 
   _acquireSlot() {
@@ -211,6 +253,7 @@ export class LidarrClient {
     this.config = newConfig;
     if (didConfigChange) {
       this._artistListCache = null;
+      this._invalidateArtistIndexes();
       this._albumCache = new Map();
       this._statusCache.clear();
     }
@@ -309,6 +352,7 @@ export class LidarrClient {
         endpoint.startsWith("/album/"))
     ) {
       this._artistListCache = null;
+      this._invalidateArtistIndexes();
       this._albumCache = new Map();
     }
     if (method !== "GET" && endpoint.startsWith("/command")) {
@@ -362,6 +406,7 @@ export class LidarrClient {
 
           if (method === "GET" && endpoint === "/artist") {
             this._artistListCache = { data: response.data, at: Date.now() };
+            this._populateArtistIndexes(response.data);
           }
           if (
             method === "GET" &&
@@ -872,8 +917,54 @@ export class LidarrClient {
   }
 
   async getArtistByMbid(mbid) {
-    const artists = await this.request("/artist");
-    return artists.find((a) => a.foreignArtistId === mbid);
+    const normalizedMbid = String(mbid || "").trim();
+    if (!normalizedMbid) return null;
+
+    const cachedArtist = this._getArtistByMbidCacheEntry(normalizedMbid);
+    if (cachedArtist !== undefined) {
+      return cachedArtist;
+    }
+
+    if (
+      this._artistListCache &&
+      Date.now() - this._artistListCache.at < LIDARR_LIST_CACHE_MS
+    ) {
+      const artists = Array.isArray(this._artistListCache.data)
+        ? this._artistListCache.data
+        : [];
+      this._populateArtistIndexes(artists);
+      const artist =
+        artists.find((entry) => entry?.foreignArtistId === normalizedMbid) || null;
+      this._setArtistByMbidCacheEntry(normalizedMbid, artist);
+      return artist;
+    }
+
+    const inflight = this._artistByMbidInflight.get(normalizedMbid);
+    if (inflight) {
+      return inflight;
+    }
+
+    const startedAt = Date.now();
+    const requestPromise = this.request("/artist")
+      .then((artists) => {
+        const list = Array.isArray(artists) ? artists : [];
+        this._populateArtistIndexes(list);
+        const artist =
+          list.find((entry) => entry?.foreignArtistId === normalizedMbid) || null;
+        this._setArtistByMbidCacheEntry(normalizedMbid, artist);
+        return artist;
+      })
+      .finally(() => {
+        this._artistByMbidInflight.delete(normalizedMbid);
+        const durationMs = Date.now() - startedAt;
+        logger.debug("api", "Lidarr getArtistByMbid completed", {
+          mbid: normalizedMbid,
+          durationMs,
+        });
+      });
+
+    this._artistByMbidInflight.set(normalizedMbid, requestPromise);
+    return requestPromise;
   }
 
   async updateArtist(artistId, updates) {

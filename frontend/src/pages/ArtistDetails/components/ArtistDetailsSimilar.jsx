@@ -144,7 +144,15 @@ export function ArtistDetailsSimilar({
                 <div
                   key={similar.id}
                   className="group w-[148px] shrink-0 cursor-pointer sm:w-[164px]"
-                  onClick={() => onArtistClick(similar.id, similar.name)}
+                  onClick={() =>
+                    onArtistClick(
+                      similar.id,
+                      similar.name,
+                      typeof libraryLookup[artistId] === "boolean"
+                        ? libraryLookup[artistId]
+                        : undefined,
+                    )
+                  }
                 >
                   <div
                     className="relative aspect-square overflow-hidden  mb-2 shadow-sm group-hover:shadow-md transition-all"

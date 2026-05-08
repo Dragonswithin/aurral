@@ -113,6 +113,10 @@ function Layout({ children, appVersion }) {
     setIsMobileMenuOpen(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [location.pathname, location.search]);
+
   return (
     <div className="min-h-screen font-sans antialiased transition-colors duration-200">
       <Sidebar

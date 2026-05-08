@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { Loader, Music, X } from "lucide-react";
 import { useToast } from "../../contexts/ToastContext";
@@ -63,6 +63,16 @@ function ArtistDetailsPage() {
   const { state: locationState } = useLocation();
   const navigate = useNavigate();
   const artistNameFromNav = locationState?.artistName;
+  const initialLibraryHint = useMemo(
+    () => ({
+      existsInLibrary:
+        typeof locationState?.inLibrary === "boolean"
+          ? locationState.inLibrary
+          : undefined,
+      libraryArtist: locationState?.libraryArtist || null,
+    }),
+    [locationState?.inLibrary, locationState?.libraryArtist],
+  );
   const { showSuccess, showError } = useToast();
   const { hasPermission } = useAuth();
   const similarArtistsScrollRef = useRef(null);
@@ -104,6 +114,7 @@ function ArtistDetailsPage() {
         ...visibleReleaseGroupCoverIds,
         ...visibleLibraryCoverIds,
       ],
+      initialLibraryHint,
     },
   );
   const canAddArtist = hasPermission("addArtist");
@@ -129,6 +140,7 @@ function ArtistDetailsPage() {
     loadingSimilar,
     setLoadingSimilar,
     loadingLibrary,
+    loadingReleases,
     existsInLibrary,
     setExistsInLibrary,
     appSettings,
@@ -318,7 +330,9 @@ function ArtistDetailsPage() {
       setShowEditIdsModal(false);
       const name = artist?.name || artistNameFromNav || "";
       const [details, cover, previewData, similar] = await Promise.all([
-        getArtistDetails(mbid, name).catch(() => null),
+        getArtistDetails(mbid, name, {
+          releaseTypes: selectedReleaseTypes,
+        }).catch(() => null),
         getArtistCover(mbid, name, true).catch(() => ({ images: [] })),
         getArtistPreview(mbid, name).catch(() => ({ tracks: [] })),
         getSimilarArtistsForArtist(mbid, name).catch(() => ({ artists: [] })),
@@ -598,6 +612,7 @@ function ArtistDetailsPage() {
           secondaryReleaseTypes={secondaryReleaseTypes}
           showFilterDropdown={showFilterDropdown}
           setShowFilterDropdown={setShowFilterDropdown}
+          loadingReleases={loadingReleases}
           existsInLibrary={existsInLibrary}
           canBulkAddAlbums={canBulkAddAlbums}
           handleMonitorAll={library.handleMonitorAll}
@@ -633,8 +648,13 @@ function ArtistDetailsPage() {
           loadingSimilar={loadingSimilar}
           similarArtists={similarArtists}
           similarArtistsScrollRef={similarArtistsScrollRef}
-          onArtistClick={(id, name) =>
-            navigate(`/artist/${id}`, { state: { artistName: name } })
+          onArtistClick={(id, name, inLibrary = undefined) =>
+            navigate(`/artist/${id}`, {
+              state: {
+                artistName: name,
+                ...(typeof inLibrary === "boolean" ? { inLibrary } : {}),
+              },
+            })
           }
         />
       )}

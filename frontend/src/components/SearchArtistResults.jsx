@@ -201,7 +201,12 @@ function SearchArtistResults({
             <div
               onClick={() =>
                 navigate(`/artist/${artistId}`, {
-                  state: { artistName: artist.name },
+                  state: {
+                    artistName: artist.name,
+                    ...(typeof libraryLookup[artistId] === "boolean"
+                      ? { inLibrary: libraryLookup[artistId] }
+                      : {}),
+                  },
                 })
               }
               className="relative mb-3 aspect-square cursor-pointer overflow-hidden shadow-sm transition-all group-hover:shadow-md"
@@ -223,10 +228,15 @@ function SearchArtistResults({
                 <div className="flex min-w-0 items-center gap-2">
                   <h3
                     onClick={() =>
-                      navigate(`/artist/${artistId}`, {
-                        state: { artistName: artist.name },
-                      })
-                    }
+                    navigate(`/artist/${artistId}`, {
+                      state: {
+                        artistName: artist.name,
+                        ...(typeof libraryLookup[artistId] === "boolean"
+                          ? { inLibrary: libraryLookup[artistId] }
+                          : {}),
+                      },
+                    })
+                  }
                     className="truncate cursor-pointer font-semibold hover:underline"
                     style={{ color: "#fff" }}
                     title={artist.name}

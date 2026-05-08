@@ -33,6 +33,7 @@ export function ArtistDetailsReleaseGroups({
   secondaryReleaseTypes,
   showFilterDropdown,
   setShowFilterDropdown,
+  loadingReleases,
   albumCovers,
   expandedReleaseGroup,
   albumTracks,
@@ -258,8 +259,7 @@ export function ArtistDetailsReleaseGroups({
     .filter((rg) => matchesReleaseTypeFilter(rg, selectedReleaseTypes))
     .filter((rg) => !isReleaseGroupDownloadedInLibrary(rg.id));
   const visibleCoverSourceKey = filtered.map((rg) => rg.id).join(",");
-  const totalCount = releaseGroups.length;
-  const filteredCount = filtered.length;
+  const visibleCount = filtered.length;
   const { pivot: popularityPivot } = getPopularityScale(releaseGroups);
   const sortedReleaseGroups = [...filtered].sort((a, b) => {
     const fansA = typeof a?.fans === "number" ? a.fans : 0;
@@ -333,8 +333,14 @@ export function ArtistDetailsReleaseGroups({
               className="flex items-center text-lg font-semibold"
               style={{ color: "#fff" }}
             >
-              Releases ({filteredCount}/{totalCount})
+              Releases ({visibleCount})
             </h2>
+            {loadingReleases ? (
+              <Loader
+                className="h-4 w-4 animate-spin"
+                style={{ color: "#c1c1c3" }}
+              />
+            ) : null}
             <button
               type="button"
               onClick={() =>
@@ -1029,6 +1035,7 @@ ArtistDetailsReleaseGroups.propTypes = {
   secondaryReleaseTypes: PropTypes.arrayOf(PropTypes.string),
   showFilterDropdown: PropTypes.bool,
   setShowFilterDropdown: PropTypes.func,
+  loadingReleases: PropTypes.bool,
   albumCovers: PropTypes.object,
   expandedReleaseGroup: PropTypes.string,
   albumTracks: PropTypes.object,

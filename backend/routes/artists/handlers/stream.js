@@ -20,6 +20,14 @@ export default function registerStream(router) {
     try {
       const { mbid } = req.params;
       const streamArtistName = (req.query.artistName || "").trim();
+      const selectedReleaseTypes =
+        typeof req.query.releaseTypes === "string" &&
+        req.query.releaseTypes.trim()
+          ? req.query.releaseTypes
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean)
+          : null;
 
       if (!UUID_REGEX.test(mbid)) {
         return res.status(400).json({
@@ -95,10 +103,10 @@ export default function registerStream(router) {
           : (async () => {
               if (streamArtistName) return streamArtistName;
               const name =
+                (await musicbrainzGetArtistNameByMbid(resolvedMbid)) ||
                 (getLastfmApiKey()
                   ? await lastfmGetArtistNameByMbid(resolvedMbid)
                   : null) ||
-                (await musicbrainzGetArtistNameByMbid(resolvedMbid)) ||
                 "Unknown Artist";
               return name;
             })();
@@ -113,7 +121,17 @@ export default function registerStream(router) {
 
           try {
             const lidarrArtist = await lidarrClient.getArtistByMbid(mbid);
-            if (!lidarrArtist || !isClientConnected()) return;
+            if (!lidarrArtist) {
+              if (isClientConnected()) {
+                sendSSE(res, "library", {
+                  exists: false,
+                  artist: null,
+                  albums: [],
+                });
+              }
+              return;
+            }
+            if (!isClientConnected()) return;
 
             console.log(
               `[Artists Stream] Found artist in Lidarr: ${lidarrArtist.artistName}`,
@@ -128,14 +146,24 @@ export default function registerStream(router) {
               },
             });
 
-            const libraryArtist = await libraryManager.getArtist(mbid);
-            const lidarrAlbums = libraryArtist
-              ? await libraryManager.getAlbums(libraryArtist.id)
-              : [];
+            const libArtist = libraryManager.mapLidarrArtist(lidarrArtist);
+            sendSSE(res, "library", {
+              exists: true,
+              artist: {
+                ...libArtist,
+                foreignArtistId: libArtist.foreignArtistId || libArtist.mbid,
+                added: libArtist.addedAt,
+              },
+              albums: [],
+            });
+
+            const lidarrAlbums = await libraryManager.getAlbums(
+              libArtist.id,
+              lidarrArtist,
+            );
 
             if (!isClientConnected()) return;
 
-            const libArtist = libraryManager.mapLidarrArtist(lidarrArtist);
             sendSSE(res, "library", {
               exists: true,
               artist: {
@@ -183,6 +211,7 @@ export default function registerStream(router) {
         if (!pendingPromise) {
           const releaseGroupsPromise = musicbrainzGetArtistReleaseGroups(
             resolvedMbid,
+            selectedReleaseTypes,
           ).catch(() => []);
 
           tasks.push(
@@ -241,8 +270,8 @@ export default function registerStream(router) {
                 .catch(() => [])
             : Promise.resolve([]);
 
-          const bioPromise = namePromise
-            .then((name) => getArtistBio(name, resolvedMbid).catch(() => null))
+          const bioPromise = getArtistBio(null, resolvedMbid)
+            .catch(() => null)
             .then((bio) => {
               if (!bio || !isClientConnected()) return bio;
               sendArtist({ id: resolvedMbid, bio });

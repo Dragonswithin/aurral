@@ -87,6 +87,21 @@ export function useArtistDetailsLibrary({
   const reSearchOverridesRef = useRef({});
   const unmonitoredAtRef = useRef({});
   const libraryAlbumIdsRef = useRef([]);
+  const viewedArtistIdRef = useRef(artist?.id || null);
+  const currentLibraryArtistIdRef = useRef(libraryArtist?.id || null);
+  const libraryRefreshTimeoutsRef = useRef(new Set());
+
+  useEffect(() => {
+    viewedArtistIdRef.current = artist?.id || null;
+    for (const timeoutId of libraryRefreshTimeoutsRef.current) {
+      clearTimeout(timeoutId);
+    }
+    libraryRefreshTimeoutsRef.current.clear();
+  }, [artist?.id]);
+
+  useEffect(() => {
+    currentLibraryArtistIdRef.current = libraryArtist?.id || null;
+  }, [libraryArtist?.id]);
 
   useEffect(() => {
     libraryAlbumIdsRef.current = libraryAlbums
@@ -1030,6 +1045,9 @@ export function useArtistDetailsLibrary({
 
   useEffect(() => {
     if (!libraryAlbums.length || !libraryArtist) return;
+    const viewedArtistId = artist?.id || null;
+    const libraryArtistId = libraryArtist.id;
+    const refreshTimeouts = libraryRefreshTimeoutsRef.current;
     const pollDownloadStatus = async () => {
       try {
         const albumIds = libraryAlbums.map((a) => a.id).filter(Boolean);
@@ -1098,27 +1116,38 @@ export function useArtistDetailsLibrary({
                   s.status === "adding"),
             );
             if (hasNewlyAdded || hasActiveDownloads) {
-              setTimeout(
-                async () => {
-                  try {
-                    const refreshedAlbums = await getLibraryAlbums(
-                      libraryArtist.id,
-                    );
-                    const now = Date.now();
-                    const cutoff = now - 120000;
-                    const merged = refreshedAlbums.map((a) => {
-                      const at = unmonitoredAtRef.current[a.id];
-                      if (at != null && at >= cutoff && a.monitored)
-                        return { ...a, monitored: false };
-                      return a;
-                    });
-                    setLibraryAlbums(deduplicateAlbums(merged));
-                  } catch (err) {
-                    console.error("Failed to refresh albums:", err);
+              const timeoutId = setTimeout(async () => {
+                refreshTimeouts.delete(timeoutId);
+                if (
+                  viewedArtistIdRef.current !== viewedArtistId ||
+                  currentLibraryArtistIdRef.current !== libraryArtistId
+                ) {
+                  return;
+                }
+                try {
+                  const refreshedAlbums = await getLibraryAlbums(
+                    libraryArtistId,
+                  );
+                  if (
+                    viewedArtistIdRef.current !== viewedArtistId ||
+                    currentLibraryArtistIdRef.current !== libraryArtistId
+                  ) {
+                    return;
                   }
-                },
-                hasNewlyAdded ? 2000 : 5000,
-              );
+                  const now = Date.now();
+                  const cutoff = now - 120000;
+                  const merged = refreshedAlbums.map((a) => {
+                    const at = unmonitoredAtRef.current[a.id];
+                    if (at != null && at >= cutoff && a.monitored)
+                      return { ...a, monitored: false };
+                    return a;
+                  });
+                  setLibraryAlbums(deduplicateAlbums(merged));
+                } catch (err) {
+                  console.error("Failed to refresh albums:", err);
+                }
+              }, hasNewlyAdded ? 2000 : 5000);
+              refreshTimeouts.add(timeoutId);
             }
             return nextStatuses;
           });
@@ -1129,14 +1158,28 @@ export function useArtistDetailsLibrary({
     };
     pollDownloadStatus();
     const interval = setInterval(pollDownloadStatus, 15000);
-    return () => clearInterval(interval);
-  }, [libraryAlbums, libraryArtist, requestingAlbum, setLibraryAlbums]);
+    return () => {
+      clearInterval(interval);
+      for (const timeoutId of refreshTimeouts) {
+        clearTimeout(timeoutId);
+      }
+      refreshTimeouts.clear();
+    };
+  }, [artist?.id, libraryAlbums, libraryArtist, requestingAlbum, setLibraryAlbums]);
 
   useEffect(() => {
     if (!libraryArtist) return;
+    const viewedArtistId = artist?.id || null;
+    const libraryArtistId = libraryArtist.id;
     const refreshAlbums = async () => {
       try {
-        const refreshedAlbums = await getLibraryAlbums(libraryArtist.id);
+        const refreshedAlbums = await getLibraryAlbums(libraryArtistId);
+        if (
+          viewedArtistIdRef.current !== viewedArtistId ||
+          currentLibraryArtistIdRef.current !== libraryArtistId
+        ) {
+          return;
+        }
         const now = Date.now();
         const cutoff = now - 120000;
         const merged = refreshedAlbums.map((a) => {
@@ -1152,7 +1195,7 @@ export function useArtistDetailsLibrary({
     };
     const interval = setInterval(refreshAlbums, 30000);
     return () => clearInterval(interval);
-  }, [libraryArtist, setLibraryAlbums]);
+  }, [artist?.id, libraryArtist, setLibraryAlbums]);
 
   return {
     requestingAlbum,
