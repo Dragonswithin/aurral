@@ -965,6 +965,13 @@ export const deleteSharedPlaylistTrack = async (playlistId, jobId) => {
   return response.data;
 };
 
+export const reSearchSharedPlaylistTrack = async (playlistId, jobId) => {
+  const response = await api.post(
+    `/weekly-flow/shared-playlists/${playlistId}/tracks/${jobId}/research`,
+  );
+  return response.data;
+};
+
 export const startFlowPlaylist = async (flowId, limit = 30) => {
   const response = await api.post(`/weekly-flow/start/${flowId}`, {
     limit,

@@ -548,6 +548,7 @@ export class WeeklyFlowDownloadTracker {
     job.startedAt = null;
     job.completedAt = null;
     job.stagingPath = null;
+    job.finalPath = null;
     job.retryCycle = asRetryCycle;
     job.error =
       typeof error === "string" ? error : (error && error.message) || null;

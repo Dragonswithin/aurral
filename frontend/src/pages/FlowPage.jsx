@@ -18,6 +18,7 @@ import {
   getFlowArtworkUrl,
   updateFlowWorkerSettings,
   setPlaylistRetryCyclePaused,
+  reSearchSharedPlaylistTrack,
 } from "../utils/api";
 import {
   CreatePlaylistModal,
@@ -815,6 +816,7 @@ function FlowPage() {
   const [applyingSharedPlaylistId, setApplyingSharedPlaylistId] = useState(null);
   const [applyingSharedPlaylistNameId, setApplyingSharedPlaylistNameId] = useState(null);
   const [retryActionPlaylistId, setRetryActionPlaylistId] = useState(null);
+  const [reSearchingTrackIds, setReSearchingTrackIds] = useState({});
   const [trackEditingId, setTrackEditingId] = useState(null);
   const [flowStatsById, setFlowStatsById] = useState({});
   const [tracksExpandedId, setTracksExpandedId] = useState(null);
@@ -1818,6 +1820,57 @@ function FlowPage() {
     }
   };
 
+  const handleReSearchSharedPlaylistTrack = async (playlistId, track) => {
+    const jobId = track?.id;
+    if (!playlistId || !jobId || reSearchingTrackIds[jobId]) return;
+    setReSearchingTrackIds((prev) => ({
+      ...prev,
+      [jobId]: true,
+    }));
+    setTracksByFlowId((prev) => {
+      const existing = Array.isArray(prev[playlistId]) ? prev[playlistId] : [];
+      return {
+        ...prev,
+        [playlistId]: existing.map((entry) =>
+          entry?.id === jobId
+            ? {
+                ...entry,
+                status: "pending",
+                error: null,
+                streamUrl: null,
+              }
+            : entry,
+        ),
+      };
+    });
+    try {
+      await reSearchSharedPlaylistTrack(playlistId, jobId);
+      showSuccess(`Re-searching ${track.trackName}`);
+      await fetchStatus();
+      await fetchFlowTracks(playlistId, {
+        showSpinner: false,
+        includeFailed: true,
+      });
+    } catch (err) {
+      const message =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        err.message ||
+        "Failed to re-search track";
+      showError(message);
+      await fetchFlowTracks(playlistId, {
+        showSpinner: false,
+        includeFailed: true,
+      });
+    } finally {
+      setReSearchingTrackIds((prev) => {
+        const next = { ...prev };
+        delete next[jobId];
+        return next;
+      });
+    }
+  };
+
   const handleNavigateArtist = (track) => {
     if (!track?.artistMbid) return;
     navigate(`/artist/${track.artistMbid}`, {
@@ -1952,6 +2005,10 @@ function FlowPage() {
                   })
                 }
                 onNavigateArtist={handleNavigateArtist}
+                reSearchingTrackIds={reSearchingTrackIds}
+                onReSearchTrack={(track) =>
+                  handleReSearchSharedPlaylistTrack(playlist.id, track)
+                }
                 retryCyclePaused={retryCyclePausedByPlaylist[playlist.id] === true}
                 retryCycleScheduled={
                   retryCycleScheduledByPlaylist[playlist.id] === true
