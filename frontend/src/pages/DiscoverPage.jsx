@@ -15,7 +15,6 @@ import {
   CheckCircle2,
   MapPin,
   Pencil,
-  Ticket,
   MoreVertical,
   Ban,
   Loader2,
@@ -686,7 +685,7 @@ const ShowCard = memo(({ show }) => {
                 {showLocation && (
                   <p className="flex items-start gap-2">
                     <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span className="line-clamp-2">{showLocation}</span>
+                    <span className="truncate">{showLocation}</span>
                   </p>
                 )}
               </div>
@@ -699,38 +698,48 @@ const ShowCard = memo(({ show }) => {
         className="group hidden flex-col overflow-hidden border border-white/10 sm:flex"
         style={{ backgroundColor: "#191820" }}
       >
-        <div className="relative aspect-[16/9] overflow-hidden" style={{ backgroundColor: "#211f27" }}>
-          {show.image ? (
-            <img
-              src={show.image}
-              alt={show.eventName || show.artistName}
-              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-              loading="lazy"
-              decoding="async"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center">
-              <Music className="w-10 h-10" style={{ color: "#c1c1c3" }} />
-            </div>
-          )}
-          <div className="absolute left-3 top-3 flex gap-2">
-            {Number.isFinite(show.distance) && (
-              <span
-                className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide"
-                style={{ backgroundColor: "rgba(20,20,26,0.82)", color: "#fff" }}
-              >
-                {Math.round(show.distance)} mi
-              </span>
+        <a href={show.url || "#"} target="_blank" rel="noopener noreferrer">
+          <div className="relative aspect-[16/9] overflow-hidden" style={{ backgroundColor: "#211f27" }}>
+            {show.image ? (
+              <img
+                src={show.image}
+                alt={show.eventName || show.artistName}
+                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                loading="lazy"
+                decoding="async"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center">
+                <Music className="w-10 h-10" style={{ color: "#c1c1c3" }} />
+              </div>
             )}
+            <div className="absolute left-3 top-3 flex gap-2">
+              {Number.isFinite(show.distance) && (
+                <span
+                  className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide"
+                  style={{ backgroundColor: "rgba(20,20,26,0.82)", color: "#fff" }}
+                >
+                  {Math.round(show.distance)} mi
+                </span>
+              )}
+            </div>
           </div>
-        </div>
+        </a>
         <div className="flex flex-1 flex-col gap-3 p-4">
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-[0.22em]" style={{ color: "#8a8a8f" }}>
               {show.artistName}
             </p>
-            <h3 className="mt-1 text-lg font-semibold leading-tight" style={{ color: "#fff" }}>
-              {show.eventName}
+            <h3 className="mt-1 text-lg font-semibold leading-tight">
+              <a
+                href={show.url || "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="transition-opacity hover:opacity-80"
+                style={{ color: "#fff" }}
+              >
+                {show.eventName}
+              </a>
             </h3>
           </div>
           <div className="space-y-2 text-sm" style={{ color: "#c1c1c3" }}>
@@ -743,21 +752,9 @@ const ShowCard = memo(({ show }) => {
             {showLocation && (
               <p className="flex items-start gap-2">
                 <MapPin className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{showLocation}</span>
+                <span className="truncate">{showLocation}</span>
               </p>
             )}
-          </div>
-          <div className="mt-auto pt-2">
-            <a
-              href={show.url || "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors hover:opacity-90"
-              style={{ backgroundColor: "#707e61", color: "#0b0b0c" }}
-            >
-              <Ticket className="w-4 h-4" />
-              Tickets
-            </a>
           </div>
         </div>
       </article>
@@ -1646,7 +1643,7 @@ function DiscoverPage() {
                   }}
                   className="px-3 py-1.5 text-xs font-medium transition-colors"
                   style={{
-                    backgroundColor: !zipModeActive ? "#707e61" : "transparent",
+                    backgroundColor: !zipModeActive ? "#5a5a5f" : "transparent",
                     color: !zipModeActive ? "#0b0b0c" : "#c1c1c3",
                   }}
                 >
@@ -1662,7 +1659,7 @@ function DiscoverPage() {
                   }}
                   className="px-3 py-1.5 text-xs font-medium transition-colors"
                   style={{
-                    backgroundColor: zipModeActive ? "#707e61" : "transparent",
+                    backgroundColor: zipModeActive ? "#5a5a5f" : "transparent",
                     color: zipModeActive ? "#0b0b0c" : "#c1c1c3",
                   }}
                 >
