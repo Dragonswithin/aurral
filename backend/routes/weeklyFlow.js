@@ -1311,6 +1311,64 @@ router.delete(
   },
 );
 
+router.post(
+  "/shared-playlists/:playlistId/tracks/:jobId/research",
+  async (req, res) => {
+    try {
+      const { playlistId, jobId } = req.params;
+      const playlist = flowPlaylistConfig.getSharedPlaylist(playlistId);
+      if (!playlist) {
+        return res.status(404).json({ error: "Shared playlist not found" });
+      }
+
+      const job = downloadTracker.getJob(jobId);
+      if (!job || job.playlistType !== playlistId) {
+        return res.status(404).json({ error: "Track not found" });
+      }
+
+      if (job.status === "pending" || job.status === "downloading") {
+        return res.status(409).json({
+          error: "Track is already being processed",
+        });
+      }
+
+      if (job.status === "done" && typeof job.finalPath === "string") {
+        const playlistRoot = getPlaylistLibraryRoot(playlistId);
+        const safeFinalPath = path.resolve(job.finalPath);
+        if (!isPathInsideRoot(safeFinalPath, playlistRoot)) {
+          return res.status(400).json({
+            error: "Track path is outside the playlist library",
+          });
+        }
+        await fsp.rm(safeFinalPath, { force: true });
+      }
+
+      const reset = downloadTracker.setPending(jobId, null);
+      if (!reset) {
+        return res.status(500).json({
+          error: "Failed to requeue track",
+        });
+      }
+
+      await restartWorkerIfPending();
+      if (weeklyFlowWorker.running) {
+        weeklyFlowWorker.wake();
+      }
+
+      res.json({
+        success: true,
+        jobId,
+        playlistId,
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: "Failed to re-search shared playlist track",
+        message: error.message,
+      });
+    }
+  },
+);
+
 router.delete("/shared-playlists/:playlistId", async (req, res) => {
   try {
     const { playlistId } = req.params;

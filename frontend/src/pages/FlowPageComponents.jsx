@@ -26,6 +26,7 @@ import {
   Volume2,
   VolumeX,
   Plus,
+  Search,
   ChevronDown,
   MoreHorizontal,
   X,
@@ -1664,7 +1665,7 @@ export function FlowCard({
                     aria-label={`Edit ${flow.name} name`}
                   />
                 ) : (
-                  <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-white sm:text-base">
+                  <h3 className="min-w-0 truncate text-sm font-medium text-white sm:text-base">
                     {flow.name}
                   </h3>
                 )}
@@ -1805,9 +1806,11 @@ export function FlowTracksPanel({
   showFailedDetails = true,
   headerActions = null,
   deletingTrackId = null,
+  reSearchingTrackIds = {},
   onDeleteTrack,
   onAddTrackToPlaylist,
   onNavigateArtist,
+  onReSearchTrack,
 }) {
   const [queue, setQueue] = useState([]);
   const [currentTrackId, setCurrentTrackId] = useState(null);
@@ -2140,6 +2143,11 @@ export function FlowTracksPanel({
               {visibleTracks.map((track, index) => {
                 const canPlay = track.status === "done" && !!track.streamUrl;
                 const canDelete = editable && track.status === "done" && !!track.id;
+                const canReSearch =
+                  typeof onReSearchTrack === "function" &&
+                  !!track.id &&
+                  (track.status === "done" || track.status === "failed");
+                const isReSearching = reSearchingTrackIds[track.id] === true;
                 const isCurrent = track.id === currentTrackId;
                 const progressWidth = `${Math.round(playbackProgress * 100)}%`;
                 return (
@@ -2212,6 +2220,21 @@ export function FlowTracksPanel({
                             disabled={!track.artistName || !track.trackName}
                           >
                             <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        ) : null}
+                        {canReSearch ? (
+                          <button
+                            onClick={() => onReSearchTrack(track)}
+                            className="btn btn-secondary btn-xs px-2"
+                            aria-label={`Re-search ${track.trackName}`}
+                            title={`Re-search ${track.trackName}`}
+                            disabled={isReSearching}
+                          >
+                            {isReSearching ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Search className="w-3.5 h-3.5" />
+                            )}
                           </button>
                         ) : null}
                         {canDelete ? (
@@ -2288,6 +2311,8 @@ export function SharedPlaylistCard({
   onViewTracks,
   onAddTrackToPlaylist,
   onNavigateArtist,
+  reSearchingTrackIds,
+  onReSearchTrack,
   retryCyclePaused,
   retryCycleScheduled,
   retryActionInFlight,
@@ -2449,7 +2474,7 @@ export function SharedPlaylistCard({
                     aria-label={`Edit ${playlist.name} name`}
                   />
                 ) : (
-                  <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-white sm:text-base">
+                  <h3 className="min-w-0 truncate text-sm font-medium text-white sm:text-base">
                     {playlist.name}
                   </h3>
                 )}
@@ -2611,6 +2636,8 @@ export function SharedPlaylistCard({
               }
               onAddTrackToPlaylist={onAddTrackToPlaylist}
               onNavigateArtist={onNavigateArtist}
+              reSearchingTrackIds={reSearchingTrackIds}
+              onReSearchTrack={onReSearchTrack}
             />
           )}
         </div>
