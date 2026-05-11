@@ -72,6 +72,18 @@ function getSettings() {
   return dbOps.getSettings();
 }
 
+function normalizeTrackLookupText(value) {
+  return String(value || "")
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function parseReleaseYear(value) {
+  const match = /^(\d{4})/.exec(String(value || "").trim());
+  return match ? match[1] : null;
+}
+
 function normalizeReleaseTypeName(value) {
   return String(value || "")
     .toLowerCase()
@@ -1279,6 +1291,141 @@ export class LibraryManager {
         `[LibraryManager] Failed to fetch tracks from Lidarr: ${error.message}`,
       );
       return [];
+    }
+  }
+
+  async findReusableTrack(track) {
+    const lidarr = await getLidarrClient();
+    if (!lidarr || !lidarr.isConfigured()) {
+      return null;
+    }
+
+    const incomingArtist = normalizeTrackLookupText(track?.artistName);
+    const incomingTrack = normalizeTrackLookupText(track?.trackName);
+    const incomingAlbum = normalizeTrackLookupText(track?.albumName);
+    const incomingTrackMbid = String(track?.trackMbid || "").trim();
+    const incomingAlbumMbid = String(track?.albumMbid || "").trim();
+    const incomingYear = parseReleaseYear(track?.releaseYear);
+
+    if (!incomingArtist || !incomingTrack) {
+      return null;
+    }
+
+    try {
+      const rawAlbums = await lidarr.request("/album");
+      const albums = Array.isArray(rawAlbums) ? rawAlbums : [];
+      const narrowedAlbums = albums.filter((album) => {
+        const albumArtist = normalizeTrackLookupText(
+          album?.artistName ||
+            album?.artist?.artistName ||
+            album?.artist?.name ||
+            album?.artist?.sortName ||
+            "",
+        );
+        return albumArtist === incomingArtist;
+      });
+
+      if (narrowedAlbums.length === 0) {
+        return null;
+      }
+
+      const candidates = [];
+      for (const album of narrowedAlbums) {
+        const albumId = album?.id;
+        if (albumId == null) continue;
+        const albumName = String(album?.title || "").trim() || null;
+        const artistName =
+          String(
+            album?.artistName ||
+              album?.artist?.artistName ||
+              album?.artist?.name ||
+              "",
+          ).trim() || null;
+        const releaseYear = parseReleaseYear(album?.releaseDate);
+        const tracks = await this.getTracks(String(albumId));
+        for (const entry of tracks) {
+          const candidatePath = String(entry?.path || "").trim();
+          if (!candidatePath || entry?.hasFile !== true) {
+            continue;
+          }
+          const candidateTrackMbid = String(entry?.mbid || "").trim();
+          const candidateArtist = normalizeTrackLookupText(artistName);
+          const candidateTrack = normalizeTrackLookupText(entry?.trackName);
+          if (candidateArtist !== incomingArtist || candidateTrack !== incomingTrack) {
+            continue;
+          }
+          candidates.push({
+            path: candidatePath,
+            artistName,
+            trackName: String(entry?.trackName || "").trim() || null,
+            albumName,
+            trackMbid: candidateTrackMbid || null,
+            size:
+              entry?.size != null && Number.isFinite(Number(entry.size))
+                ? Number(entry.size)
+                : 0,
+            hasFile: true,
+            releaseYear,
+            _score: {
+              mbid:
+                incomingTrackMbid &&
+                candidateTrackMbid &&
+                candidateTrackMbid === incomingTrackMbid
+                  ? 1
+                  : 0,
+              album:
+                (incomingAlbumMbid &&
+                  String(album?.foreignAlbumId || "").trim() === incomingAlbumMbid) ||
+                (incomingAlbum &&
+                  normalizeTrackLookupText(albumName) === incomingAlbum)
+                  ? 1
+                  : 0,
+              year:
+                incomingYear && releaseYear && incomingYear === releaseYear ? 1 : 0,
+            },
+          });
+        }
+      }
+
+      if (candidates.length === 0) {
+        return null;
+      }
+
+      candidates.sort((left, right) => {
+        if (right._score.mbid !== left._score.mbid) {
+          return right._score.mbid - left._score.mbid;
+        }
+        if (right._score.album !== left._score.album) {
+          return right._score.album - left._score.album;
+        }
+        if (right._score.year !== left._score.year) {
+          return right._score.year - left._score.year;
+        }
+        if (right.size !== left.size) {
+          return right.size - left.size;
+        }
+        return String(left.path).localeCompare(String(right.path));
+      });
+
+      const [best] = candidates;
+      if (!best) {
+        return null;
+      }
+      return {
+        path: best.path,
+        artistName: best.artistName,
+        trackName: best.trackName,
+        albumName: best.albumName,
+        trackMbid: best.trackMbid,
+        size: best.size,
+        hasFile: true,
+        releaseYear: best.releaseYear,
+      };
+    } catch (error) {
+      console.error(
+        `[LibraryManager] Failed reusable track lookup for ${track?.artistName || "Unknown Artist"} - ${track?.trackName || "Unknown Track"}: ${error.message}`,
+      );
+      return null;
     }
   }
 
