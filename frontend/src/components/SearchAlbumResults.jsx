@@ -14,7 +14,6 @@ function getAlbumActionLabel(album, isPending, canAddAlbum) {
 
 function isAlbumActionDisabled(album, isPending, canAddAlbum) {
   if (!canAddAlbum) return true;
-  if (album.status === "available") return true;
   return isPending || ["searching", "downloading", "processing"].includes(album.status);
 }
 
@@ -42,7 +41,7 @@ function AlbumCover({ src, alt }) {
     <img
       src={src}
       alt={alt}
-      className="h-full w-full object-cover"
+      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
       loading="lazy"
       decoding="async"
       onError={() => setFailed(true)}
@@ -78,6 +77,13 @@ function SearchAlbumResults({
         const releaseYear = getReleaseYear(album.releaseDate);
         const releaseType =
           album.primaryType || album.secondaryTypes?.[0] || null;
+        const handlePrimaryAction = () => {
+          if (album.status === "available") {
+            openArtist(album);
+            return;
+          }
+          onAlbumAction(album);
+        };
 
         return (
           <div
@@ -112,15 +118,16 @@ function SearchAlbumResults({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => onAlbumAction(album)}
+                    onClick={handlePrimaryAction}
                     disabled={actionDisabled}
-                    className="group inline-flex h-9 w-9 items-center overflow-hidden border border-white/10 backdrop-blur-sm transition-all duration-200 ease-out hover:w-[142px] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-9 w-9 items-center overflow-hidden border border-white/10 backdrop-blur-sm transition-all duration-200 ease-out hover:w-[142px] disabled:cursor-not-allowed [&:hover_.album-action-label]:translate-x-0 [&:hover_.album-action-label]:opacity-100"
                     style={{
                       backgroundColor:
                         album.status === "available"
                           ? "rgba(112,126,97,0.9)"
-                          : "rgba(20,19,24,0.78)",
-                      color: "#fff",
+                        : "rgba(20,19,24,0.78)",
+                      color: album.status === "available" ? "#ffffff" : "#fff",
+                      opacity: actionDisabled && album.status !== "available" ? 0.5 : 1,
                     }}
                     aria-label={getAlbumActionLabel(album, isPending, canAddAlbum)}
                     title={getAlbumActionLabel(album, isPending, canAddAlbum)}
@@ -130,25 +137,12 @@ function SearchAlbumResults({
                         className={`h-4 w-4 ${isPending ? "animate-spin" : ""}`}
                       />
                     </span>
-                    <span className="pr-3 text-xs font-medium whitespace-nowrap opacity-0 transition-all duration-150 ease-out -translate-x-2 group-hover:translate-x-0 group-hover:opacity-100">
+                    <span className="album-action-label pr-3 text-xs font-medium whitespace-nowrap opacity-0 transition-all duration-150 ease-out -translate-x-2">
                       {getAlbumActionLabel(album, isPending, canAddAlbum)}
                     </span>
                   </button>
                 </div>
 
-                {album.inLibrary ? (
-                  <span
-                    className="flex h-9 w-9 items-center justify-center border border-emerald-300/25 backdrop-blur-sm"
-                    style={{
-                      backgroundColor: "rgba(112,126,97,0.9)",
-                      color: "#f5f5f6",
-                    }}
-                    aria-label="In library"
-                    title="In library"
-                  >
-                    <Check className="h-4 w-4" />
-                  </span>
-                ) : null}
               </div>
 
               <div
