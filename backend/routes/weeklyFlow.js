@@ -15,6 +15,7 @@ import {
 } from "../services/weeklyFlowPlaylistConfig.js";
 import { weeklyFlowOperationQueue } from "../services/weeklyFlowOperationQueue.js";
 import { getWeeklyFlowStatusSnapshot } from "../services/weeklyFlowStatusSnapshot.js";
+import { reuseTrackForStaticPlaylist } from "../services/staticPlaylistLibraryReuse.js";
 import { noCache } from "../middleware/cache.js";
 import { hasPermission, verifyTokenAuth } from "../middleware/auth.js";
 import {
@@ -912,12 +913,37 @@ router.post("/shared-playlists", async (req, res) => {
     });
 
     let tracksQueued = 0;
-    if (normalizedTracks.length > 0) {
-      tracksQueued = downloadTracker.addJobs(normalizedTracks, playlist.id).length;
+    let tracksReused = 0;
+    const reusedJobIds = [];
+    const tracksToQueue = [];
+    for (const track of normalizedTracks) {
+      try {
+        const reused = await reuseTrackForStaticPlaylist(track, playlist.id);
+        if (reused?.jobId) {
+          reusedJobIds.push(reused.jobId);
+          tracksReused += 1;
+        } else {
+          tracksToQueue.push(track);
+        }
+      } catch (error) {
+        console.warn(
+          `[WeeklyFlow] Failed Lidarr reuse for ${playlist.id}:`,
+          error.message,
+        );
+        tracksToQueue.push(track);
+      }
     }
+    const queuedJobIds =
+      tracksToQueue.length > 0
+        ? downloadTracker.addJobs(tracksToQueue, playlist.id)
+        : [];
+    tracksQueued = queuedJobIds.length;
 
     playlistManager.updateConfig(false);
     await playlistManager.ensureSmartPlaylists();
+    if (tracksReused > 0) {
+      await playlistManager.scanLibrary();
+    }
     if (tracksQueued > 0) {
       if (!weeklyFlowWorker.running) {
         await weeklyFlowWorker.start();
@@ -930,6 +956,8 @@ router.post("/shared-playlists", async (req, res) => {
       success: true,
       playlist,
       tracksQueued,
+      tracksReused,
+      jobIds: [...reusedJobIds, ...queuedJobIds],
     });
   } catch (error) {
     if (error?.code === "SHARED_PLAYLIST_NAME_CONFLICT") {
@@ -946,6 +974,7 @@ router.post("/shared-playlists", async (req, res) => {
 });
 
 router.post("/shared-playlists/import", async (req, res) => {
+  let playlist = null;
   try {
     const {
       name,
@@ -965,22 +994,47 @@ router.post("/shared-playlists/import", async (req, res) => {
         message: "Import file must include at least one track",
       });
     }
-    if (!soulseekClient.isConfigured()) {
-      return res.status(400).json({
-        error: "Soulseek credentials not configured",
-      });
-    }
-
-    const playlist = flowPlaylistConfig.createSharedPlaylist({
+    playlist = flowPlaylistConfig.createSharedPlaylist({
       name: safeName,
       sourceName,
       sourceFlowId,
       tracks: normalizedTracks,
     });
 
-    const jobIds = downloadTracker.addJobs(normalizedTracks, playlist.id);
+    const reusedJobIds = [];
+    const tracksToQueue = [];
+    for (const track of normalizedTracks) {
+      try {
+        const reused = await reuseTrackForStaticPlaylist(track, playlist.id);
+        if (reused?.jobId) {
+          reusedJobIds.push(reused.jobId);
+        } else {
+          tracksToQueue.push(track);
+        }
+      } catch (error) {
+        console.warn(
+          `[WeeklyFlow] Failed Lidarr reuse for ${playlist.id}:`,
+          error.message,
+        );
+        tracksToQueue.push(track);
+      }
+    }
+
+    if (tracksToQueue.length > 0 && !soulseekClient.isConfigured()) {
+      await playlistManager.weeklyReset([playlist.id]);
+      flowPlaylistConfig.deleteSharedPlaylist(playlist.id);
+      playlist = null;
+      return res.status(400).json({
+        error: "Soulseek credentials not configured",
+      });
+    }
+
+    const jobIds = downloadTracker.addJobs(tracksToQueue, playlist.id);
     playlistManager.updateConfig(false);
     await playlistManager.ensureSmartPlaylists();
+    if (reusedJobIds.length > 0) {
+      await playlistManager.scanLibrary();
+    }
     if (jobIds.length > 0 && !weeklyFlowWorker.running) {
       await weeklyFlowWorker.start();
     } else if (jobIds.length > 0) {
@@ -991,9 +1045,17 @@ router.post("/shared-playlists/import", async (req, res) => {
       success: true,
       playlist,
       tracksQueued: jobIds.length,
-      jobIds,
+      tracksReused: reusedJobIds.length,
+      jobIds: [...reusedJobIds, ...jobIds],
     });
   } catch (error) {
+    if (playlist?.id) {
+      try {
+        await playlistManager.weeklyReset([playlist.id]);
+        flowPlaylistConfig.deleteSharedPlaylist(playlist.id);
+        await playlistManager.ensureSmartPlaylists();
+      } catch {}
+    }
     if (error?.code === "SHARED_PLAYLIST_NAME_CONFLICT") {
       return res.status(400).json({
         error: "Shared playlist name already exists",
@@ -1069,7 +1131,24 @@ router.post("/shared-playlists/:playlistId/tracks", async (req, res) => {
         tracksToQueue.push(track);
       }
     }
-    const jobIds = downloadTracker.addJobs(tracksToQueue, playlistId);
+    const libraryFallbackQueue = [];
+    for (const track of tracksToQueue) {
+      try {
+        const reused = await reuseTrackForStaticPlaylist(track, playlistId);
+        if (reused?.jobId) {
+          reusedJobIds.push(reused.jobId);
+        } else {
+          libraryFallbackQueue.push(track);
+        }
+      } catch (error) {
+        console.warn(
+          `[WeeklyFlow] Failed Lidarr reuse for ${playlistId}:`,
+          error.message,
+        );
+        libraryFallbackQueue.push(track);
+      }
+    }
+    const jobIds = downloadTracker.addJobs(libraryFallbackQueue, playlistId);
 
     playlistManager.updateConfig(false);
     await playlistManager.ensureSmartPlaylists();
