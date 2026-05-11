@@ -314,7 +314,7 @@ const formatShowLocation = (show) =>
     .join(" - ");
 
 const getRecommendationReason = (artist) => {
-  if (artist?.metaText) return artist.metaText;
+  if (artist?.metaText !== undefined) return artist.metaText;
   const seedNames = Array.isArray(artist?.supportingSeeds)
     ? artist.supportingSeeds
         .map((seed) => seed?.artistName)
@@ -324,16 +324,11 @@ const getRecommendationReason = (artist) => {
   const matchedTags = Array.isArray(artist?.matchedTags)
     ? artist.matchedTags.filter(Boolean).slice(0, 2)
     : [];
-  const reasonCodes = Array.isArray(artist?.reasonCodes) ? artist.reasonCodes : [];
-
-  if (reasonCodes.includes("deeper_pick") && matchedTags.length > 0) {
-    return `A deeper pick for ${matchedTags.join(" and ")}`;
-  }
   if (matchedTags.length >= 2) {
-    return `Matches your ${matchedTags[0]} and ${matchedTags[1]} taste`;
+    return `${matchedTags[0]} + ${matchedTags[1]}`;
   }
   if (matchedTags.length === 1) {
-    return `Fits your ${matchedTags[0]} profile`;
+    return matchedTags[0];
   }
   if (seedNames.length >= 2) {
     return `Because you listen to ${seedNames[0]} and ${seedNames[1]}`;
@@ -364,6 +359,8 @@ const ArtistCard = memo(
       const [showMenu, setShowMenu] = useState(false);
       const [pendingAction, setPendingAction] = useState(null);
       const menuRef = useRef(null);
+      const menuButtonRef = useRef(null);
+      const [menuPosition, setMenuPosition] = useState(null);
       const navigateTo = artist.navigateTo || artist.id;
       const hasValidMbid =
         navigateTo && navigateTo !== "null" && navigateTo !== "undefined";
@@ -382,13 +379,38 @@ const ArtistCard = memo(
       useEffect(() => {
         if (!showMenu) return;
         const handleClickOutside = (event) => {
-          if (menuRef.current && !menuRef.current.contains(event.target)) {
+          const clickedMenu = menuRef.current?.contains(event.target);
+          const clickedButton = menuButtonRef.current?.contains(event.target);
+          if (!clickedMenu && !clickedButton) {
             setShowMenu(false);
           }
         };
         document.addEventListener("mousedown", handleClickOutside);
         return () => {
           document.removeEventListener("mousedown", handleClickOutside);
+        };
+      }, [showMenu]);
+
+      useEffect(() => {
+        if (!showMenu) {
+          setMenuPosition(null);
+          return;
+        }
+        const updateMenuPosition = () => {
+          const button = menuButtonRef.current;
+          if (!button) return;
+          const rect = button.getBoundingClientRect();
+          setMenuPosition({
+            top: rect.top - 8,
+            left: Math.max(rect.right - 176, 12),
+          });
+        };
+        updateMenuPosition();
+        window.addEventListener("resize", updateMenuPosition);
+        window.addEventListener("scroll", updateMenuPosition, true);
+        return () => {
+          window.removeEventListener("resize", updateMenuPosition);
+          window.removeEventListener("scroll", updateMenuPosition, true);
         };
       }, [showMenu]);
 
@@ -466,13 +488,15 @@ const ArtistCard = memo(
               )}
             </div>
             <div className="flex flex-col min-w-0">
-              <p
-                className="text-sm truncate"
-                style={{ color: "#c1c1c3" }}
-                title={artistMetaText || undefined}
-              >
-                {artistMetaText}
-              </p>
+              {artistMetaText ? (
+                <p
+                  className="text-sm truncate"
+                  style={{ color: "#c1c1c3" }}
+                  title={artistMetaText || undefined}
+                >
+                  {artistMetaText}
+                </p>
+              ) : null}
               {artist.subtitle && (
                 <p
                   className="text-xs truncate"
@@ -485,11 +509,9 @@ const ArtistCard = memo(
             </div>
           </div>
           {(canAddArtist || onAddToBlocklist || onFeedback) && (
-            <div
-              ref={menuRef}
-              className={`relative shrink-0 ${showMenu ? "z-40" : ""}`}
-            >
+            <div className="relative shrink-0">
               <button
+                ref={menuButtonRef}
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
@@ -501,99 +523,108 @@ const ArtistCard = memo(
               >
                 <MoreVertical className="w-4 h-4" />
               </button>
-              {showMenu && (
-                <div
-                  className="absolute right-0 bottom-full mb-2 w-44 z-30 py-1 border border-white/10 shadow-xl"
-                  style={{ backgroundColor: "#2a2830" }}
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  {canAddArtist && (
-                    <button
-                      type="button"
-                      onClick={handleAddToLibraryClick}
-                      disabled={isInLibrary || !!pendingAction}
-                      className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                      style={{ color: "#fff" }}
-                    >
-                      {pendingAction === "library" ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Library className="w-4 h-4" />
-                      )}
-                      {isInLibrary ? "In Library" : "Add to Library"}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={handleBlocklistClick}
-                    disabled={isBlocked || !!pendingAction}
-                    className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                    style={{ color: isBlocked ? "#c1c1c3" : "#fca5a5" }}
-                  >
-                    {pendingAction === "blocklist" ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Ban className="w-4 h-4" />
-                    )}
-                    {isBlocked ? "In Blocklist" : "Blocklist Artist"}
-                  </button>
-                  {onFeedback && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={(event) =>
-                          handleFeedbackClick(event, "more_like_this")
-                        }
-                        disabled={!!pendingAction}
-                        className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                        style={{ color: "#fff" }}
-                      >
-                        <ThumbsUp className="w-4 h-4" />
-                        More like this
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) =>
-                          handleFeedbackClick(event, "less_like_this")
-                        }
-                        disabled={!!pendingAction}
-                        className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                        style={{ color: "#fff" }}
-                      >
-                        <ThumbsDown className="w-4 h-4" />
-                        Less like this
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) =>
-                          handleFeedbackClick(event, "already_known")
-                        }
-                        disabled={!!pendingAction}
-                        className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                        style={{ color: "#fff" }}
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        Already know this
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) =>
-                          handleFeedbackClick(event, "hide_for_now")
-                        }
-                        disabled={!!pendingAction}
-                        className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                        style={{ color: "#fca5a5" }}
-                      >
-                        <EyeOff className="w-4 h-4" />
-                        Hide for now
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
             </div>
           )}
         </div>
+        {showMenu && menuPosition
+          ? createPortal(
+              <div
+                ref={menuRef}
+                className="fixed z-20 w-44 py-1 border border-white/10 shadow-xl"
+                style={{
+                  top: menuPosition.top,
+                  left: menuPosition.left,
+                  backgroundColor: "#2a2830",
+                  transform: "translateY(-100%)",
+                }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                {canAddArtist && (
+                  <button
+                    type="button"
+                    onClick={handleAddToLibraryClick}
+                    disabled={isInLibrary || !!pendingAction}
+                    className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    style={{ color: "#fff" }}
+                  >
+                    {pendingAction === "library" ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Library className="w-4 h-4" />
+                    )}
+                    {isInLibrary ? "In Library" : "Add to Library"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleBlocklistClick}
+                  disabled={isBlocked || !!pendingAction}
+                  className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  style={{ color: isBlocked ? "#c1c1c3" : "#fca5a5" }}
+                >
+                  {pendingAction === "blocklist" ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Ban className="w-4 h-4" />
+                  )}
+                  {isBlocked ? "In Blocklist" : "Blocklist Artist"}
+                </button>
+                {onFeedback && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={(event) =>
+                        handleFeedbackClick(event, "more_like_this")
+                      }
+                      disabled={!!pendingAction}
+                      className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      style={{ color: "#fff" }}
+                    >
+                      <ThumbsUp className="w-4 h-4" />
+                      More like this
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) =>
+                        handleFeedbackClick(event, "less_like_this")
+                      }
+                      disabled={!!pendingAction}
+                      className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      style={{ color: "#fff" }}
+                    >
+                      <ThumbsDown className="w-4 h-4" />
+                      Less like this
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) =>
+                        handleFeedbackClick(event, "already_known")
+                      }
+                      disabled={!!pendingAction}
+                      className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      style={{ color: "#fff" }}
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      Already know this
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) =>
+                        handleFeedbackClick(event, "hide_for_now")
+                      }
+                      disabled={!!pendingAction}
+                      className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      style={{ color: "#fca5a5" }}
+                    >
+                      <EyeOff className="w-4 h-4" />
+                      Hide for now
+                    </button>
+                  </>
+                )}
+              </div>,
+              document.body,
+            )
+          : null}
       </div>
     );
   },
@@ -749,6 +780,34 @@ AlbumCard.propTypes = {
   releaseCovers: PropTypes.object.isRequired,
   artistCovers: PropTypes.object.isRequired,
   onNavigate: PropTypes.func.isRequired,
+};
+
+const ViewAllCard = memo(({ onClick, label = "View All" }) => {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group relative flex w-full min-w-0 flex-col text-left"
+    >
+      <div
+        className="relative flex aspect-square items-center justify-center overflow-hidden border border-dashed border-white/15 transition-colors group-hover:border-white/30"
+        style={{
+          background:
+            "linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01)), #191820",
+        }}
+      >
+        <span className="px-4 text-center text-2xl font-semibold text-white">
+          {label}
+        </span>
+      </div>
+    </button>
+  );
+});
+
+ViewAllCard.displayName = "ViewAllCard";
+ViewAllCard.propTypes = {
+  onClick: PropTypes.func.isRequired,
+  label: PropTypes.string,
 };
 
 const ShowCard = memo(({ show }) => {
@@ -1716,6 +1775,7 @@ function DiscoverPage() {
                       name: artist.artistName,
                       image: getLibraryArtistImage(artist),
                       type: "Artist",
+                      metaText: "",
                       subtitle: `Added ${new Date(
                         artist.added || artist.addedAt,
                       ).toLocaleDateString()}`,
@@ -1780,6 +1840,11 @@ function DiscoverPage() {
                   />
                 </div>
               ))}
+              <div className={DISCOVER_SHELF_CARD_CLASS}>
+                <ViewAllCard
+                  onClick={() => navigate("/search?type=recommended")}
+                />
+              </div>
             </>
           ) : (
             <div
@@ -2001,7 +2066,7 @@ function DiscoverPage() {
                 <ArtistCard
                   artist={{
                     ...artist,
-                    metaText: artist.popularityLabel || "Trending on Last.fm",
+                    metaText: "",
                   }}
                   isInLibrary={!!libraryLookup[getArtistId(artist)]}
                   isBlocked={isArtistInEntries(artist, blockedArtists)}
@@ -2009,10 +2074,12 @@ function DiscoverPage() {
                   onNavigate={navigate}
                   onAddToLibrary={handleAddArtistToLibrary}
                   onAddToBlocklist={handleAddArtistToBlocklist}
-                  onFeedback={handleDiscoveryFeedback}
                 />
               </div>
             ))}
+            <div className={DISCOVER_SHELF_CARD_CLASS}>
+              <ViewAllCard onClick={() => navigate("/search?type=trending")} />
+            </div>
           </>
         </DiscoverRail>
       );
@@ -2051,6 +2118,15 @@ function DiscoverPage() {
                     />
                   </div>
                 ))}
+                <div className={DISCOVER_SHELF_CARD_CLASS}>
+                  <ViewAllCard
+                    onClick={() =>
+                      navigate(
+                        `/search?q=${encodeURIComponent(`#${section.genre}`)}&type=tag`,
+                      )
+                    }
+                  />
+                </div>
               </>
             </DiscoverRail>
           ))}

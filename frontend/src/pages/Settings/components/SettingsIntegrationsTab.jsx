@@ -51,6 +51,11 @@ export function SettingsIntegrationsTab({
   const safeLidarrProfiles = Array.isArray(lidarrProfiles)
     ? lidarrProfiles
     : [];
+  const localDiscoveryIncludeRecommendations =
+    settings.integrations?.ticketmaster?.localDiscoveryIncludeRecommendations !==
+    false;
+  const localDiscoveryIncludeTrending =
+    settings.integrations?.ticketmaster?.localDiscoveryIncludeTrending !== false;
   const safeLidarrMetadataProfiles = Array.isArray(lidarrMetadataProfiles)
     ? lidarrMetadataProfiles
     : [];
@@ -966,6 +971,48 @@ export function SettingsIntegrationsTab({
                 Controls how far from your selected area Ticketmaster events are searched.
               </p>
             </div>
+            <label className="flex items-center justify-between gap-4">
+              <span style={{ color: "#fff" }}>
+                Include recommended artists in local shows
+              </span>
+              <input
+                type="checkbox"
+                checked={localDiscoveryIncludeRecommendations}
+                onChange={(e) =>
+                  updateSettings({
+                    ...settings,
+                    integrations: {
+                      ...settings.integrations,
+                      ticketmaster: {
+                        ...(settings.integrations?.ticketmaster || {}),
+                        localDiscoveryIncludeRecommendations: e.target.checked,
+                      },
+                    },
+                  })
+                }
+              />
+            </label>
+            <label className="flex items-center justify-between gap-4">
+              <span style={{ color: "#fff" }}>
+                Include trending artists in local shows
+              </span>
+              <input
+                type="checkbox"
+                checked={localDiscoveryIncludeTrending}
+                onChange={(e) =>
+                  updateSettings({
+                    ...settings,
+                    integrations: {
+                      ...settings.integrations,
+                      ticketmaster: {
+                        ...(settings.integrations?.ticketmaster || {}),
+                        localDiscoveryIncludeTrending: e.target.checked,
+                      },
+                    },
+                  })
+                }
+              />
+            </label>
           </fieldset>
           )}
         </div>

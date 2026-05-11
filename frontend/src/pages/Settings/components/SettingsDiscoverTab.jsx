@@ -32,11 +32,6 @@ export function SettingsDiscoverTab({
     settings.integrations?.lastfm?.discoveryAutoRefreshHours || 168;
   const discoveryMode =
     settings.integrations?.lastfm?.discoveryMode || "balanced";
-  const localDiscoveryIncludeRecommendations =
-    settings.integrations?.ticketmaster?.localDiscoveryIncludeRecommendations !==
-    false;
-  const localDiscoveryIncludeTrending =
-    settings.integrations?.ticketmaster?.localDiscoveryIncludeTrending !== false;
 
   return (
     <div className="card animate-fade-in">
@@ -158,49 +153,18 @@ export function SettingsDiscoverTab({
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#b9bac1]" />
               </div>
+              <div className="mt-3 space-y-1 text-xs" style={{ color: "#c1c1c3" }}>
+                <p>
+                  <span style={{ color: "#fff" }}>Safer:</span> favors more obvious, high-confidence recommendations.
+                </p>
+                <p>
+                  <span style={{ color: "#fff" }}>Balanced:</span> mixes familiar artists with some exploration.
+                </p>
+                <p>
+                  <span style={{ color: "#fff" }}>Deeper:</span> pushes further beyond the most obvious similar artists.
+                </p>
+              </div>
             </div>
-            <label className="flex items-center justify-between gap-4">
-              <span style={{ color: "#fff" }}>
-                Include recommended artists in local shows
-              </span>
-              <input
-                type="checkbox"
-                checked={localDiscoveryIncludeRecommendations}
-                onChange={(e) =>
-                  updateSettings({
-                    ...settings,
-                    integrations: {
-                      ...settings.integrations,
-                      ticketmaster: {
-                        ...(settings.integrations?.ticketmaster || {}),
-                        localDiscoveryIncludeRecommendations: e.target.checked,
-                      },
-                    },
-                  })
-                }
-              />
-            </label>
-            <label className="flex items-center justify-between gap-4">
-              <span style={{ color: "#fff" }}>
-                Include trending artists in local shows
-              </span>
-              <input
-                type="checkbox"
-                checked={localDiscoveryIncludeTrending}
-                onChange={(e) =>
-                  updateSettings({
-                    ...settings,
-                    integrations: {
-                      ...settings.integrations,
-                      ticketmaster: {
-                        ...(settings.integrations?.ticketmaster || {}),
-                        localDiscoveryIncludeTrending: e.target.checked,
-                      },
-                    },
-                  })
-                }
-              />
-            </label>
           </fieldset>
         </div>
 
