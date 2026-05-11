@@ -1,6 +1,6 @@
 import PropTypes from "prop-types";
 import { useState } from "react";
-import { Loader2, Music } from "lucide-react";
+import { Check, Loader2, Music, Plus, Search } from "lucide-react";
 
 function getAlbumActionLabel(album, isPending, canAddAlbum) {
   if (!canAddAlbum) return "No Access";
@@ -9,13 +9,26 @@ function getAlbumActionLabel(album, isPending, canAddAlbum) {
   }
   if (album.status === "available") return "In Library";
   if (album.status === "inLibrary") return "Search Album";
-  return "Add Album";
+  return "Add to Lidarr";
 }
 
 function isAlbumActionDisabled(album, isPending, canAddAlbum) {
   if (!canAddAlbum) return true;
   if (album.status === "available") return true;
   return isPending || ["searching", "downloading", "processing"].includes(album.status);
+}
+
+function getAlbumActionIcon(album, isPending) {
+  if (isPending) return Loader2;
+  if (album.status === "available") return Check;
+  if (album.status === "inLibrary") return Search;
+  return Plus;
+}
+
+function getReleaseYear(releaseDate) {
+  const value = String(releaseDate || "").trim();
+  if (!value) return null;
+  return value.split("-")[0] || null;
 }
 
 function AlbumCover({ src, alt }) {
@@ -45,8 +58,15 @@ function SearchAlbumResults({
   onAlbumAction,
   navigate,
 }) {
+  const openArtist = (album) => {
+    if (!album.artistMbid) return;
+    navigate(`/artist/${album.artistMbid}`, {
+      state: { artistName: album.artistName },
+    });
+  };
+
   return (
-    <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
       {albums.map((album) => {
         const isPending = !!pendingAlbumIds[album.id];
         const actionDisabled = isAlbumActionDisabled(
@@ -54,16 +74,30 @@ function SearchAlbumResults({
           isPending,
           canAddAlbum,
         );
+        const AlbumActionIcon = getAlbumActionIcon(album, isPending);
+        const releaseYear = getReleaseYear(album.releaseDate);
+        const releaseType =
+          album.primaryType || album.secondaryTypes?.[0] || null;
 
         return (
           <div
             key={album.id}
-            className="overflow-hidden border border-white/5"
-            style={{ backgroundColor: "#17161b" }}
+            className="group min-w-0"
           >
-            <div className="flex gap-4 p-4">
+            <div
+              className="relative aspect-square overflow-hidden border border-white/8"
+              style={{ backgroundColor: "#17161b" }}
+            >
+              <button
+                type="button"
+                onClick={() => openArtist(album)}
+                className="absolute inset-0 z-[1] cursor-pointer"
+                aria-label={`Open artist page for ${album.artistName}`}
+                title={`Open artist: ${album.artistName}`}
+              />
+
               <div
-                className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden"
+                className="absolute inset-0"
                 style={{ backgroundColor: "#211f27", color: "#8a8a8f" }}
               >
                 <AlbumCover
@@ -72,104 +106,87 @@ function SearchAlbumResults({
                 />
               </div>
 
-              <div className="min-w-0 flex-1">
-                <div className="mb-2 flex flex-wrap items-start gap-2">
-                  <h3
-                    className="min-w-0 flex-1 truncate text-lg font-semibold"
-                    style={{ color: "#fff" }}
-                    title={album.title}
-                  >
-                    {album.title}
-                  </h3>
-                  <span
-                    className="px-2 py-1 text-[11px] uppercase tracking-wide"
+              <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/75" />
+
+              <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between p-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onAlbumAction(album)}
+                    disabled={actionDisabled}
+                    className="group inline-flex h-9 w-9 items-center overflow-hidden border border-white/10 backdrop-blur-sm transition-all duration-200 ease-out hover:w-[142px] disabled:cursor-not-allowed disabled:opacity-50"
                     style={{
                       backgroundColor:
                         album.status === "available"
-                          ? "rgba(34,197,94,0.18)"
-                          : album.status === "inLibrary"
-                            ? "rgba(245,158,11,0.18)"
-                            : album.status === "searching"
-                              ? "rgba(59,130,246,0.18)"
-                              : "rgba(255,255,255,0.08)",
-                      color:
-                        album.status === "available"
-                          ? "#86efac"
-                          : album.status === "inLibrary"
-                            ? "#fcd34d"
-                            : album.status === "searching"
-                              ? "#93c5fd"
-                              : "#c1c1c3",
+                          ? "rgba(112,126,97,0.9)"
+                          : "rgba(20,19,24,0.78)",
+                      color: "#fff",
                     }}
+                    aria-label={getAlbumActionLabel(album, isPending, canAddAlbum)}
+                    title={getAlbumActionLabel(album, isPending, canAddAlbum)}
                   >
-                    {album.status === "inLibrary"
-                      ? "In Library"
-                      : album.status === "available"
-                        ? "Available"
-                        : album.status === "searching"
-                          ? "Searching"
-                          : "Missing"}
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    album.artistMbid &&
-                    navigate(`/artist/${album.artistMbid}`, {
-                      state: { artistName: album.artistName },
-                    })
-                  }
-                  className="truncate text-left text-sm hover:underline"
-                  style={{ color: "#d1d1d4" }}
-                  disabled={!album.artistMbid}
-                  title={album.artistName}
-                >
-                  {album.artistName}
-                </button>
-
-                <div
-                  className="mt-2 flex flex-wrap gap-2 text-xs"
-                  style={{ color: "#9c9ca1" }}
-                >
-                  {album.releaseDate && <span>{album.releaseDate}</span>}
-                  {album.primaryType && <span>{album.primaryType}</span>}
-                  {album.secondaryTypes?.map((secondaryType) => (
-                    <span key={`${album.id}-${secondaryType}`}>
-                      {secondaryType}
+                    <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center">
+                      <AlbumActionIcon
+                        className={`h-4 w-4 ${isPending ? "animate-spin" : ""}`}
+                      />
                     </span>
-                  ))}
+                    <span className="pr-3 text-xs font-medium whitespace-nowrap opacity-0 transition-all duration-150 ease-out -translate-x-2 group-hover:translate-x-0 group-hover:opacity-100">
+                      {getAlbumActionLabel(album, isPending, canAddAlbum)}
+                    </span>
+                  </button>
                 </div>
+
+                {album.inLibrary ? (
+                  <span
+                    className="flex h-9 w-9 items-center justify-center border border-emerald-300/25 backdrop-blur-sm"
+                    style={{
+                      backgroundColor: "rgba(112,126,97,0.9)",
+                      color: "#f5f5f6",
+                    }}
+                    aria-label="In library"
+                    title="In library"
+                  >
+                    <Check className="h-4 w-4" />
+                  </span>
+                ) : null}
+              </div>
+
+              <div
+                className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between gap-3 p-2 text-[11px] uppercase tracking-[0.16em]"
+                style={{
+                  background:
+                    "linear-gradient(to top, rgba(18,17,22,0.92), rgba(18,17,22,0.55), transparent)",
+                  color: "#d4d4d8",
+                }}
+              >
+                <span className="truncate text-left">
+                  {releaseType || ""}
+                </span>
+                <span className="shrink-0 text-right">
+                  {releaseYear || ""}
+                </span>
               </div>
             </div>
 
-            <div
-              className="flex flex-wrap gap-3 border-t border-white/5 p-4"
-              style={{ backgroundColor: "#141318" }}
-            >
+            <div className="min-w-0 px-1 pb-1 pt-2">
               <button
                 type="button"
-                className="btn btn-primary"
-                onClick={() => onAlbumAction(album)}
-                disabled={actionDisabled}
+                onClick={() => openArtist(album)}
+                className="block w-full text-left transition-opacity hover:opacity-80 disabled:cursor-pointer"
+                title={`${album.title} — ${album.artistName}`}
               >
-                <span className="flex items-center gap-2">
-                  {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {getAlbumActionLabel(album, isPending, canAddAlbum)}
+                <span
+                  className="block truncate text-base font-semibold"
+                  style={{ color: "#fff" }}
+                >
+                  {album.title}
                 </span>
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() =>
-                  album.artistMbid &&
-                  navigate(`/artist/${album.artistMbid}`, {
-                    state: { artistName: album.artistName },
-                  })
-                }
-                disabled={!album.artistMbid}
-              >
-                Open Artist
+                <span
+                  className="mt-0.5 block truncate text-sm"
+                  style={{ color: "#b9b9be" }}
+                >
+                  {album.artistName}
+                </span>
               </button>
             </div>
           </div>
