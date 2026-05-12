@@ -123,6 +123,12 @@ npm run build
 cd frontend && npm run lint
 ```
 
+CI behavior:
+
+- PRs to `main` and `test` run the full validation suite
+- Pushes to `main` and `test` run release automation only
+- Docs-only changes may skip heavy CI and release workflows
+
 ## Merge strategy
 
 - Prefer merge commits over squash or rebase when landing work that should preserve commit intent for release automation
