@@ -683,7 +683,7 @@ const AlbumCard = memo(
     const releaseCover = coverId ? releaseCovers[coverId] : null;
     const artistId = album.artistMbid || album.foreignArtistId;
     const artistCover = artistId ? artistCovers[artistId] : null;
-    const coverUrl = releaseCover || artistCover;
+    const coverUrl = album.coverUrl || releaseCover || artistCover;
     const navigateTo = album.artistMbid || album.foreignArtistId;
     const hasValidMbid =
       navigateTo && navigateTo !== "null" && navigateTo !== "undefined";
@@ -757,6 +757,7 @@ const AlbumCard = memo(
       prevId === nextId &&
       prevProps.album.albumName === nextProps.album.albumName &&
       prevProps.album.artistName === nextProps.album.artistName &&
+      prevProps.album.coverUrl === nextProps.album.coverUrl &&
       prevProps.album.releaseDate === nextProps.album.releaseDate &&
       prevProps.onNavigate === nextProps.onNavigate &&
       prevProps.releaseCovers === nextProps.releaseCovers &&
@@ -776,6 +777,7 @@ AlbumCard.propTypes = {
     artistMbid: PropTypes.string,
     foreignArtistId: PropTypes.string,
     releaseDate: PropTypes.string,
+    coverUrl: PropTypes.string,
   }).isRequired,
   releaseCovers: PropTypes.object.isRequired,
   artistCovers: PropTypes.object.isRequired,
