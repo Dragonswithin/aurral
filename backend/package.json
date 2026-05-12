@@ -36,13 +36,13 @@
     "lowdb": "^7.0.1",
     "music-metadata": "^11.12.3",
     "node-cache": "^5.1.2",
+    "patch-package": "^8.0.0",
     "sharp": "^0.34.5",
     "slsk-client": "^1.1.0",
     "uuid": "^14.0.0",
     "ws": "^8.20.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14",
-    "patch-package": "^8.0.0"
+    "nodemon": "^3.1.14"
   }
 }
