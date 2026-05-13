@@ -85,41 +85,6 @@ const FLOW_WORKER_RETRY_CYCLE_OPTIONS = [
   { minutes: 720, label: "12 hours" },
   { minutes: 1440, label: "1 day" },
 ];
-
-const formatCompactDateTime = (value) => {
-  const ts = Number(value);
-  if (!Number.isFinite(ts) || ts <= 0) return "Unknown";
-  try {
-    return new Intl.DateTimeFormat(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(ts));
-  } catch {
-    return new Date(ts).toLocaleString();
-  }
-};
-
-const formatRelativeFuture = (value, now = Date.now()) => {
-  const ts = Number(value);
-  if (!Number.isFinite(ts) || ts <= 0) return "Unknown";
-  const diff = ts - now;
-  if (diff <= 0) return "now";
-  const minuteMs = 60 * 1000;
-  const hourMs = 60 * minuteMs;
-  const dayMs = 24 * hourMs;
-  if (diff < hourMs) {
-    const minutes = Math.ceil(diff / minuteMs);
-    return minutes === 1 ? "1 minute" : `${minutes} minutes`;
-  }
-  if (diff < dayMs) {
-    const hours = Math.ceil(diff / hourMs);
-    return hours === 1 ? "1 hour" : `${hours} hours`;
-  }
-  const days = Math.ceil(diff / dayMs);
-  return days === 1 ? "1 day" : `${days} days`;
-};
 const SCHEDULE_HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => {
   const normalized = `${String(hour).padStart(2, "0")}:00`;
   const suffix = hour >= 12 ? "PM" : "AM";
@@ -2943,7 +2908,6 @@ export function FlowWorkerSettingsModal({
 }) {
   const [hoveredConcurrencyIndex, setHoveredConcurrencyIndex] = useState(null);
   const [hoveredFormatIndex, setHoveredFormatIndex] = useState(null);
-  const [now, setNow] = useState(() => Date.now());
   const concurrencyTabsRef = useRef(null);
   const concurrencyActiveBubbleRef = useRef(null);
   const concurrencyHoverBubbleRef = useRef(null);
@@ -2952,13 +2916,6 @@ export function FlowWorkerSettingsModal({
   const formatActiveBubbleRef = useRef(null);
   const formatHoverBubbleRef = useRef(null);
   const formatOptionRefs = useRef({});
-
-  useEffect(() => {
-    if (!isOpen) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 30000);
-    return () => clearInterval(timer);
-  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -3085,31 +3042,7 @@ export function FlowWorkerSettingsModal({
   if (!isOpen) return null;
 
   const credentialUsername = String(soulseekCredential?.username || "").trim();
-  const managedByEnv = soulseekCredential?.managedByEnv === true;
   const canRotate = soulseekCredential?.canRotate === true;
-  const nextRotationAt = Number(soulseekCredential?.nextRotationAt || 0);
-  const generatedAt = Number(soulseekCredential?.generatedAt || 0);
-  const pendingRotationReason = String(
-    soulseekCredential?.pendingRotationReason || "",
-  );
-  let rotationLine = "Rotation unavailable";
-  if (managedByEnv) {
-    rotationLine = "Managed by SOULSEEK_USERNAME / SOULSEEK_PASSWORD";
-  } else if (canRotate && nextRotationAt > 0) {
-    rotationLine = `Rotates in ${formatRelativeFuture(nextRotationAt, now)}`;
-  } else if (canRotate && soulseekCredential?.rotationIntervalDays > 0) {
-    rotationLine = `Rotation interval: every ${soulseekCredential.rotationIntervalDays} days`;
-  } else if (canRotate) {
-    rotationLine = "Auto-rotation disabled";
-  } else if (credentialUsername) {
-    rotationLine = "Manually configured credential";
-  }
-  const rotationSubline =
-    canRotate && nextRotationAt > 0
-      ? `Next rotation ${formatCompactDateTime(nextRotationAt)}`
-      : generatedAt > 0
-        ? `Generated ${formatCompactDateTime(generatedAt)}`
-        : null;
 
   return (
     <div
@@ -3131,17 +3064,6 @@ export function FlowWorkerSettingsModal({
                 <div className="text-sm font-medium text-white">
                   {credentialUsername || "Unavailable"}
                 </div>
-                <div className="text-xs text-[#b8b8bc]">{rotationLine}</div>
-                {rotationSubline ? (
-                  <div className="text-[11px] text-[#8b8b90]">
-                    {rotationSubline}
-                  </div>
-                ) : null}
-                {pendingRotationReason === "legacy_prefix" ? (
-                  <div className="text-[11px] text-[#d6a66a]">
-                    Legacy username will rotate on next fresh connect.
-                  </div>
-                ) : null}
               </div>
               <button
                 type="button"
