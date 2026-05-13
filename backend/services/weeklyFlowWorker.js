@@ -42,7 +42,6 @@ const MAX_RETRIES_FOR_TIMEOUT_LOGIN = 1;
 const MAX_RETRIES_FOR_QUEUED_DOWNLOAD = 12;
 const MAX_RETRIES_FOR_OFFLINE_SOURCE = 3;
 const MAX_BACKUP_REFILL_ROUNDS = 3;
-const MAX_SOURCE_REFRESH_ROUNDS = 2;
 const QUEUED_RETRY_BASE_DELAY_MS = 2 * 60 * 1000;
 const QUEUED_RETRY_MAX_DELAY_MS = 30 * 60 * 1000;
 const NON_RETRYABLE_ERRORS = new Set([
@@ -220,10 +219,6 @@ export class WeeklyFlowWorker {
       out.add(id);
     }
     return [...out];
-  }
-
-  _normalizeShareDownloads(value) {
-    return value === true;
   }
 
   _getRetryPausedPlaylistIds() {
@@ -450,7 +445,6 @@ export class WeeklyFlowWorker {
       retryCycleMinutes: this._normalizeRetryCycleMinutes(
         raw.retryCycleMinutes,
       ),
-      shareDownloads: this._normalizeShareDownloads(raw.shareDownloads),
       retryPausedPlaylistIds: this._normalizeRetryPausedPlaylistIds(
         raw.retryPausedPlaylistIds,
       ),
@@ -479,10 +473,6 @@ export class WeeklyFlowWorker {
         nextSettings.retryCycleMinutes === undefined
           ? base.retryCycleMinutes
           : this._normalizeRetryCycleMinutes(nextSettings.retryCycleMinutes),
-      shareDownloads:
-        nextSettings.shareDownloads === undefined
-          ? base.shareDownloads
-          : this._normalizeShareDownloads(nextSettings.shareDownloads),
       retryPausedPlaylistIds: this._normalizeRetryPausedPlaylistIds(
         base.retryPausedPlaylistIds,
       ),
@@ -950,14 +940,11 @@ export class WeeklyFlowWorker {
       cleanupOnError: 0,
     };
     let stagingPrepared = false;
-    let soulseekConnectionHeld = false;
 
     downloadTracker.setDownloading(job.id, stagingPath);
     this._assertJobCanContinue(job, runGeneration);
 
     try {
-      await soulseekClient.acquireConnection();
-      soulseekConnectionHeld = true;
       let phaseStart = process.hrtime.bigint();
       const retryAttempt = Number(this.retryAttempts.get(job.id) || 0);
       const resolvedTrack = await resolveWeeklyFlowTrackContext(job);
@@ -974,73 +961,49 @@ export class WeeklyFlowWorker {
         preferredFormatStrict,
         retryAttempt,
       );
-      const searchFreshCandidates = async (forceFresh) => {
-        const aggregatedResults = [];
-        const seenResults = new Set();
-        let nextRankedMatches = [];
-        const searchStart = process.hrtime.bigint();
-        for (
-          let queryIndex = 0;
-          queryIndex < searchQueries.length;
-          queryIndex += 1
-        ) {
-          this._assertJobCanContinue(job, runGeneration);
-          const query = searchQueries[queryIndex];
-          const searchResults = await soulseekClient.searchQuery(query, {
-            forceFresh:
-              forceFresh || retryAttempt > 0 || queryIndex === 0,
-          });
-          for (const result of Array.isArray(searchResults) ? searchResults : []) {
-            const file = String(result?.file || "").trim();
-            const user = String(result?.user || "").trim();
-            if (!file || !user) continue;
-            const key = `${user}\0${file}`;
-            if (seenResults.has(key)) continue;
-            seenResults.add(key);
-            aggregatedResults.push(result);
-          }
-          nextRankedMatches = rankFlowSearchResults(
-            aggregatedResults,
-            resolvedTrack,
-            {
-              preferredFormat,
-              strictFormat: preferredFormatStrict,
-              isUserBlacklisted: (user) => soulseekClient.isUserBlacklisted(user),
-              getUserQueuePenalty: (user) =>
-                soulseekClient.getUserQueuePenalty(user),
-            },
-          );
-          const distinctTopUsers = new Set(
-            nextRankedMatches
-              .slice(0, Math.max(3, Math.min(matchLimit, 6)))
-              .map((entry) => String(entry?.raw?.user || "").trim().toLowerCase())
-              .filter(Boolean),
-          ).size;
-          if (
-            nextRankedMatches.length >= Math.min(matchLimit, 3) &&
-            nextRankedMatches[0]?.isLikelyMatch &&
-            distinctTopUsers >= 2
-          ) {
-            break;
-          }
-          if (queryIndex >= 2 && nextRankedMatches.length > 0) {
-            break;
-          }
-        }
-        timingsMs.search +=
-          Number(process.hrtime.bigint() - searchStart) / 1e6;
-        return {
-          aggregatedResults,
-          rankedMatches: nextRankedMatches,
-        };
-      };
+      const aggregatedResults = [];
+      const seenResults = new Set();
       let rankedMatches = [];
-      let aggregatedResults = [];
-      ({
-        aggregatedResults,
-        rankedMatches,
-      } = await searchFreshCandidates(false));
+      for (let queryIndex = 0; queryIndex < searchQueries.length; queryIndex += 1) {
+        this._assertJobCanContinue(job, runGeneration);
+        const query = searchQueries[queryIndex];
+        const searchResults = await soulseekClient.searchQuery(query, {
+          forceFresh: retryAttempt > 0,
+        });
+        for (const result of Array.isArray(searchResults) ? searchResults : []) {
+          const file = String(result?.file || "").trim();
+          const user = String(result?.user || "").trim();
+          if (!file || !user) continue;
+          const key = `${user}\0${file}`;
+          if (seenResults.has(key)) continue;
+          seenResults.add(key);
+          aggregatedResults.push(result);
+        }
+        rankedMatches = rankFlowSearchResults(aggregatedResults, resolvedTrack, {
+          preferredFormat,
+          strictFormat: preferredFormatStrict,
+          isUserBlacklisted: (user) => soulseekClient.isUserBlacklisted(user),
+          getUserQueuePenalty: (user) => soulseekClient.getUserQueuePenalty(user),
+        });
+        const distinctTopUsers = new Set(
+          rankedMatches
+            .slice(0, Math.max(3, Math.min(matchLimit, 6)))
+            .map((entry) => String(entry?.raw?.user || "").trim().toLowerCase())
+            .filter(Boolean),
+        ).size;
+        if (
+          rankedMatches.length >= Math.min(matchLimit, 3) &&
+          rankedMatches[0]?.isLikelyMatch &&
+          distinctTopUsers >= 2
+        ) {
+          break;
+        }
+        if (queryIndex >= 2 && rankedMatches.length > 0) {
+          break;
+        }
+      }
       this._assertJobCanContinue(job, runGeneration);
+      timingsMs.search += Number(process.hrtime.bigint() - phaseStart) / 1e6;
       if (aggregatedResults.length === 0) {
         throw new Error("No search results found");
       }
@@ -1049,13 +1012,6 @@ export class WeeklyFlowWorker {
       let selectedExt = ".mp3";
       let downloadedSourcePath = null;
       let lastError = null;
-      const attemptedCandidateKeys = new Set();
-      const getCandidateKey = (candidate) =>
-        `${String(candidate?.raw?.user || "").trim().toLowerCase()}\0${String(
-          candidate?.raw?.file || "",
-        )
-          .trim()
-          .toLowerCase()}`;
 
       await new Promise((r) => setImmediate(r));
       await fs.mkdir(stagingDir, { recursive: true });
@@ -1073,7 +1029,7 @@ export class WeeklyFlowWorker {
         matchLimit,
         maxDownloadAttempts * 3,
       );
-      let candidates = rankedMatches.slice(0, candidatePoolSize);
+      const candidates = rankedMatches.slice(0, candidatePoolSize);
       if (candidates.length === 0) {
         if (preferredFormatStrict) {
           lastError = new Error(
@@ -1084,98 +1040,74 @@ export class WeeklyFlowWorker {
         }
         timingsMs.search += Number(process.hrtime.bigint() - phaseStart) / 1e6;
       } else {
-        let sourceRefreshRounds = 0;
-        while (sourceRefreshRounds <= MAX_SOURCE_REFRESH_ROUNDS && !selectedMatch) {
-          const remainingCandidates = candidates.filter((candidate) => {
-            const key = getCandidateKey(candidate);
-            return (
-              key &&
-              !attemptedCandidateKeys.has(key) &&
-              !soulseekClient.isUserBlacklisted(candidate.raw?.user)
-            );
-          });
-          const attemptCandidates = selectRankedMatchAttempts(
-            remainingCandidates,
-            maxDownloadAttempts,
+        const attemptCandidates = selectRankedMatchAttempts(
+          candidates,
+          maxDownloadAttempts,
+        );
+        if (attemptCandidates.length === 0) {
+          lastError = new Error(
+            `No ${preferredFormat.toUpperCase()} candidate files returned`,
           );
-          if (attemptCandidates.length === 0) {
-            lastError = new Error(
-              `No ${preferredFormat.toUpperCase()} candidate files returned`,
-            );
-            break;
+        }
+        for (
+          let attemptIndex = 0;
+          attemptIndex < attemptCandidates.length;
+          attemptIndex += 1
+        ) {
+          this._assertJobCanContinue(job, runGeneration);
+          const candidate = attemptCandidates[attemptIndex];
+          if (soulseekClient.isUserBlacklisted(candidate.raw?.user)) {
+            continue;
           }
-          for (
-            let attemptIndex = 0;
-            attemptIndex < attemptCandidates.length;
-            attemptIndex += 1
-          ) {
-            this._assertJobCanContinue(job, runGeneration);
-            const candidate = attemptCandidates[attemptIndex];
-            attemptedCandidateKeys.add(getCandidateKey(candidate));
-            const extFromSoulseek = path.extname(candidate.raw?.file || "");
-            const ext =
-              extFromSoulseek &&
-              /^\.(flac|mp3|m4a|ogg|wav)$/i.test(extFromSoulseek)
-                ? extFromSoulseek
-                : ".mp3";
-            try {
-              const downloadStart = process.hrtime.bigint();
-              downloadedSourcePath = await soulseekClient.download(
-                candidate.raw,
-                stagingFilePath,
-                (progressPct) => {
-                  if (!this.currentJob || this.currentJob.id !== job.id) return;
-                  this.currentJob.progressPct = Math.max(
-                    0,
-                    Math.min(100, Number(progressPct) || 0),
-                  );
-                },
-                {
-                  queuedTimeoutMs:
-                    soulseekClient.getQueuedTimeoutForAttempt(attemptIndex),
-                },
-              );
-              this._assertJobCanContinue(job, runGeneration);
-              timingsMs.download +=
-                Number(process.hrtime.bigint() - downloadStart) / 1e6;
-              if (this.currentJob && this.currentJob.id === job.id) {
-                this.currentJob.progressPct = 100;
-              }
-              const validation = await validateDownloadedTrack(
-                downloadedSourcePath,
-                candidate,
-                resolvedTrack,
-              );
-              if (!validation.valid) {
-                await fs.rm(downloadedSourcePath, { force: true }).catch(() => {});
-                downloadedSourcePath = null;
-                lastError = new Error(
-                  `Downloaded track validation failed: ${validation.reason}`,
+          const extFromSoulseek = path.extname(candidate.raw?.file || "");
+          const ext =
+            extFromSoulseek &&
+            /^\.(flac|mp3|m4a|ogg|wav)$/i.test(extFromSoulseek)
+              ? extFromSoulseek
+              : ".mp3";
+          try {
+            const downloadStart = process.hrtime.bigint();
+            downloadedSourcePath = await soulseekClient.download(
+              candidate.raw,
+              stagingFilePath,
+              (progressPct) => {
+                if (!this.currentJob || this.currentJob.id !== job.id) return;
+                this.currentJob.progressPct = Math.max(
+                  0,
+                  Math.min(100, Number(progressPct) || 0),
                 );
-                continue;
-              }
-              selectedMatch = candidate;
-              selectedExt = ext;
-              lastError = null;
-              break;
-            } catch (err) {
-              lastError = err;
+              },
+              {
+                queuedTimeoutMs:
+                  soulseekClient.getQueuedTimeoutForAttempt(attemptIndex),
+              },
+            );
+            this._assertJobCanContinue(job, runGeneration);
+            timingsMs.download +=
+              Number(process.hrtime.bigint() - downloadStart) / 1e6;
+            if (this.currentJob && this.currentJob.id === job.id) {
+              this.currentJob.progressPct = 100;
             }
-          }
-          if (
-            selectedMatch ||
-            sourceRefreshRounds >= MAX_SOURCE_REFRESH_ROUNDS ||
-            (!this._isOfflineSourceError(lastError?.message) &&
-              !this._isQueuedError(lastError?.message))
-          ) {
+            const validation = await validateDownloadedTrack(
+              downloadedSourcePath,
+              candidate,
+              resolvedTrack,
+            );
+            if (!validation.valid) {
+              await fs.rm(downloadedSourcePath, { force: true }).catch(() => {});
+              downloadedSourcePath = null;
+              lastError = new Error(
+                `Downloaded track validation failed: ${validation.reason}`,
+              );
+              continue;
+            }
+            selectedMatch = candidate;
+            selectedExt = ext;
+            lastError = null;
             break;
+          } catch (err) {
+            lastError = err;
           }
-          sourceRefreshRounds += 1;
-          ({
-            aggregatedResults,
-            rankedMatches,
-          } = await searchFreshCandidates(true));
-          candidates = rankedMatches.slice(0, candidatePoolSize);
         }
         timingsMs.search += Number(process.hrtime.bigint() - phaseStart) / 1e6;
       }
@@ -1225,12 +1157,6 @@ export class WeeklyFlowWorker {
       this._assertJobCanContinue(job, runGeneration);
 
       downloadTracker.setDone(job.id, finalPath, resolvedAlbum);
-      soulseekClient.applyShareChanges().catch((error) => {
-        console.warn(
-          "[WeeklyFlowWorker] Failed to refresh Soulseek shares:",
-          error.message,
-        );
-      });
       this._resetFailureStreak();
       this.retryAttempts.delete(job.id);
       this.retryNotBefore.delete(job.id);
@@ -1294,10 +1220,6 @@ export class WeeklyFlowWorker {
         },
       };
       throw error;
-    } finally {
-      if (soulseekConnectionHeld) {
-        soulseekClient.releaseConnection();
-      }
     }
   }
 

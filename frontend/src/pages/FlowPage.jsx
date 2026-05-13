@@ -747,7 +747,6 @@ const DEFAULT_WORKER_SETTINGS = {
   preferredFormat: "flac",
   preferredFormatStrict: false,
   retryCycleMinutes: 15,
-  shareDownloads: false,
 };
 const FLOW_WORKER_RETRY_CYCLE_OPTIONS = [15, 30, 60, 360, 720, 1440];
 
@@ -1375,13 +1374,11 @@ function FlowPage() {
         : "flac";
     const preferredFormatStrict = raw.preferredFormatStrict === true;
     const retryCycleMinutes = normalizeRetryCycleMinutes(raw.retryCycleMinutes);
-    const shareDownloads = raw.shareDownloads === true;
     return {
       concurrency,
       preferredFormat,
       preferredFormatStrict,
       retryCycleMinutes,
-      shareDownloads,
     };
   };
 
@@ -1655,14 +1652,12 @@ function FlowPage() {
     const safeRetryCycleMinutes = normalizeRetryCycleMinutes(
       workerSettingsDraft.retryCycleMinutes,
     );
-    const safeShareDownloads = workerSettingsDraft.shareDownloads === true;
     const current = workerSettingsBaseline;
     const hasChanges =
       safeConcurrency !== current.concurrency ||
       safePreferredFormat !== current.preferredFormat ||
       safePreferredFormatStrict !== current.preferredFormatStrict ||
-      safeRetryCycleMinutes !== current.retryCycleMinutes ||
-      safeShareDownloads !== current.shareDownloads;
+      safeRetryCycleMinutes !== current.retryCycleMinutes;
     if (!hasChanges || savingWorkerSettings) return;
     setSavingWorkerSettings(true);
     try {
@@ -1671,14 +1666,12 @@ function FlowPage() {
         preferredFormat: safePreferredFormat,
         preferredFormatStrict: safePreferredFormatStrict,
         retryCycleMinutes: safeRetryCycleMinutes,
-        shareDownloads: safeShareDownloads,
       });
       setWorkerSettingsBaseline({
         concurrency: safeConcurrency,
         preferredFormat: safePreferredFormat,
         preferredFormatStrict: safePreferredFormatStrict,
         retryCycleMinutes: safeRetryCycleMinutes,
-        shareDownloads: safeShareDownloads,
       });
       showSuccess("Flow worker settings updated");
       setIsWorkerSettingsOpen(false);
@@ -1899,9 +1892,7 @@ function FlowPage() {
     (workerSettingsDraft.preferredFormatStrict === true) !==
       currentWorkerSettings.preferredFormatStrict ||
     normalizeRetryCycleMinutes(workerSettingsDraft.retryCycleMinutes) !==
-      currentWorkerSettings.retryCycleMinutes ||
-    (workerSettingsDraft.shareDownloads === true) !==
-      currentWorkerSettings.shareDownloads;
+      currentWorkerSettings.retryCycleMinutes;
 
   return (
     <div className="flow-page max-w-6xl mx-auto pb-10 sm:px-4">

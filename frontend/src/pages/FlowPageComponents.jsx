@@ -3188,26 +3188,6 @@ export function FlowWorkerSettingsModal({
               </div>
             </div>
           </div>
-          <div className="flex items-center justify-between rounded-md border border-white/10 bg-black/20 px-4 py-3">
-            <div className="grid gap-0.5 pr-4">
-              <span className="text-sm font-medium text-white">
-                Share downloaded flow tracks
-              </span>
-              <span className="text-xs text-[#8b8b90]">
-                Only shares tracks downloaded into Aurral flow and shared-playlist folders. Your main library is not shared.
-              </span>
-            </div>
-            <PillToggle
-              checked={settings.shareDownloads === true}
-              onChange={(event) => {
-                const checked = event.target.checked;
-                onChange((prev) => ({
-                  ...prev,
-                  shareDownloads: checked,
-                }));
-              }}
-            />
-          </div>
         </div>
         <div className="flex gap-3 justify-end">
           <button onClick={onCancel} className="btn btn-secondary" disabled={saving}>

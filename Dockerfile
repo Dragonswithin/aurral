@@ -27,7 +27,6 @@ RUN apk add --no-cache su-exec fontconfig ttf-dejavu && \
     chown -R nodejs:nodejs /app
 
 COPY backend/package*.json ./backend/
-COPY backend/patches ./backend/patches
 RUN apk add --no-cache python3 make g++ && cd backend && npm ci --omit=dev
 
 COPY package*.json ./
