@@ -17,6 +17,7 @@ import {
   getFlowTrackStreamUrl,
   getFlowArtworkUrl,
   updateFlowWorkerSettings,
+  rotateFlowWorkerSoulseekCredentials,
   setPlaylistRetryCyclePaused,
   reSearchSharedPlaylistTrack,
 } from "../utils/api";
@@ -799,6 +800,8 @@ function FlowPage() {
     DEFAULT_WORKER_SETTINGS,
   );
   const [savingWorkerSettings, setSavingWorkerSettings] = useState(false);
+  const [rotatingSoulseekCredential, setRotatingSoulseekCredential] =
+    useState(false);
   const [optimisticEnabled, setOptimisticEnabled] = useState({});
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
@@ -1688,6 +1691,29 @@ function FlowPage() {
     }
   };
 
+  const handleRotateSoulseekCredential = async () => {
+    if (rotatingSoulseekCredential) return;
+    setRotatingSoulseekCredential(true);
+    try {
+      const result = await rotateFlowWorkerSoulseekCredentials();
+      showSuccess(
+        result?.username
+          ? `Rotated Soulseek account to ${result.username}`
+          : "Rotated Soulseek credentials",
+      );
+      await fetchStatus();
+    } catch (err) {
+      showError(
+        err.response?.data?.message ||
+          err.response?.data?.error ||
+          err.message ||
+          "Failed to rotate Soulseek credentials",
+      );
+    } finally {
+      setRotatingSoulseekCredential(false);
+    }
+  };
+
   const retryCyclePausedByPlaylist = status?.retryCyclePausedByPlaylist || {};
   const retryCycleScheduledByPlaylist = status?.retryCycleScheduledByPlaylist || {};
 
@@ -2133,13 +2159,16 @@ function FlowPage() {
       <FlowWorkerSettingsModal
         isOpen={isWorkerSettingsOpen}
         settings={workerSettingsDraft}
+        soulseekCredential={status?.soulseek?.credential || null}
         hasChanges={hasWorkerSettingsChanges}
         saving={savingWorkerSettings}
+        rotatingSoulseekCredential={rotatingSoulseekCredential}
         onCancel={() => {
-          if (savingWorkerSettings) return;
+          if (savingWorkerSettings || rotatingSoulseekCredential) return;
           setIsWorkerSettingsOpen(false);
         }}
         onChange={setWorkerSettingsDraft}
+        onRotateSoulseekCredential={handleRotateSoulseekCredential}
         onSave={handleSaveWorkerSettings}
       />
       <FlowImportReviewModal

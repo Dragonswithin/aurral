@@ -28,6 +28,7 @@ import {
   Plus,
   Search,
   ChevronDown,
+  RefreshCw,
   MoreHorizontal,
   X,
 } from "lucide-react";
@@ -2896,10 +2897,13 @@ export function ConfirmStopAllModal({
 export function FlowWorkerSettingsModal({
   isOpen,
   settings,
+  soulseekCredential,
   hasChanges,
   saving,
+  rotatingSoulseekCredential,
   onCancel,
   onChange,
+  onRotateSoulseekCredential,
   onSave,
 }) {
   const [hoveredConcurrencyIndex, setHoveredConcurrencyIndex] = useState(null);
@@ -3037,6 +3041,9 @@ export function FlowWorkerSettingsModal({
 
   if (!isOpen) return null;
 
+  const credentialUsername = String(soulseekCredential?.username || "").trim();
+  const canRotate = soulseekCredential?.canRotate === true;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
@@ -3048,6 +3055,36 @@ export function FlowWorkerSettingsModal({
           <h3 className="text-xl font-bold text-white">Worker Settings</h3>
         </div>
         <div className="grid gap-4">
+          <div className="grid gap-3 rounded-md border border-white/10 bg-black/20 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="grid gap-1">
+                <label className="text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
+                  Soulseek Account
+                </label>
+                <div className="text-sm font-medium text-white">
+                  {credentialUsername || "Unavailable"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onRotateSoulseekCredential}
+                disabled={!canRotate || rotatingSoulseekCredential}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                title={
+                  canRotate
+                    ? "Rotate Soulseek account now"
+                    : "Soulseek account cannot be rotated here"
+                }
+                aria-label="Rotate Soulseek account now"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${
+                    rotatingSoulseekCredential ? "animate-spin" : ""
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
           <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px] md:items-end">
             <div className="grid gap-1.5">
               <label className="text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
@@ -3190,7 +3227,11 @@ export function FlowWorkerSettingsModal({
           </div>
         </div>
         <div className="flex gap-3 justify-end">
-          <button onClick={onCancel} className="btn btn-secondary" disabled={saving}>
+          <button
+            onClick={onCancel}
+            className="btn btn-secondary"
+            disabled={saving || rotatingSoulseekCredential}
+          >
             Cancel
           </button>
           <FlipSaveButton
