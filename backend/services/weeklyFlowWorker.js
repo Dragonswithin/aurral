@@ -950,11 +950,14 @@ export class WeeklyFlowWorker {
       cleanupOnError: 0,
     };
     let stagingPrepared = false;
+    let soulseekConnectionHeld = false;
 
     downloadTracker.setDownloading(job.id, stagingPath);
     this._assertJobCanContinue(job, runGeneration);
 
     try {
+      await soulseekClient.acquireConnection();
+      soulseekConnectionHeld = true;
       let phaseStart = process.hrtime.bigint();
       const retryAttempt = Number(this.retryAttempts.get(job.id) || 0);
       const resolvedTrack = await resolveWeeklyFlowTrackContext(job);
@@ -1291,6 +1294,10 @@ export class WeeklyFlowWorker {
         },
       };
       throw error;
+    } finally {
+      if (soulseekConnectionHeld) {
+        soulseekClient.releaseConnection();
+      }
     }
   }
 
