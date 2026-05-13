@@ -1001,6 +1001,11 @@ export const updateFlowWorkerSettings = async (settings) => {
   return response.data;
 };
 
+export const rotateFlowWorkerSoulseekCredentials = async () => {
+  const response = await api.post("/weekly-flow/worker/soulseek/rotate");
+  return response.data;
+};
+
 export const setPlaylistRetryCyclePaused = async (playlistId, paused) => {
   const response = await api.put(
     `/weekly-flow/playlists/${playlistId}/retry-cycle`,

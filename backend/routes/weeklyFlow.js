@@ -1520,6 +1520,25 @@ router.put("/worker/settings", async (req, res) => {
   return res.json({ success: true, settings });
 });
 
+router.post("/worker/soulseek/rotate", async (req, res) => {
+  try {
+    const result = await soulseekClient.regenerateCredentials({
+      reason: "manual_rotate",
+    });
+    await soulseekClient.applyConfigChanges();
+    return res.json({
+      success: true,
+      credential: soulseekClient.getCredentialStatus(),
+      username: result.username,
+    });
+  } catch (error) {
+    return res.status(400).json({
+      error: "Failed to rotate Soulseek credentials",
+      message: error.message,
+    });
+  }
+});
+
 router.post("/worker/start", async (req, res) => {
   try {
     await weeklyFlowWorker.start();
