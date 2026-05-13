@@ -221,10 +221,6 @@ export class WeeklyFlowWorker {
     return [...out];
   }
 
-  _normalizeShareDownloads(value) {
-    return value === true;
-  }
-
   _getRetryPausedPlaylistIds() {
     const settings = dbOps.getSettings();
     const raw = settings?.weeklyFlowWorker || {};
@@ -449,7 +445,6 @@ export class WeeklyFlowWorker {
       retryCycleMinutes: this._normalizeRetryCycleMinutes(
         raw.retryCycleMinutes,
       ),
-      shareDownloads: this._normalizeShareDownloads(raw.shareDownloads),
       retryPausedPlaylistIds: this._normalizeRetryPausedPlaylistIds(
         raw.retryPausedPlaylistIds,
       ),
@@ -478,10 +473,6 @@ export class WeeklyFlowWorker {
         nextSettings.retryCycleMinutes === undefined
           ? base.retryCycleMinutes
           : this._normalizeRetryCycleMinutes(nextSettings.retryCycleMinutes),
-      shareDownloads:
-        nextSettings.shareDownloads === undefined
-          ? base.shareDownloads
-          : this._normalizeShareDownloads(nextSettings.shareDownloads),
       retryPausedPlaylistIds: this._normalizeRetryPausedPlaylistIds(
         base.retryPausedPlaylistIds,
       ),
@@ -1166,12 +1157,6 @@ export class WeeklyFlowWorker {
       this._assertJobCanContinue(job, runGeneration);
 
       downloadTracker.setDone(job.id, finalPath, resolvedAlbum);
-      soulseekClient.applyShareChanges().catch((error) => {
-        console.warn(
-          "[WeeklyFlowWorker] Failed to refresh Soulseek shares:",
-          error.message,
-        );
-      });
       this._resetFailureStreak();
       this.retryAttempts.delete(job.id);
       this.retryNotBefore.delete(job.id);

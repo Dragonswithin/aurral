@@ -7,8 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "auth:reset-admin-password": "node scripts/resetAdminPassword.js",
-    "postinstall": "patch-package"
+    "auth:reset-admin-password": "node scripts/resetAdminPassword.js"
   },
   "keywords": [
     "musicbrainz",
@@ -42,7 +41,6 @@
     "ws": "^8.20.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14",
-    "patch-package": "^8.0.0"
+    "nodemon": "^3.1.14"
   }
 }
