@@ -22,6 +22,29 @@ const ALL_RELEASE_TYPES = new Set([
   ...PRIMARY_RELEASE_TYPES,
   ...SECONDARY_RELEASE_TYPES,
 ]);
+const ALBUM_SEARCH_SORT_OPTIONS = new Set([
+  "relevance",
+  "dateDesc",
+  "artistAsc",
+  "titleAsc",
+]);
+const ALBUM_SORT_WINDOW = 120;
+const ALBUM_SORT_PAGE_SIZE = 50;
+const ALBUM_SORT_MAX_PAGES = 6;
+const ALBUM_SORT_COLLATOR = new Intl.Collator(undefined, {
+  sensitivity: "base",
+  numeric: true,
+});
+const SECONDARY_TYPE_PENALTIES = new Map([
+  ["Live", 1],
+  ["Demo", 2],
+  ["Remix", 3],
+  ["Compilation", 4],
+  ["Soundtrack", 5],
+  ["Broadcast", 6],
+  ["Spokenword", 7],
+  ["Other", 8],
+]);
 const albumLibraryLookupCache = new NodeCache({
   stdTTL: 60,
   checkperiod: 60,
@@ -60,6 +83,15 @@ function decodeHtmlEntities(value) {
     .replace(/&#(\d+);/g, (_, dec) =>
       String.fromCodePoint(Number.parseInt(dec, 10)),
     );
+}
+
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function getMusicbrainzSiteBaseUrl() {
@@ -149,6 +181,189 @@ function normalizeArtistCredit(artistCredit) {
     artistName: artistName.trim() || null,
     artistMbid,
   };
+}
+
+function getReleaseGroupArtistName(releaseGroup) {
+  return normalizeArtistCredit(releaseGroup?.["artist-credit"]).artistName || "";
+}
+
+function getReleaseGroupScore(releaseGroup) {
+  return Number.parseInt(releaseGroup?.score, 10) || 0;
+}
+
+function getReleaseGroupDateSortValue(releaseGroup) {
+  const value = String(releaseGroup?.["first-release-date"] || "").trim();
+  if (!value) return -1;
+  const [yearPart = "", monthPart = "", dayPart = ""] = value.split("-");
+  const year = Number.parseInt(yearPart, 10);
+  if (!Number.isFinite(year) || year <= 0) return -1;
+  const month = Number.parseInt(monthPart, 10);
+  const day = Number.parseInt(dayPart, 10);
+  const normalizedMonth =
+    Number.isFinite(month) && month >= 1 && month <= 12 ? month : 0;
+  const normalizedDay =
+    Number.isFinite(day) && day >= 1 && day <= 31 ? day : 0;
+  return year * 10000 + normalizedMonth * 100 + normalizedDay;
+}
+
+function isVariousArtistsReleaseGroup(releaseGroup) {
+  return normalizeSearchText(getReleaseGroupArtistName(releaseGroup)) ===
+    "various artists";
+}
+
+function getPrimaryTypeRank(releaseGroup) {
+  const primaryType = String(releaseGroup?.["primary-type"] || "");
+  if (primaryType === "Album") return 0;
+  if (primaryType === "EP") return 1;
+  if (primaryType === "Single") return 2;
+  return 3;
+}
+
+function getSecondaryTypePenalty(releaseGroup) {
+  const secondaryTypes = Array.isArray(releaseGroup?.["secondary-types"])
+    ? releaseGroup["secondary-types"]
+    : [];
+  if (secondaryTypes.length === 0) return 0;
+  return secondaryTypes.reduce((highestPenalty, secondaryType) => {
+    const normalizedType = SECONDARY_RELEASE_TYPES.has(secondaryType)
+      ? secondaryType
+      : "Other";
+    const penalty = SECONDARY_TYPE_PENALTIES.get(normalizedType) || 8;
+    return Math.max(highestPenalty, penalty);
+  }, 0);
+}
+
+function getTitleMatchRank(releaseGroup, normalizedQuery) {
+  if (!normalizedQuery) return 3;
+  const normalizedTitle = normalizeSearchText(releaseGroup?.title);
+  if (!normalizedTitle) return 3;
+  if (normalizedTitle === normalizedQuery) return 0;
+  if (normalizedTitle.startsWith(normalizedQuery)) return 1;
+  if (normalizedTitle.includes(normalizedQuery)) return 2;
+  return 3;
+}
+
+function compareStrings(left, right) {
+  return ALBUM_SORT_COLLATOR.compare(String(left || ""), String(right || ""));
+}
+
+function compareReleaseDatesDesc(left, right) {
+  const leftValue = getReleaseGroupDateSortValue(left);
+  const rightValue = getReleaseGroupDateSortValue(right);
+  if (leftValue === rightValue) return 0;
+  if (leftValue < 0) return 1;
+  if (rightValue < 0) return -1;
+  return rightValue - leftValue;
+}
+
+function compareReleaseGroupsByRelevance(left, right, normalizedQuery) {
+  const leftTitleMatchRank = getTitleMatchRank(left, normalizedQuery);
+  const rightTitleMatchRank = getTitleMatchRank(right, normalizedQuery);
+  if (leftTitleMatchRank !== rightTitleMatchRank) {
+    return leftTitleMatchRank - rightTitleMatchRank;
+  }
+
+  const leftScore = getReleaseGroupScore(left);
+  const rightScore = getReleaseGroupScore(right);
+  if (leftScore !== rightScore) {
+    return rightScore - leftScore;
+  }
+
+  const leftPrimaryTypeRank = getPrimaryTypeRank(left);
+  const rightPrimaryTypeRank = getPrimaryTypeRank(right);
+  if (leftPrimaryTypeRank !== rightPrimaryTypeRank) {
+    return leftPrimaryTypeRank - rightPrimaryTypeRank;
+  }
+
+  const leftSecondaryPenalty = getSecondaryTypePenalty(left);
+  const rightSecondaryPenalty = getSecondaryTypePenalty(right);
+  if (leftSecondaryPenalty !== rightSecondaryPenalty) {
+    return leftSecondaryPenalty - rightSecondaryPenalty;
+  }
+
+  const leftVariousArtists = isVariousArtistsReleaseGroup(left) ? 1 : 0;
+  const rightVariousArtists = isVariousArtistsReleaseGroup(right) ? 1 : 0;
+  if (leftVariousArtists !== rightVariousArtists) {
+    return leftVariousArtists - rightVariousArtists;
+  }
+
+  const dateComparison = compareReleaseDatesDesc(left, right);
+  if (dateComparison !== 0) {
+    return dateComparison;
+  }
+
+  const artistComparison = compareStrings(
+    getReleaseGroupArtistName(left),
+    getReleaseGroupArtistName(right),
+  );
+  if (artistComparison !== 0) {
+    return artistComparison;
+  }
+
+  const titleComparison = compareStrings(left?.title, right?.title);
+  if (titleComparison !== 0) {
+    return titleComparison;
+  }
+
+  return compareStrings(left?.id, right?.id);
+}
+
+export function normalizeAlbumSearchSort(value) {
+  const normalized = String(value || "").trim();
+  return ALBUM_SEARCH_SORT_OPTIONS.has(normalized) ? normalized : "relevance";
+}
+
+export function sortAlbumSearchResults(
+  releaseGroups,
+  query,
+  sort = "relevance",
+) {
+  const normalizedQuery = normalizeSearchText(query);
+  const normalizedSort = normalizeAlbumSearchSort(sort);
+  const source = Array.isArray(releaseGroups) ? [...releaseGroups] : [];
+
+  return source.sort((left, right) => {
+    if (normalizedSort === "dateDesc") {
+      const dateComparison = compareReleaseDatesDesc(left, right);
+      if (dateComparison !== 0) return dateComparison;
+      const titleComparison = compareStrings(left?.title, right?.title);
+      if (titleComparison !== 0) return titleComparison;
+      const artistComparison = compareStrings(
+        getReleaseGroupArtistName(left),
+        getReleaseGroupArtistName(right),
+      );
+      if (artistComparison !== 0) return artistComparison;
+      return compareStrings(left?.id, right?.id);
+    }
+
+    if (normalizedSort === "artistAsc") {
+      const artistComparison = compareStrings(
+        getReleaseGroupArtistName(left),
+        getReleaseGroupArtistName(right),
+      );
+      if (artistComparison !== 0) return artistComparison;
+      const titleComparison = compareStrings(left?.title, right?.title);
+      if (titleComparison !== 0) return titleComparison;
+      const dateComparison = compareReleaseDatesDesc(left, right);
+      if (dateComparison !== 0) return dateComparison;
+      return compareStrings(left?.id, right?.id);
+    }
+
+    if (normalizedSort === "titleAsc") {
+      const titleComparison = compareStrings(left?.title, right?.title);
+      if (titleComparison !== 0) return titleComparison;
+      const artistComparison = compareStrings(
+        getReleaseGroupArtistName(left),
+        getReleaseGroupArtistName(right),
+      );
+      if (artistComparison !== 0) return artistComparison;
+      const dateComparison = compareReleaseDatesDesc(left, right);
+      if (dateComparison !== 0) return dateComparison;
+      return compareStrings(left?.id, right?.id);
+    }
+
+    return compareReleaseGroupsByRelevance(left, right, normalizedQuery);
+  });
 }
 
 export function normalizeAlbumSearchItem(
@@ -457,10 +672,12 @@ export async function searchAlbums(
   limit = 24,
   offset = 0,
   releaseTypes = [],
+  sort = "relevance",
 ) {
   const limitInt = parsePositiveInt(limit, 24);
   const offsetInt = Math.max(0, Number.parseInt(offset, 10) || 0);
   const selectedReleaseTypes = normalizeAlbumReleaseTypesFilter(releaseTypes);
+  const normalizedSort = normalizeAlbumSearchSort(sort);
   const useDirectPrimaryTypeSearch =
     canUseDirectPrimaryTypeSearch(selectedReleaseTypes);
   const shouldFilterByReleaseType =
@@ -468,23 +685,15 @@ export async function searchAlbums(
     selectedReleaseTypes.length > 0 &&
     selectedReleaseTypes.length < ALL_RELEASE_TYPES.size;
   const musicbrainzQuery = buildAlbumSearchQuery(query, selectedReleaseTypes);
-  const MAX_SEARCH_PAGES = 6;
+  const candidateWindow = Math.max(limitInt + offsetInt, ALBUM_SORT_WINDOW);
   let pagesFetched = 0;
-  const rawPageSize = shouldFilterByReleaseType
-    ? Math.max(limitInt, 50)
-    : limitInt;
-
-  let rawOffset = shouldFilterByReleaseType ? 0 : offsetInt;
-  let matchedCount = 0;
+  const rawPageSize = Math.max(limitInt, ALBUM_SORT_PAGE_SIZE);
+  let rawOffset = 0;
   let rawCount = 0;
-  let hasMore = false;
-  const filteredReleaseGroups = [];
+  const candidateReleaseGroups = [];
 
-  while (
-    filteredReleaseGroups.length < limitInt ||
-    (shouldFilterByReleaseType && !hasMore)
-  ) {
-    if (pagesFetched >= MAX_SEARCH_PAGES) {
+  while (candidateReleaseGroups.length < candidateWindow) {
+    if (pagesFetched >= ALBUM_SORT_MAX_PAGES) {
       break;
     }
     const mbData = await musicbrainzRequest("/release-group", {
@@ -504,14 +713,6 @@ export async function searchAlbums(
       (releaseGroup) => releaseGroup?.id && releaseGroup?.title,
     );
 
-    if (useDirectPrimaryTypeSearch) {
-      filteredReleaseGroups.push(
-        ...validReleaseGroups.slice(0, Math.max(0, limitInt - filteredReleaseGroups.length)),
-      );
-      hasMore = rawCount > offsetInt + filteredReleaseGroups.length;
-      break;
-    }
-
     for (const releaseGroup of validReleaseGroups) {
       if (
         shouldFilterByReleaseType &&
@@ -519,19 +720,13 @@ export async function searchAlbums(
       ) {
         continue;
       }
-      if (matchedCount < offsetInt) {
-        matchedCount += 1;
-        continue;
+      candidateReleaseGroups.push(releaseGroup);
+      if (candidateReleaseGroups.length >= candidateWindow) {
+        break;
       }
-      if (filteredReleaseGroups.length < limitInt) {
-        filteredReleaseGroups.push(releaseGroup);
-        continue;
-      }
-      hasMore = true;
-      break;
     }
 
-    if (hasMore) {
+    if (candidateReleaseGroups.length >= candidateWindow) {
       break;
     }
     if (validReleaseGroups.length === 0) {
@@ -541,31 +736,32 @@ export async function searchAlbums(
     if (rawCount > 0 && rawOffset >= rawCount) {
       break;
     }
-    if (!shouldFilterByReleaseType) {
-      break;
-    }
   }
 
+  const sortedReleaseGroups = sortAlbumSearchResults(
+    candidateReleaseGroups,
+    query,
+    normalizedSort,
+  );
+  const pagedReleaseGroups = sortedReleaseGroups.slice(
+    offsetInt,
+    offsetInt + limitInt,
+  );
   const albumLookup = await getAlbumLibraryLookup(
-    filteredReleaseGroups.map((releaseGroup) => releaseGroup.id),
+    pagedReleaseGroups.map((releaseGroup) => releaseGroup.id),
   );
   const cachedCovers = dbOps.getImages(
-    filteredReleaseGroups.map((releaseGroup) => `rg:${releaseGroup.id}`),
+    pagedReleaseGroups.map((releaseGroup) => `rg:${releaseGroup.id}`),
   );
 
   return {
     scope: "album",
     query,
-    count: shouldFilterByReleaseType
-      ? offsetInt + filteredReleaseGroups.length + (hasMore ? 1 : 0)
-      : rawCount || filteredReleaseGroups.length,
+    sort: normalizedSort,
+    count: sortedReleaseGroups.length,
     offset: offsetInt,
-    hasMore:
-      shouldFilterByReleaseType
-        ? hasMore
-        : (rawCount || filteredReleaseGroups.length) >
-          offsetInt + filteredReleaseGroups.length,
-    items: filteredReleaseGroups.map((releaseGroup) =>
+    hasMore: offsetInt + pagedReleaseGroups.length < sortedReleaseGroups.length,
+    items: pagedReleaseGroups.map((releaseGroup) =>
       normalizeAlbumSearchItem(
         releaseGroup,
         albumLookup.get(releaseGroup.id),

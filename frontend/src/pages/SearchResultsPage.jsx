@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
+  ArrowUpDown,
   ChevronDown,
   Disc,
   Disc3,
+  Filter,
   FileMusic,
   Loader,
   Music,
-  Tag,
 } from "lucide-react";
 import {
   addArtistToLibrary,
@@ -31,6 +32,13 @@ import { useToast } from "../contexts/ToastContext";
 import { useReleaseTypeFilter } from "./ArtistDetails/hooks/useReleaseTypeFilter";
 
 const PAGE_SIZE = 20;
+const DEFAULT_ALBUM_SORT = "relevance";
+const ALBUM_SORT_OPTIONS = [
+  { value: "relevance", label: "Relevance" },
+  { value: "dateDesc", label: "Newest" },
+  { value: "artistAsc", label: "Artist (A-Z)" },
+  { value: "titleAsc", label: "Title (A-Z)" },
+];
 const MBID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -148,6 +156,7 @@ function SearchResultsPage() {
   const isTagSearch = normalizedType === "tag";
   const isAlbumSearch = normalizedType === "album";
   const tagScope = searchParams.get("scope") || "recommended";
+  const albumSort = searchParams.get("sort") || DEFAULT_ALBUM_SORT;
   const showAllTagResults = isTagSearch && tagScope === "all";
   const canAddArtist = hasPermission("addArtist");
   const canAddAlbum = hasPermission("addAlbum");
@@ -172,6 +181,19 @@ function SearchResultsPage() {
         params.set("scope", "all");
       } else {
         params.delete("scope");
+      }
+      setSearchParams(params);
+    },
+    [searchParams, setSearchParams],
+  );
+
+  const updateAlbumSort = useCallback(
+    (nextSort) => {
+      const params = new URLSearchParams(searchParams);
+      if (nextSort === DEFAULT_ALBUM_SORT) {
+        params.delete("sort");
+      } else {
+        params.set("sort", nextSort);
       }
       setSearchParams(params);
     },
@@ -845,14 +867,17 @@ function SearchResultsPage() {
           </p>
         )}
         {isAlbumSearch && trimmedQuery && (
-          <div className="space-y-4">
-            <p style={{ color: "#c1c1c3" }}>
+          <div className="space-y-3">
+            <p className="max-w-3xl text-sm" style={{ color: "#c1c1c3" }}>
               Search results include compilations, soundtracks, and releases
               from Various Artists.
             </p>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="grid gap-2 border border-white/6 p-2 sm:flex sm:flex-wrap sm:items-center"
+              style={{ backgroundColor: "rgba(20,19,24,0.72)" }}
+            >
+              <div className="flex flex-wrap items-center gap-2 sm:flex-1">
                 {primaryReleaseTypes.map((typeName) => {
                   const isSelected = selectedReleaseTypes.includes(typeName);
                   return (
@@ -871,10 +896,10 @@ function SearchResultsPage() {
                           ]);
                         }
                       }}
-                      className="flex items-center gap-2 px-3 py-2 text-sm font-medium transition-all"
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium transition-all"
                       style={{
-                        backgroundColor: isSelected ? "#4a4a4a" : "#211f27",
-                        color: "#fff",
+                        backgroundColor: isSelected ? "#4a4a4a" : "#18171d",
+                        color: isSelected ? "#fff" : "#cfcfd3",
                       }}
                     >
                       {getReleaseTypeIcon(typeName)}
@@ -884,20 +909,44 @@ function SearchResultsPage() {
                 })}
               </div>
 
-              <div className="relative">
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:contents">
+              <div className="relative min-w-0">
+                <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+                  <ArrowUpDown className="h-4 w-4" style={{ color: "#c1c1c3" }} />
+                </div>
+                <select
+                  value={albumSort}
+                  onChange={(event) => updateAlbumSort(event.target.value)}
+                  className="input input-sm w-full min-w-0 appearance-none pr-9 pl-9"
+                  style={{ backgroundColor: "#18171d" }}
+                  aria-label="Sort album results"
+                >
+                  {ALBUM_SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2"
+                  style={{ color: "#c1c1c3" }}
+                />
+              </div>
+
+              <div className="relative min-w-0">
                 <button
                   type="button"
                   onClick={() =>
                     setShowReleaseTypeDropdown((current) => !current)
                   }
-                  className="btn btn-outline-secondary btn-sm flex items-center gap-2 px-3 py-2"
+                  className="btn btn-secondary btn-sm flex w-full items-center justify-between gap-2 px-3 py-2 sm:w-auto sm:justify-start"
                 >
-                  <Tag className="h-4 w-4" />
-                  <span className="text-sm">Filter</span>
+                  <Filter className="h-4 w-4" />
+                  <span className="text-sm">More</span>
                   {hasActiveReleaseTypeFilters && (
                     <span
                       className="flex h-[18px] min-w-[18px] items-center justify-center px-1.5 text-xs text-white"
-                      style={{ backgroundColor: "#211f27" }}
+                      style={{ backgroundColor: "#0f0f12" }}
                     >
                       {inactiveReleaseTypeCount}
                     </span>
@@ -1002,6 +1051,7 @@ function SearchResultsPage() {
                     </div>
                   </>
                 )}
+              </div>
               </div>
             </div>
           </div>
