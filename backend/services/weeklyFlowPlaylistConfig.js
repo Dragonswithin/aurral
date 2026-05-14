@@ -7,6 +7,7 @@ const DEFAULT_MIX = { discover: 34, mix: 33, trending: 33 };
 const DEFAULT_SIZE = 30;
 const DEFAULT_SCHEDULE_TIME = "00:00";
 const DAY_MS = 24 * 60 * 60 * 1000;
+const FOCUS_STRENGTH_IDS = new Set(["light", "medium", "heavy"]);
 let cachedFlows = null;
 let cachedSharedPlaylists = null;
 
@@ -109,6 +110,23 @@ const normalizeScheduleTime = (value) => {
     return DEFAULT_SCHEDULE_TIME;
   }
   return `${String(hours).padStart(2, "0")}:00`;
+};
+
+const normalizeFocus = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      tagStrength: null,
+      relatedStrength: null,
+    };
+  }
+  const normalizeStrength = (entry) => {
+    const strength = String(entry || "").trim().toLowerCase();
+    return FOCUS_STRENGTH_IDS.has(strength) ? strength : null;
+  };
+  return {
+    tagStrength: normalizeStrength(value?.tagStrength),
+    relatedStrength: normalizeStrength(value?.relatedStrength),
+  };
 };
 
 const buildScheduledTime = (baseTimeMs, scheduleTime) => {
@@ -295,6 +313,7 @@ const normalizeFlow = (flow) => {
   );
   const recipeTotal = sumWeightMap(recipe);
   const computedSize = recipeTotal > 0 ? recipeTotal : baseSize;
+  const focus = normalizeFocus(flow?.focus);
   return {
     id: flow?.id || randomUUID(),
     name: name || "Flow",
@@ -311,6 +330,7 @@ const normalizeFlow = (flow) => {
     recipe,
     tags,
     relatedArtists,
+    focus,
     createdAt:
       flow?.createdAt != null && Number.isFinite(Number(flow.createdAt))
         ? Number(flow.createdAt)
@@ -458,6 +478,7 @@ const buildLegacyFlows = (settings) => {
       deepDive: false,
       tags: {},
       relatedArtists: {},
+      focus: { tagStrength: null, relatedStrength: null },
     });
   });
 };
@@ -623,6 +644,7 @@ export const flowPlaylistConfig = {
     mix,
     size,
     deepDive,
+    focus,
     recipe,
     tags,
     relatedArtists,
@@ -637,6 +659,7 @@ export const flowPlaylistConfig = {
       mix,
       size,
       deepDive,
+      focus,
       recipe,
       tags,
       relatedArtists,
@@ -667,6 +690,7 @@ export const flowPlaylistConfig = {
       recipe: updates?.recipe ?? current.recipe,
       tags: updates?.tags ?? current.tags,
       relatedArtists: updates?.relatedArtists ?? current.relatedArtists,
+      focus: updates?.focus ?? current.focus,
       scheduleDays: updates?.scheduleDays ?? current.scheduleDays,
       scheduleTime: updates?.scheduleTime ?? current.scheduleTime,
       deepDive:

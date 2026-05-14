@@ -62,38 +62,10 @@ function formatNextRun(nextRunAt, now = Date.now()) {
 const DEFAULT_MIX = { discover: 50, mix: 30, trending: 20 };
 const DEFAULT_SIZE = 30;
 
-const MIX_PRESETS = [
-  {
-    id: "balanced",
-    label: "Balanced",
-    mix: DEFAULT_MIX,
-  },
-  {
-    id: "discover",
-    label: "Discover Focus",
-    mix: { discover: 70, mix: 20, trending: 10 },
-  },
-  {
-    id: "library",
-    label: "Library Mix",
-    mix: { discover: 25, mix: 65, trending: 10 },
-  },
-  {
-    id: "trending",
-    label: "Trending Lift",
-    mix: { discover: 35, mix: 20, trending: 45 },
-  },
-  {
-    id: "custom",
-    label: "Custom",
-    mix: null,
-  },
-];
-
 const FOCUS_STRENGTHS = {
-  light: 20,
-  medium: 35,
-  heavy: 50,
+  light: 35,
+  medium: 65,
+  heavy: 100,
 };
 
 const FOCUS_OPTIONS = [
@@ -249,18 +221,6 @@ const normalizeMixPercent = (mix) => {
   return out;
 };
 
-const getPresetForMix = (mix) => {
-  const normalized = normalizeMixPercent(mix);
-  const preset = MIX_PRESETS.find(
-    (entry) =>
-      entry.mix &&
-      entry.mix.discover === normalized.discover &&
-      entry.mix.mix === normalized.mix &&
-      entry.mix.trending === normalized.trending
-  );
-  return preset?.id ?? "custom";
-};
-
 const buildCountsFromMixPercent = (size, mix) => {
   const weights = normalizeMixPercent(mix);
   const entries = [
@@ -305,19 +265,33 @@ const getFocusStrengthFromPercent = (percent) => {
   return closest?.key ?? "medium";
 };
 
-const buildCountsFromFocusPercent = (size, tagPercent, relatedPercent) => {
+const buildCountsFromFocusPercent = (
+  size,
+  tagPercent,
+  relatedPercent,
+  hasTags,
+  hasRelated,
+) => {
   const safeSize = Number.isFinite(size) && size > 0 ? size : 0;
-  const tag = Math.max(0, Number(tagPercent || 0));
-  const related = Math.max(0, Number(relatedPercent || 0));
-  const totalPercent = tag + related;
-  if (safeSize <= 0 || totalPercent <= 0) {
+  const tag = hasTags ? Math.max(0, Number(tagPercent || 0)) : 0;
+  const related = hasRelated ? Math.max(0, Number(relatedPercent || 0)) : 0;
+  const active = [
+    tag > 0 ? { key: "tag", weight: tag } : null,
+    related > 0 ? { key: "related", weight: related } : null,
+  ].filter(Boolean);
+  const targetPercent = Math.max(tag, related);
+  if (safeSize <= 0 || active.length === 0 || targetPercent <= 0) {
     return { tag: 0, related: 0, remaining: safeSize };
   }
-  const targetTotal = Math.round((totalPercent / 100) * safeSize);
-  const entries = [
-    { key: "tag", raw: (tag / 100) * safeSize },
-    { key: "related", raw: (related / 100) * safeSize },
-  ];
+  const targetTotal = Math.min(
+    safeSize,
+    Math.round((targetPercent / 100) * safeSize),
+  );
+  const weightTotal = active.reduce((sum, entry) => sum + entry.weight, 0);
+  const entries = active.map((entry) => ({
+    ...entry,
+    raw: (entry.weight / weightTotal) * targetTotal,
+  }));
   const floored = entries.map((entry) => ({
     ...entry,
     count: Math.floor(entry.raw),
@@ -424,7 +398,10 @@ const flowToForm = (flow) => {
         ? recipeTotal
         : DEFAULT_SIZE;
   const mix = normalizeMixPercent(flow?.mix || DEFAULT_MIX);
-  const preset = getPresetForMix(mix);
+  const flowFocus =
+    flow?.focus && typeof flow.focus === "object" && !Array.isArray(flow.focus)
+      ? flow.focus
+      : null;
   const focusStrengths = buildFocusStrengthFromCounts(
     Number.isFinite(size) ? size : 0,
     tagCount,
@@ -434,12 +411,13 @@ const flowToForm = (flow) => {
     name: flow?.name || "",
     size: Number.isFinite(size) && size > 0 ? Math.round(size) : DEFAULT_SIZE,
     mix,
-    mixPreset: preset,
     deepDive: flow?.deepDive === true,
     includeTags: Object.keys(tagsMap).join(", "),
     includeRelatedArtists: Object.keys(relatedMap).join(", "),
-    tagStrength: focusStrengths.tagStrength,
-    relatedStrength: focusStrengths.relatedStrength,
+    tagStrength:
+      flowFocus?.tagStrength ?? focusStrengths.tagStrength,
+    relatedStrength:
+      flowFocus?.relatedStrength ?? focusStrengths.relatedStrength,
     scheduleDays:
       normalizeScheduleDays(flow?.scheduleDays).length > 0
         ? normalizeScheduleDays(flow?.scheduleDays)
@@ -468,9 +446,6 @@ const buildFlowFromForm = (draft) => {
     includeRelatedArtists.length > 0
       ? getFocusPercentFromStrength(draft?.relatedStrength)
       : 0;
-  if (tagFocusPercent + relatedFocusPercent > 100) {
-    throw new Error("Tag and related focus exceeds 100%");
-  }
   const scheduleDays = normalizeScheduleDays(draft?.scheduleDays);
   if (scheduleDays.length === 0) {
     throw new Error("Select at least one day for this flow schedule");
@@ -479,7 +454,9 @@ const buildFlowFromForm = (draft) => {
   const focusCounts = buildCountsFromFocusPercent(
     size,
     tagFocusPercent,
-    relatedFocusPercent
+    relatedFocusPercent,
+    includeTags.length > 0,
+    includeRelatedArtists.length > 0,
   );
   const tagFocus = focusCounts.tag;
   const relatedFocus = focusCounts.related;
@@ -508,6 +485,14 @@ const buildFlowFromForm = (draft) => {
     recipe,
     tags,
     relatedArtists,
+    focus: {
+      tagStrength:
+        includeTags.length > 0 ? (draft?.tagStrength ?? "medium") : null,
+      relatedStrength:
+        includeRelatedArtists.length > 0
+          ? (draft?.relatedStrength ?? "medium")
+          : null,
+    },
     deepDive: draft?.deepDive === true,
     scheduleDays,
     scheduleTime,
@@ -2136,7 +2121,6 @@ function FlowPage() {
                   });
                 }
               }}
-              mixPresets={MIX_PRESETS}
               focusOptions={FOCUS_OPTIONS}
               normalizeMixPercent={normalizeMixPercent}
             />
