@@ -3,11 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Aurral | Music Discovery & Request Management</title>
+    <title>Aurral | The best in open-source music discovery.</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
@@ -22,17 +22,18 @@
       <a href="/" class="logo">
         <img
           src="https://raw.githubusercontent.com/lklynet/aurral/refs/heads/main/frontend/public/arralogo.svg"
-          alt="Aurral Logo"
+          alt="Aurral logo"
         />
-        Aurral
+        <span>Aurral</span>
       </a>
+
       <div class="nav-links">
-        <a href="/">Home</a>
-        <a href="flows-and-playlists.html">Flows & Playlists</a>
-        <a href="aurral-convert.html">Spotify Import</a>
+        <a href="aurral-convert.html" class="nav-strong">Spotify Import</a>
+        <a href="#setup">Docker Setup</a>
         <a
           href="https://github.com/lklynet/aurral"
           target="_blank"
+          rel="noopener noreferrer"
           class="btn btn-outline github-btn"
         >
           <svg
@@ -40,16 +41,12 @@
             width="16"
             height="16"
             viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
+            fill="currentColor"
+            aria-hidden="true"
           >
             <path
-              d="M15 22v-4a4.8 4.8 0 0 0-1-3.02c3.1-.34 6.2-1.53 6.2-6.74a5.34 5.34 0 0 0-1.5-3.8 5.33 5.33 0 0 0-.1-3.8s-1.2-.4-3.9 1.4a13.38 13.38 0 0 0-7 0c-2.7-1.8-3.9-1.4-3.9-1.4a5.33 5.33 0 0 0-.1 3.8 5.34 5.34 0 0 0-1.5 3.8c0 5.2 3.1 6.4 6.2 6.74a4.8 4.8 0 0 0-1 3.02v4"
+              d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 0 0 7.86 10.93c.58.1.79-.25.79-.56v-2c-3.2.69-3.88-1.37-3.88-1.37-.52-1.33-1.27-1.69-1.27-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.68 1.25 3.33.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.27-5.24-5.67 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.15 1.18a10.96 10.96 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.57.23 2.73.11 3.02.74.8 1.18 1.83 1.18 3.08 0 4.41-2.7 5.38-5.27 5.66.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"
             />
-            <path d="M9 20c-4.2 1.4-5.6-1.5-5.6-1.5" />
           </svg>
           GitHub
           <span class="github-stars-badge">
@@ -59,10 +56,7 @@
               height="12"
               viewBox="0 0 24 24"
               fill="currentColor"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+              aria-hidden="true"
             >
               <polygon
                 points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
@@ -74,131 +68,321 @@
       </div>
     </nav>
 
-    <header class="hero">
-      <h1>Your Music.<br />Your Server.</h1>
-      <p>
-        Self-hosted music discovery and request management for Lidarr with
-        library-aware recommendations and optional Weekly Flow playlists powered
-        by Soulseek + Navidrome.
-      </p>
-      <div class="hero-actions">
-        <a href="#setup" class="btn">Get Started</a>
-        <a href="aurral-convert.html" class="btn btn-outline"
-          >Import Spotify Playlists</a
+    <header class="hero hero-home">
+      <div class="hero-grid" aria-hidden="true"></div>
+
+      <div class="hero-float" aria-hidden="true">
+        <a
+          href="https://github.com/Lidarr/Lidarr"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hero-float-mark hf-lidarr"
+          aria-label="Lidarr"
         >
+          <img src="icons/lidarr.svg" alt="" />
+        </a>
+        <a
+          href="https://slsknet.org/"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hero-float-mark hf-soulseek"
+          aria-label="Soulseek"
+        >
+          <img src="icons/soulseek.svg" alt="" />
+        </a>
+        <a
+          href="https://github.com/navidrome/navidrome"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hero-float-mark hf-navidrome"
+          aria-label="Navidrome"
+        >
+          <img src="icons/navidrome.svg" alt="" />
+        </a>
+        <a
+          href="https://last.fm"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hero-float-mark hf-lastfm"
+          aria-label="Last.fm"
+        >
+          <img src="icons/last-fm.svg" alt="" />
+        </a>
+      </div>
+
+      <div class="hero-inner">
+        <h1>The best in open-source music discovery.</h1>
+        <p>
+          Personalized recommendations, Spotify playlist imports, and custom
+          weekly playlists for the Lidarr-based music stacks.
+        </p>
+
+        <div class="hero-actions">
+          <a href="#setup" class="btn">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d="M13.53 11.29 20 4.82V18a2 2 0 0 1-2 2H4.82l6.47-6.47 1.41 1.41L8.64 19H18a1 1 0 0 0 1-1V7.64l-4.06 4.06z" />
+              <path d="m14.94 4.94 1.41 1.41-9.9 9.9H5.04v-1.41z" />
+            </svg>
+            Start with Docker
+          </a>
+          <a
+            href="https://github.com/lklynet/aurral"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn btn-outline"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 0 0 7.86 10.93c.58.1.79-.25.79-.56v-2c-3.2.69-3.88-1.37-3.88-1.37-.52-1.33-1.27-1.69-1.27-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.68 1.25 3.33.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.27-5.24-5.67 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.15 1.18a10.96 10.96 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.57.23 2.73.11 3.02.74.8 1.18 1.83 1.18 3.08 0 4.41-2.7 5.38-5.27 5.66.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"
+              />
+            </svg>
+            Star on GitHub
+          </a>
+        </div>
+
+        <div class="hero-preview">
+          <figure class="hero-screenshot-frame">
+            <img
+              src="https://raw.githubusercontent.com/lklynet/aurral/refs/heads/main/frontend/images/discover.webp"
+              alt="Aurral discover page"
+              class="screenshot"
+            />
+          </figure>
+        </div>
       </div>
     </header>
 
-    <main class="container">
-      <section id="features">
-        <h2>Features</h2>
-        <div class="grid">
-          <div class="card feature-card">
-            <h3>Lidarr Management</h3>
-            <ul class="feature-list">
-              <li>Search artists via MusicBrainz</li>
-              <li>
-                Monitor options (None / All / Future / Missing / Latest / First)
-              </li>
-              <li>Add specific albums from release groups</li>
-              <li>Track requests and download/import progress</li>
-            </ul>
-          </div>
-          <div class="card feature-card">
-            <h3>Discovery</h3>
-            <ul class="feature-list">
-              <li>Browse your existing library in a clean UI</li>
-              <li>
-                Daily Discover recommendations based on your library, tags, and
-                trends
-              </li>
-              <li>Last.fm integration (optional)</li>
-              <li>Library-aware so you don't request what you already have</li>
-            </ul>
-          </div>
-          <div class="card feature-card">
-            <h3>Weekly Flow</h3>
-            <ul class="feature-list">
-              <li>Generates playlists from your library & listening context</li>
-              <li>Downloads tracks via built-in Soulseek client</li>
-              <li>Multiple flows with adjustable mix</li>
-              <li>Navidrome smart playlists integration</li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      <section id="screenshots">
-        <h2>Interface</h2>
-        <img
-          src="https://raw.githubusercontent.com/lklynet/aurral/refs/heads/main/frontend/images/discover.webp"
-          alt="Aurral UI Discovery"
-          class="screenshot"
-        />
-        <div class="screenshot-grid">
-          <img
-            src="https://raw.githubusercontent.com/lklynet/aurral/refs/heads/main/frontend/images/recommended.webp"
-            alt="Aurral Recommendations"
-            class="screenshot"
-          />
-          <img
-            src="https://raw.githubusercontent.com/lklynet/aurral/refs/heads/main/frontend/images/artist.webp"
-            alt="Aurral Artist Details"
-            class="screenshot"
-          />
-        </div>
-      </section>
-
-      <section id="import">
-        <h2>Import Spotify Playlists</h2>
-        <div class="callout">
-          <h3>Bring Your Music Over</h3>
+    <main>
+      <section id="features" class="section-block">
+        <div class="section-head">
+          <h2>Multiple ways to listen.</h2>
           <p>
-            Aurral supports importing static playlists via JSON. We built a
-            dedicated converter to easily migrate your Spotify playlists using
-            Exportify.
+            Monitor artists and full albums, build static playlists for single
+            tracks, or run multiple flows shaped by your library and listening
+            history.
           </p>
+        </div>
 
-          <div
-            style="
-              text-align: left;
-              margin-bottom: 24px;
-              max-width: 600px;
-              margin-left: auto;
-              margin-right: auto;
-              color: var(--muted);
-            "
-          >
-            <ol>
-              <li style="margin-bottom: 12px">
-                Export your Spotify playlist as a CSV using
-                <a href="https://exportify.net/" target="_blank">Exportify</a>.
-              </li>
-              <li style="margin-bottom: 12px">
-                Use our web converter to transform that CSV into an
-                Aurral-compatible JSON file.
-              </li>
-              <li>
-                Open the <strong>Playlist Import</strong> modal in your
-                self-hosted Aurral UI and upload the JSON!
-              </li>
-            </ol>
-          </div>
-
-          <a href="aurral-convert.html" class="btn"
-            >Open CSV to JSON Converter</a
-          >
+        <div class="feature-columns">
+          <article>
+            <h3>Artists & albums</h3>
+            <p>
+              Use Lidarr to monitor artists, track releases, and pull full
+              albums into your library.
+            </p>
+          </article>
+          <article>
+            <h3>Static playlists</h3>
+            <p>
+              Create or import fixed playlists when you want exact tracks, not
+              rotating picks.
+            </p>
+          </article>
+          <article>
+            <h3>Flows</h3>
+            <p>
+              Spin up multiple automated flows built from your own library and
+              listening history.
+            </p>
+          </article>
         </div>
       </section>
 
-      <section id="setup">
-        <h2>Quick Start (Docker Compose)</h2>
-        <p style="color: var(--muted); margin-bottom: 16px">
-          Aurral is designed to be safe for your collection: it does not write
-          into your main music library directly. Library changes go through
-          Lidarr's API, and Weekly Flow writes into its own dedicated directory.
-        </p>
-        <pre><code>services:
+      <section id="integrations" class="section-block">
+        <div class="section-head">
+          <h2>Built for the stack self-hosters already trust.</h2>
+          <p>
+            Keep your server. Add a real discovery layer.
+          </p>
+        </div>
+
+        <div class="integration-grid">
+          <a
+            href="https://github.com/Lidarr/Lidarr"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="integration-card"
+          >
+            <div class="integration-mark">
+              <img src="icons/lidarr.svg" alt="" />
+            </div>
+            <div class="integration-copy">
+              <h3>Lidarr</h3>
+              <p>Requests, monitor modes, album targeting, and status tracking.</p>
+              <code>Request engine</code>
+            </div>
+          </a>
+
+          <a
+            href="https://slsknet.org/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="integration-card"
+          >
+            <div class="integration-mark">
+              <img src="icons/soulseek.svg" alt="" />
+            </div>
+            <div class="integration-copy">
+              <h3>Soulseek</h3>
+              <p>Turns flows and playlists into real downloads.</p>
+              <code>Acquisition layer</code>
+            </div>
+          </a>
+
+          <a
+            href="https://github.com/navidrome/navidrome"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="integration-card"
+          >
+            <div class="integration-mark">
+              <img src="icons/navidrome.svg" alt="" />
+            </div>
+            <div class="integration-copy">
+              <h3>Navidrome</h3>
+              <p>Delivers finished flow output to playback.</p>
+              <code>Playback destination</code>
+            </div>
+          </a>
+
+          <a
+            href="https://last.fm"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="integration-card"
+          >
+            <div class="integration-mark">
+              <img src="icons/last-fm.svg" alt="" />
+            </div>
+            <div class="integration-copy">
+              <h3>Last.fm</h3>
+              <p>Adds listening context back into discovery.</p>
+              <code>Recommendation context</code>
+            </div>
+          </a>
+        </div>
+      </section>
+
+      <section id="workflow" class="section-block workflow-section">
+        <div class="workflow-visual">
+          <div class="workflow-card">
+            <div class="workflow-card-head">
+              <span class="workflow-status">Flow pipeline</span>
+              <span class="workflow-branch">discover-weekly</span>
+            </div>
+            <div class="workflow-steps">
+              <div class="workflow-step">
+                <span class="workflow-step-index">01</span>
+                <div>
+                  <strong>Discover</strong>
+                  <p>Score artists against your library, listening context, and trends.</p>
+                </div>
+              </div>
+              <div class="workflow-step">
+                <span class="workflow-step-index">02</span>
+                <div>
+                  <strong>Download</strong>
+                  <p>Queue tracks through Soulseek with retry logic for playlist and flow behavior.</p>
+                </div>
+              </div>
+              <div class="workflow-step">
+                <span class="workflow-step-index">03</span>
+                <div>
+                  <strong>Listen</strong>
+                  <p>Refresh static playlists or weekly flows and surface them in Navidrome.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="workflow-copy">
+          <div class="section-head">
+            <h2>One interface from recommendation to playback.</h2>
+            <p>
+              Cut out the messy middle of your music stack.
+            </p>
+          </div>
+
+          <ul class="feature-list">
+            <li>See library state before you request.</li>
+            <li>Track requests, downloads, and imports in one place.</li>
+            <li>Run weekly flows and static playlists side by side.</li>
+            <li>Import Spotify playlists with the built-in converter.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="setup" class="section-block setup-section">
+        <div class="section-head open-head">
+          <h2>Open source. Docker first. Fast to test.</h2>
+          <p>
+            Start it, connect your stack, and see the difference quickly.
+          </p>
+        </div>
+
+        <div class="setup-grid">
+          <div class="terminal-card">
+            <div class="terminal-head">
+              <span></span>
+              <span></span>
+              <span></span>
+              <div class="terminal-title">~/media/aurral</div>
+            </div>
+
+            <div class="terminal-body">
+              <div><span class="prompt">$</span> docker compose up -d</div>
+              <div class="dim">Starting aurral ... done</div>
+              <div><span class="prompt">$</span> open http://localhost:3001</div>
+              <div class="dim">Connect Lidarr, Last.fm, and your download path.</div>
+              <div><span class="prompt">$</span> import your first playlist</div>
+              <div class="cursor-line">Aurral is ready<span class="caret"></span></div>
+            </div>
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-value">MIT</div>
+              <div class="stat-label">License</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">Library-aware</div>
+              <div class="stat-label">Recommendations</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value github-stars-count">...</div>
+              <div class="stat-label">GitHub stars</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">Flows + playlists</div>
+              <div class="stat-label">Two discovery modes</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="code-block">
+          <button
+            type="button"
+            class="copy-button"
+            data-copy-target="docker-compose-snippet"
+          >
+            Copy
+          </button>
+          <pre><code id="docker-compose-snippet">services:
   aurral:
     image: ghcr.io/lklynet/aurral:latest
     restart: unless-stopped
@@ -209,27 +393,109 @@
     volumes:
       - ${DL_FOLDER:-./data/downloads}:/app/downloads
       - ${STORAGE:-./data}:/app/backend/data</code></pre>
-        <p style="color: var(--muted)">
-          Start it up: <code>docker compose up -d</code><br />
-          Then open: <code>http://localhost:3001</code>
-        </p>
+        </div>
+
+        <div class="setup-links">
+          <a
+            href="https://github.com/lklynet/aurral"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn btn-outline"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 0 0 7.86 10.93c.58.1.79-.25.79-.56v-2c-3.2.69-3.88-1.37-3.88-1.37-.52-1.33-1.27-1.69-1.27-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.68 1.25 3.33.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.27-5.24-5.67 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.15 1.18a10.96 10.96 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.57.23 2.73.11 3.02.74.8 1.18 1.83 1.18 3.08 0 4.41-2.7 5.38-5.27 5.66.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"
+              />
+            </svg>
+            Star on GitHub
+          </a>
+          <a
+            href="https://github.com/lklynet/aurral/fork"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn btn-outline"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="6" cy="6" r="3"></circle>
+              <circle cx="18" cy="6" r="3"></circle>
+              <circle cx="12" cy="18" r="3"></circle>
+              <path d="M8.59 7.51 10.42 15"></path>
+              <path d="M15.41 7.51 13.58 15"></path>
+            </svg>
+            Fork the repo
+          </a>
+          <a
+            href="https://github.com/lklynet/aurral/blob/main/CONTRIBUTING.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn btn-outline"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M14 3h7v7"></path>
+              <path d="M10 14 21 3"></path>
+              <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"></path>
+            </svg>
+            Read CONTRIBUTING.md
+          </a>
+        </div>
       </section>
     </main>
 
+    <section class="final-cta">
+      <div class="final-cta-inner">
+        <h2>Your library deserves a real discovery engine.</h2>
+        <p>
+          Run Aurral locally and upgrade from storage to discovery.
+        </p>
+        <div class="hero-actions">
+          <a href="https://github.com/lklynet/aurral" target="_blank" rel="noopener noreferrer" class="btn"
+            >View on GitHub</a
+          >
+          <a href="flows-and-playlists.html" class="btn btn-outline"
+            >Learn About Flows &amp; Playlists</a
+          >
+        </div>
+      </div>
+    </section>
+
     <footer>
       <p>Aurral is open source software released under the MIT License.</p>
-      <div
-        style="
-          margin-top: 16px;
-          display: flex;
-          justify-content: center;
-          gap: 16px;
-        "
-      >
-        <a href="https://github.com/lklynet/aurral" target="_blank">GitHub</a>
-        <a href="https://discord.gg/cpPYfgVURJ" target="_blank">Discord</a>
+      <div class="footer-links">
+        <a href="https://github.com/lklynet/aurral" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://discord.gg/cpPYfgVURJ" target="_blank" rel="noopener noreferrer">Discord</a>
+        <a href="aurral-convert.html">Spotify Import</a>
       </div>
     </footer>
+
     <script src="main.js"></script>
   </body>
 </html>
