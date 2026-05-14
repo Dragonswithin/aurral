@@ -6,6 +6,7 @@ COPY frontend/package*.json ./
 RUN npm ci
 
 COPY frontend/ ./
+COPY lib/ ../lib/
 ARG APP_VERSION=unknown
 ARG GITHUB_REPO=lklynet/aurral
 ARG RELEASE_CHANNEL=stable
@@ -33,6 +34,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev --ignore-scripts
 
 COPY backend/ ./backend/
+COPY lib/ ./lib/
 COPY server.js loadEnv.js ./
 COPY --from=builder /app/frontend/dist ./frontend/dist
 COPY backend/docker-entrypoint.sh /usr/local/bin/
