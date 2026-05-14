@@ -1,6 +1,6 @@
 {
   "name": "aurral",
-  "version": "1.76.0-test.6",
+  "version": "1.76.0",
   "description": "Aurral artist request manager",
   "main": "server.js",
   "type": "module",
@@ -16,8 +16,7 @@
     "install:frontend": "cd frontend && npm install",
     "auth:reset-admin-password": "node backend/scripts/resetAdminPassword.js",
     "docker:build": "docker build -t aurral .",
-    "docker:run": "docker run -p 3001:3001 -v $(pwd)/backend/data:/app/backend/data aurral",
-    "prepare": "husky"
+    "docker:run": "docker run -p 3001:3001 -v $(pwd)/backend/data:/app/backend/data aurral"
   },
   "keywords": [
     "lidarr",
@@ -41,17 +40,8 @@
     "ws": "^8.20.0"
   },
   "devDependencies": {
-    "@commitlint/config-conventional": "^21.0.0",
-    "@semantic-release/commit-analyzer": "^13.0.1",
-    "@semantic-release/git": "^10.0.1",
-    "@semantic-release/github": "^12.0.8",
-    "@semantic-release/npm": "^13.1.5",
-    "@semantic-release/release-notes-generator": "^14.1.1",
-    "commitlint": "^21.0.0",
     "concurrently": "^9.1.2",
-    "husky": "^9.1.7",
     "nodemon": "^3.1.14",
-    "semantic-release": "^25.0.3",
     "wait-on": "^9.0.6"
   },
   "nodemonConfig": {

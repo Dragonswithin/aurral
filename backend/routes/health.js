@@ -1,10 +1,10 @@
 import express from "express";
-import { readFileSync } from "fs";
 import {
   getLastfmApiKey,
   getTicketmasterApiKey,
   getMetadataProviderHealthSnapshot,
 } from "../services/apiClients.js";
+import { APP_VERSION } from "../config/constants.js";
 import {
   resolveRequestUser,
   getAuthUser,
@@ -18,15 +18,6 @@ import { dbOps } from "../config/db-helpers.js";
 import { websocketService } from "../services/websocketService.js";
 import { noCache } from "../middleware/cache.js";
 import { requireAuth } from "../middleware/requirePermission.js";
-
-let rootPackageVersion = "unknown";
-try {
-  const raw = readFileSync(
-    new URL("../../package.json", import.meta.url),
-    "utf-8",
-  );
-  rootPackageVersion = JSON.parse(raw)?.version || "unknown";
-} catch {}
 
 const router = express.Router();
 
@@ -45,7 +36,7 @@ function buildBootstrapPayload(req) {
     authUser: currentUser ? currentUser.username : authUser,
     onboardingRequired: !onboardingDone,
     timestamp: new Date().toISOString(),
-    appVersion: process.env.APP_VERSION || rootPackageVersion || "unknown",
+    appVersion: APP_VERSION,
     rootFolderConfigured: lidarrConfigured,
     lidarrConfigured,
     lastfmConfigured: !!getLastfmApiKey(),

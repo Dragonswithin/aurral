@@ -13,15 +13,17 @@ Thanks for helping with Aurral.
 - Branch from `main`
 - Keep your branch narrow and descriptive
 - Use one of these prefixes:
-  - `feat/short-description`
+  - `feature/short-description`
   - `fix/short-description`
   - `hotfix/short-description`
   - `chore/short-description`
   - `refactor/short-description`
+  - `docs/short-description`
+  - `ci/short-description`
 
 Examples:
 
-- `feat/artist-merge-actions`
+- `feature/artist-merge-actions`
 - `fix/request-history-pagination`
 - `chore/update-healthcheck-tests`
 
@@ -29,7 +31,6 @@ Rules:
 
 - Use kebab-case
 - Keep names short
-- If your branch starts with `hotfix/`, your commits should still use the `fix:` commit type
 
 ## Pull request flow
 
@@ -47,66 +48,20 @@ What to expect:
 
 ## Commit messages
 
-This repo uses commitlint plus semantic-release. Commit messages matter because they drive automated versioning.
+Commit messages no longer drive versioning or release automation.
 
-Allowed commit types:
-
-- `feat`
-- `fix`
-- `refactor`
-- `chore`
-- `docs`
-- `ci`
-
-Format:
-
-```text
-type(scope): short summary
-```
-
-Scope is optional:
-
-```text
-feat: add onboarding health check
-fix(auth): reject expired bearer sessions
-refactor(discovery): simplify provider cache namespaces
-```
-
-Rules enforced here:
-
-- `type` must be one of the allowed values above
-- `scope`, if present, must be kebab-case
-- subject cannot be empty
-- breaking changes must use `!` in the header and include a `BREAKING CHANGE:` footer when needed
-
-Examples:
-
-```text
-feat(search): add album release filters
-fix: prevent duplicate tag requests
-docs: update docker quick start
-ci: tighten release branch validation
-feat(api)!: rename status response fields
-
-BREAKING CHANGE: clients must read the new response fields.
-```
-
-## Husky behavior
-
-The repo has a `commit-msg` hook that can normalize plain commit subjects based on your branch name.
-
-Example:
-
-- On branch `feat/global-search`, a plain commit like `add empty state` can be normalized to `feat: add empty state`
-
-That hook is only a convenience layer. You should still write proper conventional commits yourself.
+Use clear, descriptive commit subjects. Conventional commits are fine if you prefer them, but they are not required for release correctness.
 
 ## Naming things
 
 - Branch names: kebab-case with one of the approved prefixes
-- Commit scopes: kebab-case
 - Keep PR titles clear and specific
 - Match the existing naming in the codebase instead of inventing new terminology for the same concept
+
+PR title examples:
+
+- `Add album sorting and refreshed search cards`
+- `Refresh Soulseek shares during weekly flow updates`
 
 ## Before opening a PR
 
@@ -126,13 +81,14 @@ cd frontend && npm run lint
 CI behavior:
 
 - PRs to `main` and `test` run the full validation suite
-- Pushes to `main` and `test` run release automation only
+- Pushes to `test` create prerelease tags and publish the `test` GHCR image after validation passes
+- Pushes to `main` create stable tags, publish the `latest` GHCR image, and publish a GitHub Release after validation passes
+- Versions and tags are CI-owned; you do not need to choose or create them manually
 - Docs-only changes may skip heavy CI and release workflows
 
 ## Merge strategy
 
-- Prefer merge commits over squash or rebase when landing work that should preserve commit intent for release automation
-- If a change is squashed, the final squashed commit message still needs to be a valid conventional commit
+- Merge strategy is up to the maintainer. Release automation is branch-driven and does not depend on PR titles or commit message format.
 
 ## Questions
 

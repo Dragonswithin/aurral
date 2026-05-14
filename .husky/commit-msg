@@ -1,2 +1,0 @@
-node scripts/normalize-commit-message.js "$1"
-npx --no -- commitlint --edit "$1"

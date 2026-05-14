@@ -1,18 +1,13 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
-import { readFileSync, existsSync } from "fs";
 import { cwd } from "process";
+import { resolveAppVersion } from "../lib/app-version.js";
 
-const packageJson = JSON.parse(readFileSync("./package.json", "utf-8"));
-const rootPackageJson = existsSync("../package.json")
-  ? JSON.parse(readFileSync("../package.json", "utf-8"))
-  : null;
-const appVersion =
-  globalThis?.process?.env?.VITE_APP_VERSION ||
-  rootPackageJson?.version ||
-  packageJson.version ||
-  "unknown";
+const appVersion = resolveAppVersion({
+  envValue: globalThis?.process?.env?.VITE_APP_VERSION,
+  cwd: process.cwd(),
+});
 const releaseChannel =
   globalThis?.process?.env?.VITE_RELEASE_CHANNEL || "stable";
 
