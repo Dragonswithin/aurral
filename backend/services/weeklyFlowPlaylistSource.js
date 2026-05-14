@@ -903,6 +903,14 @@ export class WeeklyFlowPlaylistSource {
     const limit = Number.isFinite(size) && size > 0 ? size : 30;
     const tags = this._normalizeWeightMap(flow?.tags);
     const relatedArtists = this._normalizeWeightMap(flow?.relatedArtists);
+    const focusSettings =
+      flow?.focus && typeof flow.focus === "object" ? flow.focus : {};
+    const tagStrength = String(focusSettings?.tagStrength || "")
+      .trim()
+      .toLowerCase();
+    const relatedStrength = String(focusSettings?.relatedStrength || "")
+      .trim()
+      .toLowerCase();
     const tagsTotal = this._sumWeightMap(tags);
     const relatedTotal = this._sumWeightMap(relatedArtists);
     const recipeCounts = this._normalizeRecipeCounts(flow?.recipe);
@@ -1009,6 +1017,9 @@ export class WeeklyFlowPlaylistSource {
           }]
         : [];
     const focusTotal = Math.min(tagsTotal + relatedTotal, totalTarget);
+    const forceFocusedOnly =
+      (tagsTotal > 0 && tagStrength === "heavy") ||
+      (relatedTotal > 0 && relatedStrength === "heavy");
     const focusTracks =
       focusTotal > 0
         ? this._dedupeAndFillSources(focusTotal, [
@@ -1077,6 +1088,9 @@ export class WeeklyFlowPlaylistSource {
       const tracks = focusAssignments[key] || [];
       return { key: `focus:${key}`, count: tracks.length, tracks };
     });
+    if (forceFocusedOnly && focusSlices.some((slice) => slice.count > 0)) {
+      return this._dedupeAndFillSources(totalTarget, focusSlices);
+    }
     const baseSources = orderedKeys.map((key) => {
       const focusCount = focusAssignments[key]?.length || 0;
       const count = Math.max(Number(counts[key] || 0) - focusCount, 0);

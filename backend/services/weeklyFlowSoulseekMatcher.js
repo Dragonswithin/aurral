@@ -368,6 +368,7 @@ function isStrongEnoughCandidate({
   albumScore,
   variantMatch,
   trackCountScore,
+  trackNumberMismatch,
   siblingTrackPenalty,
   context,
 }) {
@@ -386,10 +387,14 @@ function isStrongEnoughCandidate({
   if (titleScore < 72 && artistScore < 58) {
     return { valid: false, reason: "weak-title-artist-combo" };
   }
+  if (trackNumberMismatch && titleScore < 95) {
+    return { valid: false, reason: "track-number-mismatch" };
+  }
   if (
     context?.albumName &&
     albumScore < 18 &&
     trackCountScore < 18 &&
+    !(titleScore >= 90 && artistScore >= 90) &&
     titleScore < 92
   ) {
     return { valid: false, reason: "weak-album-context" };
@@ -473,6 +478,13 @@ function buildGroupCandidate(group, context, options = {}) {
       context?.trackNumber,
       extractTrackNumber(baseName),
     );
+    const actualTrackNumber = extractTrackNumber(baseName);
+    const trackNumberMismatch =
+      Number.isFinite(Number(context?.trackNumber)) &&
+      Number(context?.trackNumber) > 0 &&
+      Number.isFinite(Number(actualTrackNumber)) &&
+      Number(actualTrackNumber) > 0 &&
+      Number(context?.trackNumber) !== Number(actualTrackNumber);
     const titleConfidenceScore = scoreTitleConfidence(titleScore);
     const siblingTrackPenalty = scoreSiblingTrackConflict(
       baseName,
@@ -485,6 +497,7 @@ function buildGroupCandidate(group, context, options = {}) {
       albumScore,
       variantMatch,
       trackCountScore,
+      trackNumberMismatch,
       siblingTrackPenalty,
       context,
     });
@@ -528,6 +541,7 @@ function buildGroupCandidate(group, context, options = {}) {
         userQueuePenaltyScore,
         variantScore,
         variantHardMismatch: variantMatch.hardMismatch,
+        trackNumberMismatch,
         trackNumberScore,
         titleConfidenceScore,
         siblingTrackPenalty,
@@ -689,8 +703,10 @@ export async function validateDownloadedTrack(filePath, candidate, context) {
     artistScore >= 60 &&
     durationValid &&
     !variantMatch.hardMismatch &&
-    trackNumberValid &&
-    (!context?.albumName || albumScore >= 28 || titleScore >= 95);
+    (trackNumberValid || (titleScore >= 98 && artistScore >= 90)) &&
+    (!context?.albumName ||
+      albumScore >= 28 ||
+      (titleScore >= 90 && artistScore >= 90));
 
   return {
     valid,

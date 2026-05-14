@@ -563,6 +563,18 @@ export class WeeklyFlowWorker {
     return `${artist}::${name}`;
   }
 
+  _artistKeyFromJob(job) {
+    return String(job?.artistName || "")
+      .trim()
+      .toLowerCase();
+  }
+
+  _artistKeyFromTrack(track) {
+    return String(track?.artistName || "")
+      .trim()
+      .toLowerCase();
+  }
+
   _dropOverflowPendingJobs(playlistType) {
     if (!this._hasReachedPlaylistTarget(playlistType)) return 0;
     const jobs = downloadTracker.getByPlaylistType(playlistType);
@@ -710,11 +722,20 @@ export class WeeklyFlowWorker {
         .map((job) => this._trackKeyFromJob(job))
         .filter(Boolean),
     );
+    const existingArtistKeys = new Set(
+      downloadTracker
+        .getByPlaylistType(playlistType)
+        .map((job) => this._artistKeyFromJob(job))
+        .filter(Boolean),
+    );
     const unique = [];
     for (const track of sourceTracks) {
       const key = this._trackKeyFromTrack(track);
+      const artistKey = this._artistKeyFromTrack(track);
       if (!key || existingKeys.has(key)) continue;
+      if (artistKey && existingArtistKeys.has(artistKey)) continue;
       existingKeys.add(key);
+      if (artistKey) existingArtistKeys.add(artistKey);
       unique.push(track);
       if (unique.length >= shortfall) break;
     }
@@ -1067,6 +1088,7 @@ export class WeeklyFlowWorker {
       let lastError = null;
       let attemptedCandidates = 0;
       let mp3FallbackActivated = false;
+      const rejectedUsersForJob = new Set();
 
       await new Promise((r) => setImmediate(r));
       await fs.mkdir(stagingDir, { recursive: true });
@@ -1141,6 +1163,7 @@ export class WeeklyFlowWorker {
               },
             )
           : [];
+      const viablePoolSize = filteredMixed.length;
       const candidates =
         initialCandidates.length > 0 ? [...initialCandidates] : [...fallbackCandidates];
       if (candidates.length === 0) {
@@ -1182,6 +1205,12 @@ export class WeeklyFlowWorker {
             );
           }
           if (soulseekClient.isUserBlacklisted(candidate.raw?.user)) {
+            continue;
+          }
+          const candidateUser = String(candidate.raw?.user || "")
+            .trim()
+            .toLowerCase();
+          if (candidateUser && rejectedUsersForJob.has(candidateUser)) {
             continue;
           }
           attemptedCandidates += 1;
@@ -1229,6 +1258,9 @@ export class WeeklyFlowWorker {
                 `Downloaded track validation failed: ${validation.reason}`,
               );
               this._recordFailureMetric(lastError.message);
+              if (candidateUser) {
+                rejectedUsersForJob.add(candidateUser);
+              }
               console.warn(
                 `[WeeklyFlowWorker] Candidate rejected for ${job.id}: user=${String(candidate.raw?.user || "").trim()} file=${String(candidate.raw?.file || "").trim()} reason=${validation.reason}`,
               );
@@ -1241,10 +1273,20 @@ export class WeeklyFlowWorker {
           } catch (err) {
             lastError = err;
             this._recordFailureMetric(err?.message || "");
+            if (candidateUser) {
+              rejectedUsersForJob.add(candidateUser);
+            }
             console.warn(
               `[WeeklyFlowWorker] Candidate failed for ${job.id}: user=${String(candidate.raw?.user || "").trim()} file=${String(candidate.raw?.file || "").trim()} reason=${String(err?.message || err || "unknown")}`,
             );
           }
+        }
+        if (
+          !selectedMatch &&
+          viablePoolSize > 0 &&
+          viablePoolSize <= 2
+        ) {
+          lastError = new Error("No candidate files returned");
         }
         timingsMs.search += Number(process.hrtime.bigint() - phaseStart) / 1e6;
       }
