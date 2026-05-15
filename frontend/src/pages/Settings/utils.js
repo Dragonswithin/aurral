@@ -3,6 +3,8 @@ import { allReleaseTypes } from "./constants";
 export const normalizeSettings = (savedSettings) => {
   const lidarr = savedSettings.integrations?.lidarr || {};
   const lastfm = savedSettings.integrations?.lastfm || {};
+  const legacyMusicbrainz = savedSettings.integrations?.musicbrainz || {};
+  const metadata = savedSettings.integrations?.metadata || {};
   const parsedAutoRefreshHours = parseInt(lastfm.discoveryAutoRefreshHours, 10);
   const normalizedAutoRefreshHours = [24, 168, 720].includes(
     parsedAutoRefreshHours,
@@ -62,11 +64,17 @@ export const normalizeSettings = (savedSettings) => {
         localDiscoveryIncludeTrending: true,
         ...(savedSettings.integrations?.ticketmaster || {}),
       },
-      musicbrainz: {
-        email: "",
-        provider: "aurralHosted",
-        customUrl: "",
-        ...(savedSettings.integrations?.musicbrainz || {}),
+      metadata: {
+        provider: "brainzmash",
+        baseUrl:
+          metadata.baseUrl ||
+          String(legacyMusicbrainz.customUrl || "")
+            .trim()
+            .replace(/\/ws\/2\/?$/, "") ||
+          "https://lidarrapi.brainzmash.cc",
+        userAgentSuffix: "",
+        enableNarrowFallbacks: true,
+        ...metadata,
       },
       general: {
         authUser: "",

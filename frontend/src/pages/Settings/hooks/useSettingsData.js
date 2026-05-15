@@ -47,10 +47,11 @@ const defaultSettings = {
       defaultMonitorOption: "none",
       searchOnAdd: false,
     },
-    musicbrainz: {
-      email: "",
-      provider: "aurralHosted",
-      customUrl: "",
+    metadata: {
+      provider: "brainzmash",
+      baseUrl: "https://lidarrapi.brainzmash.cc",
+      userAgentSuffix: "",
+      enableNarrowFallbacks: true,
     },
     general: { authUser: "", authPassword: "" },
     gotify: {

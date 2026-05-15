@@ -83,7 +83,7 @@ router.post("/navidrome/test", async (req, res) => {
 
 router.post("/complete", async (req, res) => {
   try {
-    const { authUser, authPassword, lidarr, musicbrainz, navidrome, lastfm } =
+    const { authUser, authPassword, lidarr, metadata, navidrome, lastfm } =
       req.body;
     if (authPassword != null && String(authPassword).length > 0) {
       const passwordValidation = requirePasswordStrength(authPassword);
@@ -110,13 +110,24 @@ router.post("/complete", async (req, res) => {
         lidarr && (lidarr.url || lidarr.apiKey)
           ? { ...(current.integrations?.lidarr || {}), ...lidarr }
           : current.integrations?.lidarr,
-      musicbrainz:
-        musicbrainz && musicbrainz.email != null
+      metadata:
+        metadata && (metadata.baseUrl || metadata.userAgentSuffix)
           ? {
-              ...(current.integrations?.musicbrainz || {}),
-              email: String(musicbrainz.email).trim(),
+              ...(current.integrations?.metadata || {}),
+              provider: "brainzmash",
+              baseUrl:
+                metadata.baseUrl != null
+                  ? String(metadata.baseUrl).trim().replace(/\/+$/, "")
+                  : current.integrations?.metadata?.baseUrl ||
+                    "https://lidarrapi.brainzmash.cc",
+              userAgentSuffix:
+                metadata.userAgentSuffix != null
+                  ? String(metadata.userAgentSuffix).trim()
+                  : current.integrations?.metadata?.userAgentSuffix || "",
+              enableNarrowFallbacks:
+                metadata.enableNarrowFallbacks !== false,
             }
-          : current.integrations?.musicbrainz,
+          : current.integrations?.metadata,
       navidrome:
         navidrome && (navidrome.url || navidrome.username)
           ? { ...(current.integrations?.navidrome || {}), ...navidrome }

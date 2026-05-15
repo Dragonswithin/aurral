@@ -1,12 +1,11 @@
 import { UUID_REGEX } from "../../../config/constants.js";
-import {
-  fetchItunesAlbumArt,
-  fetchCoverArtArchiveReleaseGroup,
-  musicbrainzRequest,
-} from "../../../services/apiClients.js";
 import { dbOps } from "../../../config/db-helpers.js";
 import { cacheMiddleware } from "../../../middleware/cache.js";
 import { warmImageProxy } from "../../../services/imageProxyService.js";
+import {
+  getAlbumByMbid,
+  getAlbumTracksByAlbumMbid,
+} from "../../../services/metadataProvider.js";
 
 const LEGACY_COVER_HOST_PATTERN =
   /https?:\/\/(?:caa\.lkly\.net|coverartarchive\.org|archive\.org|[\w-]+\.ca\.archive\.org)\//i;
@@ -67,32 +66,10 @@ export default function registerReleaseGroup(router) {
       }
 
       try {
-        let resolvedArtistName = artistName;
-        let albumTitle = albumTitleFromQuery;
-
-        if (!resolvedArtistName || !albumTitle) {
-          const rgData = await musicbrainzRequest(`/release-group/${mbid}`, {
-            inc: "artist-credits",
-          });
-          if (!resolvedArtistName) {
-            resolvedArtistName = Array.isArray(rgData?.["artist-credit"])
-              ? rgData["artist-credit"]
-                  .map((credit) => credit?.name || credit?.artist?.name || "")
-                  .join(" ")
-                  .trim()
-              : "";
-          }
-          if (!albumTitle) {
-            albumTitle = String(rgData?.title || "").trim();
-          }
-        }
-
-        const itunesImageUrl = await fetchItunesAlbumArt(
-          resolvedArtistName,
-          albumTitle,
-        );
-        if (itunesImageUrl) {
-          const cachedImage = await warmImageProxy(itunesImageUrl);
+        const album = await getAlbumByMbid(mbid);
+        const image = Array.isArray(album?.images) ? album.images[0] : null;
+        if (image?.url) {
+          const cachedImage = await warmImageProxy(image.url);
           dbOps.setImage(cacheKey, cachedImage.localUrl);
           res.set("Cache-Control", "public, max-age=31536000, immutable");
           return res.json({
@@ -100,33 +77,14 @@ export default function registerReleaseGroup(router) {
               {
                 image: cachedImage.localUrl,
                 front: true,
-                types: ["Front"],
+                types: [image.kind || "Front"],
               },
             ],
           });
         }
-
-        const cover = await fetchCoverArtArchiveReleaseGroup(mbid);
-        if (cover?.imageUrl) {
-          const cachedImage = await warmImageProxy(cover.imageUrl);
-          dbOps.setImage(cacheKey, cachedImage.localUrl);
-
-          res.set("Cache-Control", "public, max-age=31536000, immutable");
-          return res.json({
-            images: [
-              {
-                image: cachedImage.localUrl,
-                front: true,
-                types: cover.types,
-              },
-            ],
-          });
-        }
-        if (cover?.notFound) {
-          dbOps.setImage(cacheKey, "NOT_FOUND");
-          res.set("Cache-Control", "public, max-age=3600");
-          return res.json({ images: [] });
-        }
+        dbOps.setImage(cacheKey, "NOT_FOUND");
+        res.set("Cache-Control", "public, max-age=3600");
+        return res.json({ images: [] });
       } catch (e) {}
 
       res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
@@ -148,42 +106,18 @@ export default function registerReleaseGroup(router) {
         return res.status(400).json({ error: "Invalid MBID format" });
       }
 
-      const rgData = await musicbrainzRequest(`/release-group/${mbid}`, {
-        inc: "releases",
-      });
-
-      if (!rgData.releases || rgData.releases.length === 0) {
-        return res.json([]);
-      }
-
-      const releaseId = rgData.releases[0].id;
-      const releaseData = await musicbrainzRequest(`/release/${releaseId}`, {
-        inc: "recordings",
-      });
-
-      const tracks = [];
-      if (releaseData.media && releaseData.media.length > 0) {
-        for (const medium of releaseData.media) {
-          if (medium.tracks) {
-            for (const track of medium.tracks) {
-              const recording = track.recording;
-              if (recording) {
-                tracks.push({
-                  id: recording.id,
-                  mbid: recording.id,
-                  title: recording.title,
-                  trackName: recording.title,
-                  trackNumber: track.position || 0,
-                  position: track.position || 0,
-                  length: recording.length || null,
-                });
-              }
-            }
-          }
-        }
-      }
-
-      res.json(tracks);
+      const tracks = await getAlbumTracksByAlbumMbid(mbid);
+      res.json(
+        tracks.map((track) => ({
+          id: track.recordingId || track.id,
+          mbid: track.recordingId || track.id,
+          title: track.title,
+          trackName: track.title,
+          trackNumber: track.trackPosition || track.trackNumber || 0,
+          position: track.trackPosition || track.trackNumber || 0,
+          length: track.durationMs || null,
+        })),
+      );
     } catch (error) {
       console.error("Error fetching release group tracks:", error);
       res.status(500).json({

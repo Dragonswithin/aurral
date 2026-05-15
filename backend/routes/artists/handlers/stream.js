@@ -2,10 +2,7 @@ import { UUID_REGEX } from "../../../config/constants.js";
 import {
   getLastfmApiKey,
   lastfmRequest,
-  lastfmGetArtistNameByMbid,
-  getArtistBio,
   musicbrainzGetArtistReleaseGroups,
-  enrichReleaseGroupsWithLastfm,
   musicbrainzGetArtistNameByMbid,
 } from "../../../services/apiClients.js";
 import { dbOps } from "../../../config/db-helpers.js";
@@ -14,6 +11,7 @@ import { verifyTokenAuth } from "../../../middleware/auth.js";
 import { sendSSE, pendingArtistRequests } from "../utils.js";
 import { getArtistImage } from "../../../services/imageService.js";
 import { buildImageProxyUrl } from "../../../services/imageProxyService.js";
+import { getArtistByMbid } from "../../../services/metadataProvider.js";
 
 export default function registerStream(router) {
   router.get("/:mbid/stream", noCache, async (req, res) => {
@@ -60,17 +58,71 @@ export default function registerStream(router) {
 
       const override = dbOps.getArtistOverride(mbid);
       const resolvedMbid = override?.musicbrainzId || mbid;
+      const toLegacyRelations = (metadataArtist) =>
+        Array.isArray(metadataArtist?.links)
+          ? metadataArtist.links
+              .filter((link) => link?.target)
+              .map((link) => ({
+                type: link.type || "external",
+                url: { resource: link.target },
+              }))
+          : [];
+      const getLastfmTags = async (artistMbid, artistName = "") => {
+        if (!getLastfmApiKey()) return [];
+        let data = await lastfmRequest("artist.getTopTags", { mbid: artistMbid }).catch(
+          () => null,
+        );
+        if (!data?.toptags?.tag && artistName) {
+          data = await lastfmRequest("artist.getTopTags", {
+            artist: artistName,
+          }).catch(() => null);
+        }
+        const tags = data?.toptags?.tag
+          ? Array.isArray(data.toptags.tag)
+            ? data.toptags.tag
+            : [data.toptags.tag]
+          : [];
+        return tags
+          .map((tag) => ({
+            name: String(tag?.name || "").trim(),
+            count: Number(tag?.count || 0),
+          }))
+          .filter((tag) => tag.name);
+      };
+      const getArtistTagPayload = async (
+        artistMbid,
+        artistName = "",
+        metadataArtist = null,
+      ) => {
+        const lastfmTags = await getLastfmTags(artistMbid, artistName);
+        if (lastfmTags.length > 0) {
+          return {
+            tags: lastfmTags,
+            genres: lastfmTags.map((tag) => tag.name),
+          };
+        }
+        const fallbackGenres = Array.isArray(metadataArtist?.genres)
+          ? metadataArtist.genres.filter(Boolean)
+          : [];
+        return {
+          tags: fallbackGenres.map((genre) => ({ name: genre, count: 0 })),
+          genres: fallbackGenres,
+        };
+      };
       const initialName = streamArtistName || "Unknown Artist";
-      const buildArtistBase = (name) => ({
+      const buildArtistBase = (name, metadataArtist = null) => ({
         id: resolvedMbid,
-        name,
-        "sort-name": name,
-        disambiguation: "",
+        name: metadataArtist?.name || name,
+        "sort-name": metadataArtist?.sortName || metadataArtist?.name || name,
+        disambiguation: metadataArtist?.disambiguation || "",
         "type-id": null,
-        type: null,
+        type: metadataArtist?.type || null,
         country: null,
         "life-span": { begin: null, end: null, ended: false },
-        relations: [],
+        genres: Array.isArray(metadataArtist?.genres) ? metadataArtist.genres : [],
+        links: Array.isArray(metadataArtist?.links) ? metadataArtist.links : [],
+        relations: toLegacyRelations(metadataArtist),
+        ...(metadataArtist?.overview ? { bio: metadataArtist.overview } : {}),
       });
       const sendArtist = (payload) => {
         if (!isClientConnected()) return;
@@ -92,6 +144,7 @@ export default function registerStream(router) {
         const pendingPromise = pendingArtistRequests.has(mbid)
           ? pendingArtistRequests.get(mbid)
           : null;
+        const metadataArtistPromise = getArtistByMbid(resolvedMbid).catch(() => null);
         const namePromise = pendingPromise
           ? streamArtistName
             ? Promise.resolve(streamArtistName)
@@ -101,15 +154,31 @@ export default function registerStream(router) {
                 )
                 .catch(() => streamArtistName || "Unknown Artist")
           : (async () => {
+              const metadataArtist = await metadataArtistPromise;
+              if (metadataArtist?.name) return metadataArtist.name;
               if (streamArtistName) return streamArtistName;
               const name =
                 (await musicbrainzGetArtistNameByMbid(resolvedMbid)) ||
-                (getLastfmApiKey()
-                  ? await lastfmGetArtistNameByMbid(resolvedMbid)
-                  : null) ||
                 "Unknown Artist";
               return name;
             })();
+        tasks.push(
+          Promise.all([metadataArtistPromise, namePromise]).then(
+            async ([metadataArtist, name]) => {
+              if (!metadataArtist || !isClientConnected()) return;
+              const tagPayload = await getArtistTagPayload(
+                resolvedMbid,
+                name,
+                metadataArtist,
+              );
+              sendArtist({
+                ...buildArtistBase(name, metadataArtist),
+                tags: tagPayload.tags,
+                genres: tagPayload.genres,
+              });
+            },
+          ),
+        );
 
         const libraryTask = (async () => {
           const { lidarrClient } =
@@ -136,9 +205,10 @@ export default function registerStream(router) {
             console.log(
               `[Artists Stream] Found artist in Lidarr: ${lidarrArtist.artistName}`,
             );
+            const metadataArtist = await metadataArtistPromise;
 
             sendArtist({
-              ...buildArtistBase(lidarrArtist.artistName),
+              ...buildArtistBase(lidarrArtist.artistName, metadataArtist),
               _lidarrData: {
                 id: lidarrArtist.id,
                 monitored: lidarrArtist.monitored,
@@ -213,99 +283,41 @@ export default function registerStream(router) {
             resolvedMbid,
             selectedReleaseTypes,
           ).catch(() => []);
+          const metadataCorePromise = Promise.all([
+            metadataArtistPromise,
+            namePromise,
+            releaseGroupsPromise,
+          ]).then(async ([metadataArtist, name, releaseGroups]) => {
+            const tagPayload = await getArtistTagPayload(
+              resolvedMbid,
+              name,
+              metadataArtist,
+            );
+            return {
+              ...buildArtistBase(name, metadataArtist),
+              tags: tagPayload.tags,
+              genres: tagPayload.genres,
+              "release-groups": releaseGroups,
+              "release-group-count": releaseGroups.length,
+              "release-count": releaseGroups.length,
+            };
+          });
 
           tasks.push(
-            releaseGroupsPromise.then((releaseGroups) => {
+            metadataCorePromise.then((artistPayload) => {
               if (!isClientConnected()) return;
-              sendArtist({
-                id: resolvedMbid,
-                "release-groups": releaseGroups,
-                "release-group-count": releaseGroups.length,
-                "release-count": releaseGroups.length,
-              });
+              sendArtist(artistPayload);
             }),
           );
 
-          const enrichedReleaseGroupsPromise = Promise.all([
-            releaseGroupsPromise,
-            namePromise,
-          ])
-            .then(async ([releaseGroups, name]) => {
-              if (!releaseGroups.length) return { releaseGroups, name };
-              if (getLastfmApiKey()) {
-                await enrichReleaseGroupsWithLastfm(
-                  releaseGroups,
-                  name,
-                  resolvedMbid,
-                );
-              }
-              return { releaseGroups, name };
-            })
-            .then(({ releaseGroups, name }) => {
-              if (!isClientConnected()) return;
-              sendArtist({
-                id: resolvedMbid,
-                name,
-                "sort-name": name,
-                "release-groups": releaseGroups,
-                "release-group-count": releaseGroups.length,
-                "release-count": releaseGroups.length,
-              });
-              return releaseGroups;
-            });
-
-          const tagsPromise = getLastfmApiKey()
-            ? lastfmRequest("artist.getTopTags", { mbid: resolvedMbid })
-                .then((tagsData) => {
-                  const tags = tagsData?.toptags?.tag
-                    ? (Array.isArray(tagsData.toptags.tag)
-                        ? tagsData.toptags.tag
-                        : [tagsData.toptags.tag]
-                      ).map((t) => ({ name: t.name, count: t.count || 0 }))
-                    : [];
-                  if (!isClientConnected()) return tags;
-                  sendArtist({ id: resolvedMbid, tags });
-                  return tags;
-                })
-                .catch(() => [])
-            : Promise.resolve([]);
-
-          const bioPromise = getArtistBio(null, resolvedMbid)
-            .catch(() => null)
-            .then((bio) => {
-              if (!bio || !isClientConnected()) return bio;
-              sendArtist({ id: resolvedMbid, bio });
-              return bio;
-            });
-
-          tasks.push(enrichedReleaseGroupsPromise, tagsPromise, bioPromise);
-
-          fullArtistPromise = Promise.all([
-            namePromise,
-            enrichedReleaseGroupsPromise,
-            tagsPromise,
-            bioPromise,
-          ])
-            .then(([name, releaseGroups, tags, bio]) => ({
-              ...buildArtistBase(name),
-              tags,
-              genres: [],
-              "release-groups": releaseGroups,
-              relations: [],
-              "release-group-count": releaseGroups.length,
-              "release-count": releaseGroups.length,
-              ...(bio ? { bio } : {}),
-            }))
+          fullArtistPromise = metadataCorePromise
+            .then((artistPayload) => artistPayload)
             .catch(() => null);
 
           pendingArtistRequests.set(mbid, fullArtistPromise);
-          fullArtistPromise
-            .then((artistData) => {
-              if (artistData) sendArtist(artistData);
-            })
-            .finally(() => {
-              pendingArtistRequests.delete(mbid);
-            });
+          fullArtistPromise.finally(() => {
+            pendingArtistRequests.delete(mbid);
+          });
 
         }
         const coverTask = (async () => {
@@ -363,10 +375,8 @@ export default function registerStream(router) {
               if (!similarData?.similarartists?.artist) {
                 const fallbackArtistName =
                   streamArtistName ||
+                  (await metadataArtistPromise.catch(() => null))?.name ||
                   (await namePromise.catch(() => null)) ||
-                  (await lastfmGetArtistNameByMbid(resolvedMbid).catch(
-                    () => null,
-                  )) ||
                   (await musicbrainzGetArtistNameByMbid(resolvedMbid).catch(
                     () => null,
                   )) ||

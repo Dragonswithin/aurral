@@ -1,19 +1,17 @@
 import {
   lastfmRequest,
-  musicbrainzRequest,
   musicbrainzResolveArtistMbidByName,
 } from "./apiClients.js";
+import {
+  getArtistByMbid,
+  getAlbumByMbid,
+  listArtistAlbums,
+  resolveAlbumByArtistAndTitle,
+} from "./metadataProvider.js";
 
 const artistAliasCache = new Map();
 const releaseGroupSearchCache = new Map();
 const releaseContextCache = new Map();
-
-function escapeMbQuery(value) {
-  return String(value || "")
-    .trim()
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"');
-}
 
 function normalizeText(value) {
   return String(value || "")
@@ -98,10 +96,10 @@ async function fetchArtistAliases(artistMbid) {
   }
   const promise = (async () => {
     try {
-      const data = await musicbrainzRequest(`/artist/${key}`, { inc: "aliases" });
-      const aliases = Array.isArray(data?.aliases)
-        ? data.aliases
-            .map((entry) => String(entry?.name || "").trim())
+      const artist = await getArtistByMbid(key);
+      const aliases = Array.isArray(artist?.aliases)
+        ? artist.aliases
+            .map((entry) => String(entry || "").trim())
             .filter(Boolean)
         : [];
       return [...new Set(aliases)].slice(0, 8);
@@ -125,35 +123,32 @@ async function resolveReleaseGroup(artistName, artistMbid, albumName, releaseYea
     return releaseGroupSearchCache.get(cacheKey);
   }
   const promise = (async () => {
-    const escapedAlbum = escapeMbQuery(safeAlbum);
-    const searchQueries = [];
-    if (safeMbid) {
-      searchQueries.push(`arid:${safeMbid} AND releasegroup:"${escapedAlbum}"`);
-    }
-    if (safeArtist) {
-      searchQueries.push(
-        `artist:"${escapeMbQuery(safeArtist)}" AND releasegroup:"${escapedAlbum}"`,
-      );
-    }
-    for (const query of searchQueries) {
-      try {
-        const data = await musicbrainzRequest("/release-group", {
-          query,
-          limit: 5,
-        });
-        const releaseGroups = Array.isArray(data?.["release-groups"])
-          ? data["release-groups"]
-          : [];
-        const best = pickBestCandidate(releaseGroups, safeAlbum, releaseYear);
-        if (best?.id) {
-          return {
-            id: String(best.id),
-            title: String(best.title || safeAlbum).trim() || safeAlbum,
-            releaseYear: getYear(best["first-release-date"]),
-          };
-        }
-      } catch {}
-    }
+    try {
+      const resolvedId = await resolveAlbumByArtistAndTitle({
+        artistName: safeArtist,
+        artistMbid: safeMbid,
+        albumTitle: safeAlbum,
+        releaseYear,
+      });
+      if (!resolvedId) return null;
+      const album = await getAlbumByMbid(resolvedId).catch(() => null);
+      return {
+        id: String(resolvedId),
+        title: String(album?.title || safeAlbum).trim() || safeAlbum,
+        releaseYear: getYear(album?.releaseDate),
+      };
+    } catch {}
+    try {
+      const candidates = safeMbid ? await listArtistAlbums(safeMbid) : [];
+      const best = pickBestCandidate(candidates, safeAlbum, releaseYear);
+      if (best?.Id || best?.id) {
+        return {
+          id: String(best?.Id || best?.id),
+          title: String(best?.Title || best?.title || safeAlbum).trim() || safeAlbum,
+          releaseYear: getYear(best?.FirstReleaseDate || best?.firstReleaseDate),
+        };
+      }
+    } catch {}
     return null;
   })();
   releaseGroupSearchCache.set(cacheKey, promise);
@@ -215,33 +210,33 @@ async function fetchReleaseContext(albumMbid) {
   }
   const promise = (async () => {
     try {
-      const releaseGroupData = await musicbrainzRequest(`/release-group/${key}`, {
-        inc: "releases",
-      });
-      const releases = Array.isArray(releaseGroupData?.releases)
-        ? releaseGroupData.releases
-        : [];
+      const album = await getAlbumByMbid(key);
+      const releases = Array.isArray(album?.releases) ? album.releases : [];
       const pickedRelease =
         releases.find((release) => String(release?.status || "").toLowerCase() === "official") ||
+        releases.find((release) => Array.isArray(release?.tracks) && release.tracks.length > 0) ||
         releases[0] ||
         null;
-      if (!pickedRelease?.id) {
+      if (!pickedRelease) {
         return {
-          releaseYear: getYear(releaseGroupData?.["first-release-date"]),
+          releaseYear: getYear(album?.releaseDate),
           albumTrackCount: null,
           albumTrackTitles: [],
           tracks: [],
         };
       }
-      const releaseData = await musicbrainzRequest(`/release/${pickedRelease.id}`, {
-        inc: "recordings+artist-credits",
-      });
-      const tracks = flattenReleaseTracks(releaseData);
+      const tracks = Array.isArray(pickedRelease?.tracks)
+        ? pickedRelease.tracks.map((track) => ({
+            title: track.title,
+            trackNumber: track.trackPosition || track.trackNumber || null,
+            durationMs: track.durationMs || null,
+            recordingId: track.recordingId || null,
+          }))
+        : [];
       return {
         releaseYear:
-          getYear(pickedRelease?.date) ||
-          getYear(releaseData?.date) ||
-          getYear(releaseGroupData?.["first-release-date"]),
+          getYear(pickedRelease?.releaseDate) ||
+          getYear(album?.releaseDate),
         albumTrackCount: tracks.length > 0 ? tracks.length : null,
         albumTrackTitles: tracks.map((track) => track.title),
         tracks,

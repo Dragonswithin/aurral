@@ -41,9 +41,8 @@ function buildBootstrapPayload(req) {
     lidarrConfigured,
     lastfmConfigured: !!getLastfmApiKey(),
     ticketmasterConfigured: !!getTicketmasterApiKey(),
-    musicbrainzConfigured: !!(
-      settings.integrations?.musicbrainz?.email || process.env.CONTACT_EMAIL
-    ),
+    musicbrainzConfigured: !!settings.integrations?.metadata?.baseUrl,
+    metadataConfigured: !!settings.integrations?.metadata?.baseUrl,
     metadataProviders: getMetadataProviderHealthSnapshot(),
   };
 

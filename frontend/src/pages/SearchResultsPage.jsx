@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  ArrowLeft,
   ArrowUpDown,
   ChevronDown,
   Disc,
@@ -155,7 +154,7 @@ function SearchResultsPage() {
   }, [type, trimmedQuery]);
   const isTagSearch = normalizedType === "tag";
   const isAlbumSearch = normalizedType === "album";
-  const tagScope = searchParams.get("scope") || "recommended";
+  const tagScope = searchParams.get("scope") || "all";
   const albumSort = searchParams.get("sort") || DEFAULT_ALBUM_SORT;
   const showAllTagResults = isTagSearch && tagScope === "all";
   const canAddArtist = hasPermission("addArtist");
@@ -177,11 +176,7 @@ function SearchResultsPage() {
   const updateTagScope = useCallback(
     (nextScope) => {
       const params = new URLSearchParams(searchParams);
-      if (nextScope === "all") {
-        params.set("scope", "all");
-      } else {
-        params.delete("scope");
-      }
+      params.set("scope", nextScope === "all" ? "all" : "recommended");
       setSearchParams(params);
     },
     [searchParams, setSearchParams],
@@ -337,7 +332,7 @@ function SearchResultsPage() {
   ]);
 
   useEffect(() => {
-    if (isAlbumSearch || isTagSearch || results.length === 0) return undefined;
+    if (isAlbumSearch || results.length === 0) return undefined;
 
     let cancelled = false;
     const pendingArtists = results.filter((artist) => {
@@ -390,7 +385,7 @@ function SearchResultsPage() {
     return () => {
       cancelled = true;
     };
-  }, [artistImages, isAlbumSearch, isTagSearch, results]);
+  }, [artistImages, isAlbumSearch, results]);
 
   useEffect(() => {
     if (isAlbumSearch) return undefined;
@@ -749,10 +744,6 @@ function SearchResultsPage() {
   const showContent =
     !loading && (query || normalizedType === "recommended" || normalizedType === "trending");
   const isEmpty = displayedResults.length === 0;
-  const showBackButton =
-    normalizedType === "recommended" ||
-    normalizedType === "trending" ||
-    !!trimmedQuery;
   const showLoadMore =
     hasMore &&
     (normalizedType === "recommended" || normalizedType === "trending"
@@ -783,16 +774,6 @@ function SearchResultsPage() {
   return (
     <div className="animate-fade-in">
       <div className="mb-6">
-        {showBackButton && (
-          <button
-            onClick={() => navigate(-1)}
-            className="btn btn-secondary mb-6 hidden items-center sm:inline-flex"
-          >
-            <ArrowLeft className="mr-2 h-5 w-5" />
-            Back
-          </button>
-        )}
-
         <div className="flex flex-wrap items-center gap-4">
           <h1 className="text-2xl font-bold" style={{ color: "#fff" }}>
             {normalizedType === "recommended"

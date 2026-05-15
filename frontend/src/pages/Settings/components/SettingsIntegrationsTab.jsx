@@ -1040,7 +1040,7 @@ export function SettingsIntegrationsTab({
                     collapsedSections.musicbrainzContact ? "-rotate-90" : ""
                   }`}
                 />
-                <span>MusicBrainz Contact</span>
+                <span>Metadata Client</span>
               </button>
             </h3>
             <div className="flex items-center gap-2">
@@ -1058,8 +1058,8 @@ export function SettingsIntegrationsTab({
                 onClick={() => setMusicbrainzContactEditing((value) => !value)}
                 aria-label={
                   musicbrainzContactEditing
-                    ? "Lock MusicBrainz contact settings"
-                    : "Edit MusicBrainz contact settings"
+                    ? "Lock metadata client settings"
+                    : "Edit metadata client settings"
                 }
               >
                 <Pencil className="w-4 h-4" />
@@ -1078,30 +1078,30 @@ export function SettingsIntegrationsTab({
                 className="block text-sm font-medium mb-1"
                 style={{ color: "#fff" }}
               >
-                Contact Email
+                User-Agent Suffix
               </label>
               <input
-                type="email"
+                type="text"
                 className="input"
-                placeholder="contact@example.com"
+                placeholder="Aurral Local Test"
                 autoComplete="off"
-                value={settings.integrations?.musicbrainz?.email || ""}
+                value={settings.integrations?.metadata?.userAgentSuffix || ""}
                 onChange={(e) =>
                   updateSettings({
                     ...settings,
                     integrations: {
                       ...settings.integrations,
-                      musicbrainz: {
-                        ...(settings.integrations?.musicbrainz || {}),
-                        email: e.target.value,
+                      metadata: {
+                        ...(settings.integrations?.metadata || {}),
+                        userAgentSuffix: e.target.value,
                       },
                     },
                   })
                 }
               />
               <p className="mt-1 text-xs" style={{ color: "#c1c1c3" }}>
-                Used for the MusicBrainz user agent. This is needed if the app
-                falls back to the public MusicBrainz API.
+                Optional text appended to the BrainzMash request user agent for
+                easier tracing during local testing.
               </p>
             </div>
           </fieldset>

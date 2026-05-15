@@ -26,7 +26,7 @@ const STEPS = [
   "welcome",
   "admin",
   "lidarr",
-  "musicbrainz",
+  "metadata",
   "navidrome",
   "lastfm",
   "done",
@@ -39,7 +39,9 @@ function Onboarding() {
   const [authPasswordConfirm, setAuthPasswordConfirm] = useState("");
   const [lidarrUrl, setLidarrUrl] = useState("");
   const [lidarrApiKey, setLidarrApiKey] = useState("");
-  const [musicbrainzEmail, setMusicbrainzEmail] = useState("");
+  const [metadataBaseUrl, setMetadataBaseUrl] = useState(
+    "https://lidarrapi.brainzmash.cc",
+  );
   const [navidromeUrl, setNavidromeUrl] = useState("");
   const [navidromeUsername, setNavidromeUsername] = useState("");
   const [navidromePassword, setNavidromePassword] = useState("");
@@ -71,7 +73,7 @@ function Onboarding() {
     currentStep === "done" ||
     (currentStep === "admin" && adminComplete) ||
     (currentStep === "lidarr" && lidarrTestSuccess) ||
-    (currentStep === "musicbrainz" && musicbrainzEmail.trim()) ||
+    (currentStep === "metadata" && metadataBaseUrl.trim()) ||
     (currentStep === "navidrome" && (!hasNavidrome || navidromeTestSuccess)) ||
     currentStep === "lastfm";
   const isPrimaryDisabled =
@@ -168,8 +170,8 @@ function Onboarding() {
                 apiKey: lidarrApiKey.trim(),
               }
             : undefined,
-        musicbrainz: musicbrainzEmail.trim()
-          ? { email: musicbrainzEmail.trim() }
+        metadata: metadataBaseUrl.trim()
+          ? { baseUrl: metadataBaseUrl.trim() }
           : undefined,
         navidrome:
           navidromeUrl.trim() && navidromeUsername.trim() && navidromePassword
@@ -237,9 +239,9 @@ function Onboarding() {
                 Welcome to Aurral
               </h2>
               <p className="text-sm" style={{ color: "#c1c1c3" }}>
-                Set up your admin account, connect Lidarr, and add your
-                MusicBrainz email. Navidrome and Last.fm are optional but
-                recommended.
+                Set up your admin account, connect Lidarr, and confirm the
+                BrainzMash metadata endpoint. Navidrome and Last.fm are optional
+                but recommended.
               </p>
             </div>
           </>
@@ -329,24 +331,25 @@ function Onboarding() {
           </>
         )}
 
-        {currentStep === "musicbrainz" && (
+        {currentStep === "metadata" && (
           <>
             <div className="flex items-center gap-2 mb-4">
               <h2 className="text-xl font-bold" style={{ color: "#fff" }}>
-                MusicBrainz email
+                Metadata endpoint
               </h2>
             </div>
             <p className="text-sm mb-4" style={{ color: "#c1c1c3" }}>
-              Used for API etiquette when fetching metadata. Not shared.
+              Aurral uses this BrainzMash-compatible metadata base URL for artist
+              and album data during local testing.
             </p>
             <input
-              type="email"
+              type="url"
               autoComplete="off"
               className={inputClass}
               style={inputStyle}
-              placeholder="your@email.com"
-              value={musicbrainzEmail}
-              onChange={(e) => setMusicbrainzEmail(e.target.value)}
+              placeholder="https://lidarrapi.brainzmash.cc"
+              value={metadataBaseUrl}
+              onChange={(e) => setMetadataBaseUrl(e.target.value)}
             />
           </>
         )}

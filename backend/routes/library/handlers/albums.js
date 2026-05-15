@@ -66,7 +66,7 @@ export default function registerAlbums(router) {
           if (!mbid) {
             return res.status(400).json({
               error:
-                "Could not find MusicBrainz release group for this album. Try adding the artist to Lidarr first or use a different album.",
+                "Could not resolve metadata for this album. Try adding the artist to Lidarr first or use a different album.",
             });
           }
         }
