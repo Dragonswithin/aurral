@@ -636,7 +636,7 @@ export function FlowFormFields({
         <div className="grid gap-4">
           <div className="grid gap-1.5">
             <label className="text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
-              Genre Tags
+              Genre Tags (separate by comma)
             </label>
             <CommaTokenInput
               value={draft.includeTags}
@@ -653,7 +653,7 @@ export function FlowFormFields({
 
           <div className="grid gap-1.5">
             <label className="text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
-              Related Artists
+              Related Artists (separate by comma)
             </label>
             <CommaTokenInput
               value={draft.includeRelatedArtists}
