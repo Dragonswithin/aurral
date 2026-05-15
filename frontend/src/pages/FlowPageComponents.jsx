@@ -699,7 +699,9 @@ export function FlowFormFields({
             <div className="text-xs uppercase tracking-[0.3em] text-[#8b8b90] font-semibold">
               Focus Filters
             </div>
-            <div className="text-[11px] text-[#7e7e86]">Separated by comma</div>
+            <div className="text-[11px] text-[#7e7e86]">
+              Separated by comma. Light = slight preference, Medium = strong preference, Heavy = strict before fallback.
+            </div>
           </div>
         </div>
 

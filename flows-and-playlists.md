@@ -78,19 +78,21 @@ Focus Filters tell Aurral what the playlist should try to match.
 - **Genre Tags** aims the flow toward artists with those tags.
 - **Related Artists** aims the flow toward artists similar to the artists you enter.
 
-Unlike the old behavior, these are no longer just a light bias. They now target a real portion of the playlist.
+They do not allocate a fixed percentage of the playlist anymore.
+
+Source Mix still decides where tracks come from. Focus Filters rerank candidates inside those enabled sources.
 
 ### Strength levels
 
-- **Light** targets about **35%** of the playlist.
-- **Medium** targets about **65%** of the playlist.
-- **Heavy** targets **100%** of the playlist.
+- **Light** gives a slight preference to matching candidates.
+- **Medium** gives a strong preference to matching candidates.
+- **Heavy** tries to exhaust matching candidates before broadening to looser fits.
 
 So if you set:
 
 - `rock` to **Heavy**
 
-Aurral will try to make the whole playlist match `rock`, while still respecting the active Source Mix.
+Aurral will first try to fill each enabled source with the strongest `rock` matches it can find. If that source runs short, it broadens gradually inside the active sources instead of immediately behaving like an all-rock hard filter.
 
 That means it will try to fill:
 
@@ -100,19 +102,18 @@ That means it will try to fill:
 
 ## When both Genre Tags and Related Artists are used
 
-- It targets one combined focus portion of the playlist.
-- If both Genre Tags and Related Artists are active, that focus portion is split between those two groups.
-- The split is weighted by their chosen strength.
+- Both groups contribute to the reranking score.
+- Their selected strength controls how much influence each group has.
+- If both are active, Aurral combines them instead of carving the playlist into separate tag and related-artist blocks.
 
 Examples:
 
 - `Genre Tags = Heavy`, `Related Artists = Off`:
-  - tags try to fill 100% of the playlist
+  - tag matches are ranked first and broad source candidates are used only after the focused pool runs thin
 - `Genre Tags = Heavy`, `Related Artists = Heavy`:
-  - the playlist still targets 100% total focus, not 200%
-  - that target is split between tags and related artists
+  - candidates that satisfy both signals rise to the top first
 - `Genre Tags = Light`, `Related Artists = Heavy`:
-  - the combined target follows the stronger setting, then splits proportionally between the active groups
+  - related-artist fit has more influence than tag fit, but both still contribute
 
 ## Multiple tags or multiple related artists
 
@@ -140,13 +141,15 @@ The general order is:
 
 1. Match the focus request as closely as possible
 2. Keep the result aligned with the Source Mix
-3. Fill any remaining gaps from the broader active source pools
+3. Broaden within the same source before giving up on that source
+4. Redistribute shortfalls across the other enabled sources
+5. Use reserve/replacement candidates if the run still comes up short
 
 That means:
 
-- a Heavy filter will **attempt** to shape the whole playlist
-- it is not a guarantee if enough matching artists do not exist
-- the fallback still stays inside the enabled sources
+- `Heavy` does not mean “100% synthetic focus pool”
+- it means “be strict first, broaden later”
+- the fallback still stays inside the enabled sources whenever possible
 
 ## Focus input behavior
 
@@ -160,10 +163,11 @@ When a flow runs, Aurral:
 
 1. Calculates the track count target.
 2. Calculates source counts from the current Source Mix.
-3. Builds focused candidate pools from Genre Tags and/or Related Artists.
-4. Assigns those focused candidates back into Discover, Library, and Trending according to the current mix.
-5. Fills any remaining slots from the normal source pools.
-6. Sends the resulting tracks into the download worker.
+3. Harvests oversized candidate pools inside each enabled source.
+4. Scores those candidates against your focus filters, taste context, and metadata confidence.
+5. Picks the primary playlist with a strict one-song-per-artist rule.
+6. Builds a reserve pool from the same run for fast replacements.
+7. Sends the primary playlist into the download worker.
 
 ## Imported playlists
 

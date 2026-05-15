@@ -39,6 +39,24 @@ const normalizeWeightMap = (value) => {
   return out;
 };
 
+const normalizeStringArray = (value) => {
+  const raw = Array.isArray(value)
+    ? value
+    : value == null
+      ? []
+      : [value];
+  const seen = new Set();
+  const out = [];
+  for (const entry of raw) {
+    const text = String(entry || "").trim();
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+};
+
 const sumWeightMap = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
   return Object.values(value).reduce((acc, entry) => {
@@ -293,26 +311,28 @@ const normalizeFlow = (flow) => {
   const name = String(flow?.name || "").trim();
   const blocksData = extractFromBlocks(flow?.blocks);
   const size = clampSize(flow?.size);
-  const mix = normalizeMix(flow?.mix ?? blocksData?.recipe);
-  const tags =
-    Object.keys(normalizeWeightMap(flow?.tags)).length > 0
-      ? normalizeWeightMap(flow?.tags)
-      : normalizeWeightMap(blocksData?.tags);
-  const relatedArtists =
-    Object.keys(normalizeWeightMap(flow?.relatedArtists)).length > 0
-      ? normalizeWeightMap(flow?.relatedArtists)
-      : normalizeWeightMap(blocksData?.relatedArtists);
-  const tagsTotal = sumWeightMap(tags);
-  const relatedTotal = sumWeightMap(relatedArtists);
+  const mixSource =
+    flow?.mix ??
+    (flow?.recipe && typeof flow.recipe === "object" ? flow.recipe : null) ??
+    blocksData?.recipe;
+  const mix = normalizeMix(mixSource);
+  const normalizedTagsArray = normalizeStringArray(flow?.tags);
+  const normalizedRelatedArray = normalizeStringArray(flow?.relatedArtists);
+  const legacyTags = normalizeWeightMap(flow?.tags);
+  const legacyRelatedArtists = normalizeWeightMap(flow?.relatedArtists);
+  const tags = normalizedTagsArray.length > 0
+    ? normalizedTagsArray
+    : Object.keys(legacyTags).length > 0
+      ? Object.keys(legacyTags)
+      : normalizeStringArray(Object.keys(normalizeWeightMap(blocksData?.tags)));
+  const relatedArtists = normalizedRelatedArray.length > 0
+    ? normalizedRelatedArray
+    : Object.keys(legacyRelatedArtists).length > 0
+      ? Object.keys(legacyRelatedArtists)
+      : normalizeStringArray(
+          Object.keys(normalizeWeightMap(blocksData?.relatedArtists)),
+        );
   const baseSize = blocksData?.size > 0 ? blocksData.size : size;
-  const recipeSize = baseSize;
-  const recipeFallback = buildCountsFromMix(recipeSize, mix);
-  const recipe = normalizeRecipeCounts(
-    flow?.recipe,
-    blocksData?.recipe ?? recipeFallback,
-  );
-  const recipeTotal = sumWeightMap(recipe);
-  const computedSize = recipeTotal > 0 ? recipeTotal : baseSize;
   const focus = normalizeFocus(flow?.focus);
   return {
     id: flow?.id || randomUUID(),
@@ -325,9 +345,8 @@ const normalizeFlow = (flow) => {
       flow?.nextRunAt != null && Number.isFinite(Number(flow.nextRunAt))
         ? Number(flow.nextRunAt)
         : null,
-    size: computedSize > 0 ? computedSize : baseSize,
+    size: baseSize > 0 ? baseSize : size,
     mix,
-    recipe,
     tags,
     relatedArtists,
     focus,

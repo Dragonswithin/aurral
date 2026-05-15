@@ -62,12 +62,6 @@ function formatNextRun(nextRunAt, now = Date.now()) {
 const DEFAULT_MIX = { discover: 50, mix: 30, trending: 20 };
 const DEFAULT_SIZE = 30;
 
-const FOCUS_STRENGTHS = {
-  light: 35,
-  medium: 65,
-  heavy: 100,
-};
-
 const FOCUS_OPTIONS = [
   { id: "light", label: "Light" },
   { id: "medium", label: "Medium" },
@@ -79,8 +73,8 @@ const NEW_FLOW_TEMPLATE = {
   size: DEFAULT_SIZE,
   mix: DEFAULT_MIX,
   deepDive: false,
-  tags: {},
-  relatedArtists: {},
+  tags: [],
+  relatedArtists: [],
   scheduleTime: "00:00",
 };
 const FLOW_SHARE_FILE_VERSION = 1;
@@ -221,203 +215,38 @@ const normalizeMixPercent = (mix) => {
   return out;
 };
 
-const buildCountsFromMixPercent = (size, mix) => {
-  const weights = normalizeMixPercent(mix);
-  const entries = [
-    { key: "discover", value: weights.discover },
-    { key: "mix", value: weights.mix },
-    { key: "trending", value: weights.trending },
-  ];
-  const scaled = entries.map((entry) => ({
-    ...entry,
-    raw: (entry.value / 100) * size,
-  }));
-  const floored = scaled.map((entry) => ({
-    ...entry,
-    count: Math.floor(entry.raw),
-    remainder: entry.raw - Math.floor(entry.raw),
-  }));
-  let remaining = size - floored.reduce((acc, entry) => acc + entry.count, 0);
-  const ordered = [...floored].sort((a, b) => b.remainder - a.remainder);
-  for (let i = 0; i < ordered.length && remaining > 0; i++) {
-    ordered[i].count += 1;
-    remaining -= 1;
-  }
-  const out = {};
-  for (const entry of ordered) {
-    out[entry.key] = entry.count;
-  }
-  return out;
-};
-
-const getFocusPercentFromStrength = (strength) =>
-  FOCUS_STRENGTHS[strength] ?? FOCUS_STRENGTHS.medium;
-
-const getFocusStrengthFromPercent = (percent) => {
-  const numeric = Number(percent || 0);
-  if (!Number.isFinite(numeric) || numeric <= 0) return "medium";
-  const entries = Object.entries(FOCUS_STRENGTHS);
-  const closest = entries.reduce((best, [key, value]) => {
-    if (!best) return { key, distance: Math.abs(value - numeric) };
-    const distance = Math.abs(value - numeric);
-    return distance < best.distance ? { key, distance } : best;
-  }, null);
-  return closest?.key ?? "medium";
-};
-
-const buildCountsFromFocusPercent = (
-  size,
-  tagPercent,
-  relatedPercent,
-  hasTags,
-  hasRelated,
-) => {
-  const safeSize = Number.isFinite(size) && size > 0 ? size : 0;
-  const tag = hasTags ? Math.max(0, Number(tagPercent || 0)) : 0;
-  const related = hasRelated ? Math.max(0, Number(relatedPercent || 0)) : 0;
-  const active = [
-    tag > 0 ? { key: "tag", weight: tag } : null,
-    related > 0 ? { key: "related", weight: related } : null,
-  ].filter(Boolean);
-  const targetPercent = Math.max(tag, related);
-  if (safeSize <= 0 || active.length === 0 || targetPercent <= 0) {
-    return { tag: 0, related: 0, remaining: safeSize };
-  }
-  const targetTotal = Math.min(
-    safeSize,
-    Math.round((targetPercent / 100) * safeSize),
-  );
-  const weightTotal = active.reduce((sum, entry) => sum + entry.weight, 0);
-  const entries = active.map((entry) => ({
-    ...entry,
-    raw: (entry.weight / weightTotal) * targetTotal,
-  }));
-  const floored = entries.map((entry) => ({
-    ...entry,
-    count: Math.floor(entry.raw),
-    remainder: entry.raw - Math.floor(entry.raw),
-  }));
-  let remaining = targetTotal - floored.reduce((acc, entry) => acc + entry.count, 0);
-  const ordered = [...floored].sort((a, b) => b.remainder - a.remainder);
-  for (let i = 0; i < ordered.length && remaining > 0; i++) {
-    ordered[i].count += 1;
-    remaining -= 1;
-  }
-  const out = {};
-  for (const entry of ordered) {
-    out[entry.key] = entry.count;
-  }
-  return {
-    tag: out.tag ?? 0,
-    related: out.related ?? 0,
-    remaining: Math.max(0, safeSize - (out.tag ?? 0) - (out.related ?? 0)),
-  };
-};
-
-const buildFocusStrengthFromCounts = (size, tagCount, relatedCount) => {
-  const safeSize = Number.isFinite(size) && size > 0 ? size : 0;
-  if (safeSize <= 0) {
-    return { tagStrength: "medium", relatedStrength: "medium" };
-  }
-  const tag = Math.max(0, Number(tagCount || 0));
-  const related = Math.max(0, Number(relatedCount || 0));
-  const totalPercent = Math.round(((tag + related) / safeSize) * 100);
-  if (totalPercent <= 0) {
-    return { tagStrength: "medium", relatedStrength: "medium" };
-  }
-  const entries = [
-    { key: "tag", raw: (tag / safeSize) * 100 },
-    { key: "related", raw: (related / safeSize) * 100 },
-  ];
-  const floored = entries.map((entry) => ({
-    ...entry,
-    count: Math.floor(entry.raw),
-    remainder: entry.raw - Math.floor(entry.raw),
-  }));
-  let remaining = totalPercent - floored.reduce((acc, entry) => acc + entry.count, 0);
-  const ordered = [...floored].sort((a, b) => b.remainder - a.remainder);
-  for (let i = 0; i < ordered.length && remaining > 0; i++) {
-    ordered[i].count += 1;
-    remaining -= 1;
-  }
-  const out = {};
-  for (const entry of ordered) {
-    out[entry.key] = entry.count;
-  }
-  return {
-    tagStrength: getFocusStrengthFromPercent(out.tag ?? 0),
-    relatedStrength: getFocusStrengthFromPercent(out.related ?? 0),
-  };
-};
-
-const distributeCount = (total, values) => {
-  const items = values.filter(Boolean);
-  if (!items.length || total <= 0) return new Map();
-  const per = Math.floor(total / items.length);
-  let remaining = total - per * items.length;
-  const result = new Map();
-  for (const item of items) {
-    const extra = remaining > 0 ? 1 : 0;
-    if (remaining > 0) remaining -= 1;
-    result.set(item, per + extra);
-  }
-  return result;
-};
-
-const sumWeightMap = (value) => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
-  return Object.values(value).reduce((acc, entry) => {
-    const parsed = Number(entry);
-    return acc + (Number.isFinite(parsed) ? parsed : 0);
-  }, 0);
-};
-
 const flowToForm = (flow) => {
-  const tagsMap =
-    flow?.tags && typeof flow.tags === "object" && !Array.isArray(flow.tags)
-      ? flow.tags
-      : {};
-  const relatedMap =
-    flow?.relatedArtists &&
-    typeof flow.relatedArtists === "object" &&
-    !Array.isArray(flow.relatedArtists)
-      ? flow.relatedArtists
-      : {};
-  const tagCount = sumWeightMap(tagsMap);
-  const relatedCount = sumWeightMap(relatedMap);
-  const recipeCounts =
-    flow?.recipe && typeof flow.recipe === "object" && !Array.isArray(flow.recipe)
-      ? flow.recipe
-      : null;
-  const recipeTotal = sumWeightMap(recipeCounts);
+  const tagsList = Array.isArray(flow?.tags)
+    ? flow.tags
+    : flow?.tags && typeof flow.tags === "object"
+      ? Object.keys(flow.tags)
+      : [];
+  const relatedList = Array.isArray(flow?.relatedArtists)
+    ? flow.relatedArtists
+    : flow?.relatedArtists && typeof flow.relatedArtists === "object"
+      ? Object.keys(flow.relatedArtists)
+      : [];
   const rawSize = Number(flow?.size || 0);
   const size =
     Number.isFinite(rawSize) && rawSize > 0
       ? rawSize
-      : recipeTotal > 0
-        ? recipeTotal
-        : DEFAULT_SIZE;
+      : DEFAULT_SIZE;
   const mix = normalizeMixPercent(flow?.mix || DEFAULT_MIX);
   const flowFocus =
     flow?.focus && typeof flow.focus === "object" && !Array.isArray(flow.focus)
       ? flow.focus
       : null;
-  const focusStrengths = buildFocusStrengthFromCounts(
-    Number.isFinite(size) ? size : 0,
-    tagCount,
-    relatedCount
-  );
   return {
     name: flow?.name || "",
     size: Number.isFinite(size) && size > 0 ? Math.round(size) : DEFAULT_SIZE,
     mix,
     deepDive: flow?.deepDive === true,
-    includeTags: Object.keys(tagsMap).join(", "),
-    includeRelatedArtists: Object.keys(relatedMap).join(", "),
+    includeTags: tagsList.join(", "),
+    includeRelatedArtists: relatedList.join(", "),
     tagStrength:
-      flowFocus?.tagStrength ?? focusStrengths.tagStrength,
+      flowFocus?.tagStrength ?? "medium",
     relatedStrength:
-      flowFocus?.relatedStrength ?? focusStrengths.relatedStrength,
+      flowFocus?.relatedStrength ?? "medium",
     scheduleDays:
       normalizeScheduleDays(flow?.scheduleDays).length > 0
         ? normalizeScheduleDays(flow?.scheduleDays)
@@ -438,53 +267,18 @@ const buildFlowFromForm = (draft) => {
   const size = Math.round(sizeValue);
   const includeTags = parseListInput(draft?.includeTags);
   const includeRelatedArtists = parseListInput(draft?.includeRelatedArtists);
-  const tagFocusPercent =
-    includeTags.length > 0
-      ? getFocusPercentFromStrength(draft?.tagStrength)
-      : 0;
-  const relatedFocusPercent =
-    includeRelatedArtists.length > 0
-      ? getFocusPercentFromStrength(draft?.relatedStrength)
-      : 0;
   const scheduleDays = normalizeScheduleDays(draft?.scheduleDays);
   if (scheduleDays.length === 0) {
     throw new Error("Select at least one day for this flow schedule");
   }
   const scheduleTime = normalizeScheduleTime(draft?.scheduleTime);
-  const focusCounts = buildCountsFromFocusPercent(
-    size,
-    tagFocusPercent,
-    relatedFocusPercent,
-    includeTags.length > 0,
-    includeRelatedArtists.length > 0,
-  );
-  const tagFocus = focusCounts.tag;
-  const relatedFocus = focusCounts.related;
   const mix = normalizeMixPercent(draft?.mix);
-  const recipe = buildCountsFromMixPercent(size, mix);
-  const tags = {};
-  if (tagFocus > 0 && includeTags.length > 0) {
-    const tagCounts = distributeCount(tagFocus, includeTags);
-    for (const [tag, count] of tagCounts.entries()) {
-      if (count <= 0) continue;
-      tags[tag] = count;
-    }
-  }
-  const relatedArtists = {};
-  if (relatedFocus > 0 && includeRelatedArtists.length > 0) {
-    const relatedCounts = distributeCount(relatedFocus, includeRelatedArtists);
-    for (const [artist, count] of relatedCounts.entries()) {
-      if (count <= 0) continue;
-      relatedArtists[artist] = count;
-    }
-  }
   return {
     name,
     size,
     mix,
-    recipe,
-    tags,
-    relatedArtists,
+    tags: includeTags,
+    relatedArtists: includeRelatedArtists,
     focus: {
       tagStrength:
         includeTags.length > 0 ? (draft?.tagStrength ?? "medium") : null,

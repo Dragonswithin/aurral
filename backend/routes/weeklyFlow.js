@@ -4,7 +4,6 @@ import fsp from "fs/promises";
 import path from "path";
 import { downloadTracker } from "../services/weeklyFlowDownloadTracker.js";
 import { weeklyFlowWorker } from "../services/weeklyFlowWorker.js";
-import { playlistSource } from "../services/weeklyFlowPlaylistSource.js";
 import { soulseekClient } from "../services/simpleSoulseekClient.js";
 import { playlistManager } from "../services/weeklyFlowPlaylistManager.js";
 import {
@@ -383,6 +382,7 @@ const queueFlowEnableRefresh = (flowId, mutationVersion) => {
       try {
         playlistManager.updateConfig(false);
         await playlistManager.weeklyReset([flowId]);
+        weeklyFlowWorker.clearPlaylistRunState(flowId);
         downloadTracker.clearByPlaylistType(flowId);
 
         if (
@@ -395,7 +395,7 @@ const queueFlowEnableRefresh = (flowId, mutationVersion) => {
 
         const latestFlow = flowPlaylistConfig.getFlow(flowId);
         if (!latestFlow) return;
-        const tracks = await playlistSource.getTracksForFlow(latestFlow);
+        const seeded = await weeklyFlowWorker.seedFlowRun(flowId, latestFlow);
 
         if (
           flowEnableMutationVersion.get(flowId) !== mutationVersion ||
@@ -404,11 +404,10 @@ const queueFlowEnableRefresh = (flowId, mutationVersion) => {
           return;
         }
 
-        if (tracks.length === 0) {
+        if (Number(seeded?.tracksQueued || 0) === 0) {
           await restartWorkerIfPending();
           return;
         }
-        downloadTracker.addJobs(tracks, flowId);
       } finally {
         releaseMutation();
       }
@@ -437,6 +436,7 @@ const queueFlowDisableCleanup = (flowId, mutationVersion) => {
       try {
         playlistManager.updateConfig(false);
         await playlistManager.weeklyReset([flowId]);
+        weeklyFlowWorker.clearPlaylistRunState(flowId);
         downloadTracker.clearByPlaylistType(flowId);
 
         if (flowEnableMutationVersion.get(flowId) !== mutationVersion) {
@@ -488,6 +488,7 @@ router.post("/start/:flowId", async (req, res) => {
         try {
           playlistManager.updateConfig(false);
           await playlistManager.weeklyReset([flowId]);
+          weeklyFlowWorker.clearPlaylistRunState(flowId);
           downloadTracker.clearByPlaylistType(flowId);
 
           if (flowEnableMutationVersion.get(flowId) !== mutationVersion) {
@@ -498,19 +499,20 @@ router.post("/start/:flowId", async (req, res) => {
             Number.isFinite(Number(limit)) && Number(limit) > 0
               ? Number(limit)
               : latestFlow.size || DEFAULT_LIMIT;
-          const tracks = await playlistSource.getTracksForFlow({
-            ...latestFlow,
+          const seeded = await weeklyFlowWorker.seedFlowRun(flowId, latestFlow, {
             size,
           });
           if (flowEnableMutationVersion.get(flowId) !== mutationVersion) {
             return { cancelled: true };
           }
-          if (tracks.length === 0) {
+          if (Number(seeded?.tracksQueued || 0) === 0) {
             return { empty: true, flowName: latestFlow.name };
           }
-
-          const jobIds = downloadTracker.addJobs(tracks, flowId);
-          return { jobIds, tracksQueued: tracks.length };
+          return {
+            jobIds: seeded?.jobIds || [],
+            tracksQueued: Number(seeded?.tracksQueued || 0),
+            reserveTracks: Number(seeded?.reserveTracks || 0),
+          };
         } finally {
           releaseMutation();
         }
@@ -542,6 +544,7 @@ router.post("/start/:flowId", async (req, res) => {
       flowId,
       tracksQueued: result?.tracksQueued || 0,
       jobIds: result?.jobIds || [],
+      reserveTracks: result?.reserveTracks || 0,
     });
   } catch (error) {
     res.status(500).json({
@@ -675,6 +678,7 @@ router.delete("/flows/:flowId", async (req, res) => {
         let didDelete = false;
         try {
           weeklyFlowWorker.setRetryCyclePaused(flowId, false);
+          weeklyFlowWorker.clearPlaylistRunState(flowId);
           playlistManager.updateConfig(false);
           await playlistManager.weeklyReset([flowId]);
           downloadTracker.clearByPlaylistType(flowId);
