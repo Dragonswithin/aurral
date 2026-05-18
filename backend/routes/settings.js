@@ -1,6 +1,6 @@
 import express from "express";
 import { dbOps } from "../config/db-helpers.js";
-import { defaultData } from "../config/constants.js";
+import { DEFAULT_METADATA_BASE_URL, defaultData } from "../config/constants.js";
 import { noCache } from "../middleware/cache.js";
 import { requireAuth, requireAdmin } from "../middleware/requirePermission.js";
 import { validateExternalUrl } from "../middleware/urlValidator.js";
@@ -24,7 +24,7 @@ router.get("/", noCache, (req, res) => {
         provider: "brainzmash",
         baseUrl:
           String(legacyMusicbrainz.customUrl || "").trim().replace(/\/ws\/2\/?$/, "") ||
-          "https://lidarrapi.brainzmash.cc",
+          DEFAULT_METADATA_BASE_URL,
         userAgentSuffix: "",
         enableNarrowFallbacks: true,
       };

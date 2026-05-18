@@ -1,5 +1,7 @@
 import { allReleaseTypes } from "./constants";
 
+const DEFAULT_METADATA_BASE_URL = "https://brainzmash.kell.ly";
+
 export const normalizeSettings = (savedSettings) => {
   const lidarr = savedSettings.integrations?.lidarr || {};
   const lastfm = savedSettings.integrations?.lastfm || {};
@@ -71,7 +73,7 @@ export const normalizeSettings = (savedSettings) => {
           String(legacyMusicbrainz.customUrl || "")
             .trim()
             .replace(/\/ws\/2\/?$/, "") ||
-          "https://lidarrapi.brainzmash.cc",
+          DEFAULT_METADATA_BASE_URL,
         userAgentSuffix: "",
         enableNarrowFallbacks: true,
         ...metadata,

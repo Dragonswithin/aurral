@@ -1,6 +1,8 @@
 import { CheckCircle } from "lucide-react";
 import FlipSaveButton from "../../../components/FlipSaveButton";
 
+const DEFAULT_METADATA_BASE_URL = "https://brainzmash.kell.ly";
+
 export function SettingsMetadataTab({
   settings,
   updateSettings,
@@ -61,7 +63,7 @@ export function SettingsMetadataTab({
               <input
                 type="url"
                 className="input"
-                placeholder="https://lidarrapi.brainzmash.cc"
+                placeholder={DEFAULT_METADATA_BASE_URL}
                 autoComplete="off"
                 value={settings.integrations?.metadata?.baseUrl || ""}
                 onChange={(e) =>

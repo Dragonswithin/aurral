@@ -1,7 +1,7 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import { dbOps, userOps } from "../config/db-helpers.js";
-import { defaultData } from "../config/constants.js";
+import { DEFAULT_METADATA_BASE_URL, defaultData } from "../config/constants.js";
 import { validateExternalUrl } from "../middleware/urlValidator.js";
 import { requirePasswordStrength } from "../middleware/validation.js";
 
@@ -119,7 +119,7 @@ router.post("/complete", async (req, res) => {
                 metadata.baseUrl != null
                   ? String(metadata.baseUrl).trim().replace(/\/+$/, "")
                   : current.integrations?.metadata?.baseUrl ||
-                    "https://lidarrapi.brainzmash.cc",
+                    DEFAULT_METADATA_BASE_URL,
               userAgentSuffix:
                 metadata.userAgentSuffix != null
                   ? String(metadata.userAgentSuffix).trim()

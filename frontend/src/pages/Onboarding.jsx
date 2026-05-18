@@ -32,6 +32,8 @@ const STEPS = [
   "done",
 ];
 
+const DEFAULT_METADATA_BASE_URL = "https://brainzmash.kell.ly";
+
 function Onboarding() {
   const [step, setStep] = useState(0);
   const [authUser, setAuthUser] = useState("admin");
@@ -40,7 +42,7 @@ function Onboarding() {
   const [lidarrUrl, setLidarrUrl] = useState("");
   const [lidarrApiKey, setLidarrApiKey] = useState("");
   const [metadataBaseUrl, setMetadataBaseUrl] = useState(
-    "https://lidarrapi.brainzmash.cc",
+    DEFAULT_METADATA_BASE_URL,
   );
   const [navidromeUrl, setNavidromeUrl] = useState("");
   const [navidromeUsername, setNavidromeUsername] = useState("");
@@ -347,7 +349,7 @@ function Onboarding() {
               autoComplete="off"
               className={inputClass}
               style={inputStyle}
-              placeholder="https://lidarrapi.brainzmash.cc"
+              placeholder={DEFAULT_METADATA_BASE_URL}
               value={metadataBaseUrl}
               onChange={(e) => setMetadataBaseUrl(e.target.value)}
             />

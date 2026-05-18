@@ -15,6 +15,7 @@ import { allReleaseTypes } from "../constants";
 import { normalizeSettings, checkForChanges } from "../utils";
 
 const DISCOVERY_MANUAL_REFRESH_KEY = "aurral.discovery.manualRefreshPending";
+const DEFAULT_METADATA_BASE_URL = "https://brainzmash.kell.ly";
 
 const defaultSettings = {
   rootFolderPath: "",
@@ -49,7 +50,7 @@ const defaultSettings = {
     },
     metadata: {
       provider: "brainzmash",
-      baseUrl: "https://lidarrapi.brainzmash.cc",
+      baseUrl: DEFAULT_METADATA_BASE_URL,
       userAgentSuffix: "",
       enableNarrowFallbacks: true,
     },

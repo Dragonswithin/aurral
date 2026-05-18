@@ -4,6 +4,7 @@ import { dbOps } from "../../config/db-helpers.js";
 import {
   APP_NAME,
   APP_VERSION,
+  DEFAULT_METADATA_BASE_URL,
   MUSICBRAINZ_API,
 } from "../../config/constants.js";
 import {
@@ -62,7 +63,7 @@ export function getMetadataBaseUrl() {
   const raw = String(
     metadata.baseUrl ||
       process.env.BRAINZMASH_BASE_URL ||
-      "https://lidarrapi.brainzmash.cc",
+      DEFAULT_METADATA_BASE_URL,
   ).trim();
   try {
     const parsed = new URL(raw);
@@ -71,7 +72,7 @@ export function getMetadataBaseUrl() {
     parsed.hash = "";
     return parsed.toString().replace(/\/+$/, "");
   } catch {
-    return "https://lidarrapi.brainzmash.cc";
+    return DEFAULT_METADATA_BASE_URL;
   }
 }
 
