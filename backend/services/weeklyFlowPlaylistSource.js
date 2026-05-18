@@ -2,23 +2,28 @@ import { lastfmRequest, getLastfmApiKey } from "./apiClients.js";
 import { getDiscoveryCache } from "./discoveryService.js";
 import { dbOps } from "../config/db-helpers.js";
 
-const FLOW_TRACK_FAILURE_BUFFER_RATIO = 0.2;
 const MBID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class WeeklyFlowPlaylistSource {
+  constructor() {
+    this.artistTopTagsCache = new Map();
+    this.relatedArtistMatchCache = new Map();
+  }
+
   _buildCounts(size, mix) {
     const weights = [
       { key: "discover", value: Number(mix?.discover ?? 0) },
       { key: "mix", value: Number(mix?.mix ?? 0) },
       { key: "trending", value: Number(mix?.trending ?? 0) },
+      { key: "focus", value: Number(mix?.focus ?? 0) },
     ];
     const sum = weights.reduce(
       (acc, w) => acc + (Number.isFinite(w.value) ? w.value : 0),
       0,
     );
     if (sum <= 0 || !Number.isFinite(sum)) {
-      return { discover: 0, mix: 0, trending: 0 };
+      return { discover: 0, mix: 0, trending: 0, focus: 0 };
     }
     const scaled = weights.map((w) => ({
       ...w,
@@ -92,6 +97,37 @@ export class WeeklyFlowPlaylistSource {
       return trimmed ? [trimmed] : [];
     }
     return [];
+  }
+
+  _normalizeFocusEntries(value) {
+    if (Array.isArray(value)) {
+      const seen = new Set();
+      const out = [];
+      for (const entry of value) {
+        const text = String(entry || "").trim();
+        const key = this._artistKey(text);
+        if (!text || seen.has(key)) continue;
+        seen.add(key);
+        out.push(text);
+      }
+      return out;
+    }
+    return Object.keys(this._normalizeWeightMap(value));
+  }
+
+  _normalizeFocusStrength(value) {
+    const strength = String(value || "").trim().toLowerCase();
+    if (strength === "light" || strength === "medium" || strength === "heavy") {
+      return strength;
+    }
+    return null;
+  }
+
+  _getStrengthWeight(strength) {
+    if (strength === "light") return 0.35;
+    if (strength === "medium") return 0.65;
+    if (strength === "heavy") return 1;
+    return 0;
   }
 
   _getBlocklist() {
@@ -332,6 +368,16 @@ export class WeeklyFlowPlaylistSource {
     });
   }
 
+  _filterArtistsByKeySet(artists, excludeSet) {
+    if (!Array.isArray(artists) || artists.length === 0 || !excludeSet?.size) {
+      return Array.isArray(artists) ? artists : [];
+    }
+    return artists.filter((artist) => {
+      const keys = this._artistKeysFromArtist(artist);
+      return !keys.some((key) => excludeSet.has(key));
+    });
+  }
+
   async _getLibraryArtistKeySet() {
     const { libraryManager } = await import("./libraryManager.js");
     const artists = await libraryManager.getAllArtists();
@@ -402,6 +448,39 @@ export class WeeklyFlowPlaylistSource {
     return tracks;
   }
 
+  async _getTracksForRankedArtists(artists, limit, options = {}) {
+    if (!getLastfmApiKey()) {
+      throw new Error("Last.fm API key not configured");
+    }
+    if (!Array.isArray(artists) || artists.length === 0 || limit <= 0) return [];
+    const tracks = [];
+    const seen = new Set();
+    for (const entry of artists) {
+      if (tracks.length >= limit) break;
+      const artistName =
+        typeof entry === "string"
+          ? String(entry).trim()
+          : String(entry?.name || entry?.artistName || "").trim();
+      if (!artistName) continue;
+      const key = this._artistKey(artistName);
+      if (!key || seen.has(key)) continue;
+      if (options?.excludeArtistKeys?.has(key)) continue;
+      try {
+        const track = await this._getTopTrackForArtist(artistName, options);
+        if (!track) continue;
+        seen.add(key);
+        tracks.push(track);
+      } catch {
+        continue;
+      }
+    }
+    return this._filterTracksByArtists(
+      this._filterTracksByBlocklist(tracks, options?.blocklist),
+      null,
+      options?.excludeArtistKeys,
+    );
+  }
+
   async _getTagArtists(tag, limit) {
     if (!getLastfmApiKey()) {
       throw new Error("Last.fm API key not configured");
@@ -418,6 +497,136 @@ export class WeeklyFlowPlaylistSource {
     return artists
       .map((artist) => String(artist?.name || "").trim())
       .filter(Boolean);
+  }
+
+  async _getSimilarArtists(artistKey, limit = 25) {
+    if (!getLastfmApiKey()) {
+      throw new Error("Last.fm API key not configured");
+    }
+    if (!artistKey || limit <= 0) return [];
+    const params = this._isMbid(artistKey)
+      ? { mbid: artistKey, limit }
+      : { artist: artistKey, limit };
+    const similar = await lastfmRequest("artist.getSimilar", params);
+    return similar?.similarartists?.artist
+      ? Array.isArray(similar.similarartists.artist)
+        ? similar.similarartists.artist
+        : [similar.similarartists.artist]
+      : [];
+  }
+
+  _buildRankedArtistPool(groups) {
+    const scoreMap = new Map();
+    for (const group of Array.isArray(groups) ? groups : []) {
+      const seenInGroup = new Set();
+      for (const artist of Array.isArray(group?.artists) ? group.artists : []) {
+        const artistName =
+          typeof artist === "string"
+            ? String(artist).trim()
+            : String(artist?.name || artist?.artistName || "").trim();
+        const key = this._artistKey(artistName);
+        if (!key || seenInGroup.has(key)) continue;
+        seenInGroup.add(key);
+        const current = scoreMap.get(key) || {
+          name: artistName,
+          score: 0,
+          rankSum: 0,
+        };
+        current.score += 1;
+        current.rankSum += seenInGroup.size;
+        if (!current.name) current.name = artistName;
+        scoreMap.set(key, current);
+      }
+    }
+    return [...scoreMap.values()]
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (a.rankSum !== b.rankSum) return a.rankSum - b.rankSum;
+        return a.name.localeCompare(b.name);
+      });
+  }
+
+  async _getTieredGroupTracks(groups, limit, options = {}) {
+    if (!Array.isArray(groups) || groups.length === 0 || limit <= 0) return [];
+    const rankedArtists = this._buildRankedArtistPool(groups);
+    if (rankedArtists.length === 0) return [];
+    const maxScore = rankedArtists.reduce(
+      (highest, entry) => Math.max(highest, Number(entry?.score || 0)),
+      0,
+    );
+    if (maxScore <= 0) return [];
+    const picked = [];
+    const used = new Set();
+    for (let score = maxScore; score >= 1 && picked.length < limit; score -= 1) {
+      const tierArtists = rankedArtists
+        .filter((entry) => Number(entry?.score || 0) === score)
+        .map((entry) => entry.name)
+        .filter(Boolean);
+      if (tierArtists.length === 0) continue;
+      const remaining = limit - picked.length;
+      const tierTracks = await this._getTracksForRankedArtists(
+        tierArtists,
+        remaining,
+        options,
+      ).catch(() => []);
+      for (const track of tierTracks) {
+        if (picked.length >= limit) break;
+        const key = this._trackArtistKey(track);
+        if (!key || used.has(key)) continue;
+        used.add(key);
+        picked.push(track);
+      }
+    }
+    return picked;
+  }
+
+  async getTagGroupTracks(tagsMap, limit, options = {}) {
+    const tags = Object.keys(this._normalizeWeightMap(tagsMap));
+    if (tags.length === 0 || limit <= 0) return [];
+    if (tags.length === 1) {
+      return this.getTagTracks(tags[0], limit, options);
+    }
+    const requestedArtists = Math.max(limit * 6, 100);
+    const groups = await Promise.all(
+      tags.map(async (tag) => ({
+        tag,
+        artists: await this._getTagArtists(tag, requestedArtists).catch(() => []),
+      })),
+    );
+    return this._getTieredGroupTracks(
+      groups,
+      limit,
+      {
+        deepDive: options?.deepDive === true,
+        reason: options?.reason || `From genres: ${tags.join(", ")}`,
+        blocklist: options?.blocklist,
+        excludeArtistKeys: options?.excludeArtistKeys,
+      },
+    ).catch(() => []);
+  }
+
+  async getRelatedArtistGroupTracks(relatedArtistsMap, limit, options = {}) {
+    const artists = Object.keys(this._normalizeWeightMap(relatedArtistsMap));
+    if (artists.length === 0 || limit <= 0) return [];
+    if (artists.length === 1) {
+      return this.getRelatedArtistTracks(artists[0], limit, options);
+    }
+    const groups = await Promise.all(
+      artists.map(async (artist) => ({
+        artist,
+        artists: await this._getSimilarArtists(artist, 75).catch(() => []),
+      })),
+    );
+    return this._getTieredGroupTracks(
+      groups,
+      limit,
+      {
+        deepDive: options?.deepDive === true,
+        reason: options?.reason || `Similar to ${artists.join(", ")}`,
+        blocklist: options?.blocklist,
+        excludeArtistKeys: options?.excludeArtistKeys,
+      },
+    ).catch(() => []);
   }
 
   _buildWeightedSourceCounts(total, sources) {
@@ -462,8 +671,25 @@ export class WeeklyFlowPlaylistSource {
 
   _pickRandomTrack(trackList) {
     if (!Array.isArray(trackList) || trackList.length === 0) return null;
-    const index = Math.floor(Math.random() * trackList.length);
-    return trackList[index] || null;
+    return trackList
+      .filter((track) => String(track?.name || "").trim().length > 0)
+      .sort((left, right) => {
+        const leftAlbum = String(
+          left?.album?.title || left?.album?.["#text"] || "",
+        ).trim();
+        const rightAlbum = String(
+          right?.album?.title || right?.album?.["#text"] || "",
+        ).trim();
+        if (Boolean(rightAlbum) !== Boolean(leftAlbum)) {
+          return Number(Boolean(rightAlbum)) - Number(Boolean(leftAlbum));
+        }
+        const leftPlaycount = Number(left?.playcount || left?.listeners || 0);
+        const rightPlaycount = Number(right?.playcount || right?.listeners || 0);
+        if (rightPlaycount !== leftPlaycount) {
+          return rightPlaycount - leftPlaycount;
+        }
+        return String(left?.name || "").localeCompare(String(right?.name || ""));
+      })[0] || null;
   }
 
   _pickTrackFromRanges(trackList, ranges) {
@@ -725,172 +951,649 @@ export class WeeklyFlowPlaylistSource {
     return [...curated, ...fallback];
   }
 
-  async getTracksForFlow(flow) {
-    const size = Number(flow?.size || 0);
-    const limit = Number.isFinite(size) && size > 0 ? size : 30;
-    const tags = this._normalizeWeightMap(flow?.tags);
-    const relatedArtists = this._normalizeWeightMap(flow?.relatedArtists);
-    const tagsTotal = this._sumWeightMap(tags);
-    const relatedTotal = this._sumWeightMap(relatedArtists);
-    const recipeCounts = this._normalizeRecipeCounts(flow?.recipe);
-    const recipeTotal =
-      recipeCounts?.discover != null
-        ? this._sumWeightMap(recipeCounts)
-        : limit;
-    const baseTarget = recipeTotal > 0 ? recipeTotal : limit;
-    const totalTarget = Math.max(
-      1,
-      Math.ceil(baseTarget * (1 + FLOW_TRACK_FAILURE_BUFFER_RATIO)),
-    );
-    if (totalTarget <= 0) return [];
-    const counts = (() => {
-      if (recipeCounts?.discover == null) {
-        return this._buildCounts(totalTarget, flow?.mix);
+  async _getArtistTopTags(artistName, artistMbid = null) {
+    const name = String(artistName || "").trim();
+    const mbid = String(artistMbid || "").trim();
+    const cacheKey = mbid || this._artistKey(name);
+    if (!cacheKey) return [];
+    if (this.artistTopTagsCache.has(cacheKey)) {
+      return this.artistTopTagsCache.get(cacheKey);
+    }
+    const promise = (async () => {
+      if (!getLastfmApiKey()) return [];
+      const params = mbid ? { mbid, limit: 12 } : { artist: name, limit: 12 };
+      try {
+        const data = await lastfmRequest("artist.getTopTags", params);
+        const list = data?.toptags?.tag
+          ? Array.isArray(data.toptags.tag)
+            ? data.toptags.tag
+            : [data.toptags.tag]
+          : [];
+        const seen = new Set();
+        const tags = [];
+        for (const entry of list) {
+          const tag = String(entry?.name || "").trim();
+          const key = this._artistKey(tag);
+          if (!tag || !key || seen.has(key)) continue;
+          seen.add(key);
+          tags.push(tag);
+          if (tags.length >= 12) break;
+        }
+        return tags;
+      } catch {
+        return [];
       }
-      const weighted = this._buildWeightedSourceCounts(totalTarget, [
-        { key: "discover", weight: Number(recipeCounts.discover || 0) },
-        { key: "mix", weight: Number(recipeCounts.mix || 0) },
-        { key: "trending", weight: Number(recipeCounts.trending || 0) },
-      ]);
-      return weighted.reduce((acc, item) => {
-        acc[item.key] = Number(item.count || 0);
-        return acc;
-      }, {});
     })();
-    const perTypeLimit = totalTarget > 0 ? Math.max(totalTarget, 30) : 0;
-    const blocklist = this._getBlocklist();
-    const sourceNeed = {
-      discover: Number(counts?.discover || 0) > 0,
-      mix: Number(counts?.mix || 0) > 0,
-      trending: Number(counts?.trending || 0) > 0,
+    this.artistTopTagsCache.set(cacheKey, promise);
+    const tags = await promise;
+    this.artistTopTagsCache.set(cacheKey, tags);
+    return tags;
+  }
+
+  async _buildRelatedArtistMatchMap(seedArtists) {
+    const normalizedSeeds = this._normalizeFocusEntries(seedArtists);
+    const cacheKey = normalizedSeeds.map((entry) => this._artistKey(entry)).join("\u0001");
+    if (!cacheKey) return new Map();
+    if (this.relatedArtistMatchCache.has(cacheKey)) {
+      return this.relatedArtistMatchCache.get(cacheKey);
+    }
+    const promise = (async () => {
+      const matchMap = new Map();
+      for (const seed of normalizedSeeds) {
+        const seedKey = this._artistKey(seed);
+        if (seedKey) {
+          matchMap.set(seedKey, {
+            count: normalizedSeeds.length,
+            seeds: new Set([seedKey]),
+          });
+        }
+        const similarArtists = await this._getSimilarArtists(seed, 75).catch(() => []);
+        for (const artist of similarArtists) {
+          const artistName = String(artist?.name || artist?.artistName || "").trim();
+          const key = this._artistKey(artistName);
+          if (!key) continue;
+          const current = matchMap.get(key) || {
+            count: 0,
+            seeds: new Set(),
+          };
+          current.seeds.add(seedKey);
+          current.count = Math.max(current.count, current.seeds.size);
+          matchMap.set(key, current);
+        }
+      }
+      return matchMap;
+    })();
+    this.relatedArtistMatchCache.set(cacheKey, promise);
+    const resolved = await promise;
+    this.relatedArtistMatchCache.set(cacheKey, resolved);
+    return resolved;
+  }
+
+  _buildBaseCandidate(track, source, sourceRank = 0, extra = {}) {
+    const artistKey = this._trackArtistKey(track);
+    const trackKey = `${artistKey || ""}::${String(track?.trackName || "")
+      .trim()
+      .toLowerCase()}`;
+    const metadataConfidence =
+      (track?.albumName ? 0.45 : 0) +
+      (track?.releaseYear ? 0.2 : 0) +
+      (track?.durationMs ? 0.25 : 0) +
+      (track?.trackMbid ? 0.1 : 0);
+    const sourceBaseScore = Math.max(0, 200 - sourceRank);
+    const downloadabilityHint =
+      metadataConfidence * 10 + (track?.artistMbid ? 4 : 0) + (track?.trackMbid ? 4 : 0);
+    return {
+      ...track,
+      source,
+      sourceRank,
+      trackKey,
+      artistTags: Array.isArray(extra.artistTags) ? extra.artistTags : [],
+      tagCoverage: Number(extra.tagCoverage || 0),
+      tagCoverageRatio: Number(extra.tagCoverageRatio || 0),
+      relatedCoverage: Number(extra.relatedCoverage || 0),
+      relatedCoverageRatio: Number(extra.relatedCoverageRatio || 0),
+      focusTier: extra.focusTier || "none",
+      focusPriority: Number(extra.focusPriority || 0),
+      metadataConfidence,
+      downloadabilityHint,
+      finalScore:
+        Number(extra.finalScore) ||
+        sourceBaseScore + metadataConfidence * 25 + downloadabilityHint,
+    };
+  }
+
+  _getFocusTierDetails(tagCoverage, totalTags, relatedCoverage, totalRelated) {
+    const safeTagCoverage = Number(tagCoverage || 0);
+    const safeRelatedCoverage = Number(relatedCoverage || 0);
+    const hasTags = totalTags > 0;
+    const hasRelated = totalRelated > 0;
+    if (!hasTags && !hasRelated) {
+      return {
+        focusTier: "none",
+        focusPriority: 0,
+        tagCoverageRatio: 0,
+        relatedCoverageRatio: 0,
+      };
+    }
+    const tagCoverageRatio = hasTags
+      ? Math.min(1, safeTagCoverage / totalTags)
+      : 0;
+    const relatedCoverageRatio = hasRelated
+      ? Math.min(1, safeRelatedCoverage / totalRelated)
+      : 0;
+
+    if (hasTags && hasRelated) {
+      if (safeRelatedCoverage >= totalRelated && safeTagCoverage >= totalTags) {
+        return {
+          focusTier: "both_all",
+          focusPriority: 8,
+          tagCoverageRatio,
+          relatedCoverageRatio,
+        };
+      }
+      if (safeRelatedCoverage >= totalRelated && safeTagCoverage > 0) {
+        return {
+          focusTier: "both_partial",
+          focusPriority: 7,
+          tagCoverageRatio,
+          relatedCoverageRatio,
+        };
+      }
+      if (safeRelatedCoverage > 0 && safeTagCoverage >= totalTags) {
+        return {
+          focusTier: "both_partial",
+          focusPriority: 6,
+          tagCoverageRatio,
+          relatedCoverageRatio,
+        };
+      }
+      if (safeRelatedCoverage > 0 && safeTagCoverage > 0) {
+        return {
+          focusTier: "both_partial",
+          focusPriority: 5,
+          tagCoverageRatio,
+          relatedCoverageRatio,
+        };
+      }
+      if (safeRelatedCoverage >= totalRelated) {
+        return {
+          focusTier: "related_all_only",
+          focusPriority: 4,
+          tagCoverageRatio,
+          relatedCoverageRatio,
+        };
+      }
+      if (safeRelatedCoverage > 0) {
+        return {
+          focusTier: "related_partial_only",
+          focusPriority: 3,
+          tagCoverageRatio,
+          relatedCoverageRatio,
+        };
+      }
+      if (safeTagCoverage >= totalTags) {
+        return {
+          focusTier: "tag_all_only",
+          focusPriority: 2,
+          tagCoverageRatio,
+          relatedCoverageRatio,
+        };
+      }
+      if (safeTagCoverage > 0) {
+        return {
+          focusTier: "tag_partial_only",
+          focusPriority: 1,
+          tagCoverageRatio,
+          relatedCoverageRatio,
+        };
+      }
+      return {
+        focusTier: "none",
+        focusPriority: 0,
+        tagCoverageRatio,
+        relatedCoverageRatio,
+      };
+    }
+
+    if (hasRelated) {
+      return {
+        focusTier:
+          safeRelatedCoverage >= totalRelated
+            ? "related_all_only"
+            : safeRelatedCoverage > 0
+              ? "related_partial_only"
+              : "none",
+        focusPriority:
+          safeRelatedCoverage >= totalRelated ? 4 : safeRelatedCoverage > 0 ? 3 : 0,
+        tagCoverageRatio,
+        relatedCoverageRatio,
+      };
+    }
+
+    return {
+      focusTier:
+        safeTagCoverage >= totalTags
+          ? "tag_all_only"
+          : safeTagCoverage > 0
+            ? "tag_partial_only"
+            : "none",
+      focusPriority:
+        safeTagCoverage >= totalTags ? 2 : safeTagCoverage > 0 ? 1 : 0,
+      tagCoverageRatio,
+      relatedCoverageRatio,
+    };
+  }
+
+  async _buildFocusArtistPool(tags, relatedArtists, limit, options = {}) {
+    const normalizedTags = this._normalizeFocusEntries(tags);
+    const normalizedRelated = this._normalizeFocusEntries(relatedArtists);
+    const totalTags = normalizedTags.length;
+    const totalRelated = normalizedRelated.length;
+    if (limit <= 0 || (totalTags === 0 && totalRelated === 0)) {
+      return [];
+    }
+
+    const excludeArtistKeys = options?.excludeArtistKeys || new Set();
+    const requestedArtists = Math.min(150, Math.max(limit * 6, 60));
+    const candidateMap = new Map();
+    const ensureEntry = (artistName, mbid = null) => {
+      const name = String(artistName || "").trim();
+      const key = this._artistKey(name);
+      if (!name || !key || excludeArtistKeys.has(key)) return null;
+      let entry = candidateMap.get(key);
+      if (!entry) {
+        entry = {
+          key,
+          name,
+          artistMbid: String(mbid || "").trim() || null,
+          tagMatches: new Set(),
+          relatedSeeds: new Set(),
+          tagRankSum: 0,
+          relatedRankSum: 0,
+          popularityHint: 0,
+        };
+        candidateMap.set(key, entry);
+      } else if (!entry.artistMbid && mbid) {
+        entry.artistMbid = String(mbid || "").trim() || null;
+      }
+      return entry;
     };
 
-    const [discoverTracks, mixTracks, trendingTracks] = await Promise.all([
-      sourceNeed.discover && perTypeLimit > 0
-        ? this.getDiscoverTracks(perTypeLimit, {
+    const [tagGroups, relatedGroups] = await Promise.all([
+      Promise.all(
+        normalizedTags.map(async (tag) => ({
+          tag,
+          artists: await this._getTagArtists(tag, requestedArtists).catch(() => []),
+        })),
+      ),
+      Promise.all(
+        normalizedRelated.map(async (seed) => ({
+          seed,
+          artists: await this._getSimilarArtists(seed, requestedArtists).catch(() => []),
+        })),
+      ),
+    ]);
+
+    for (const group of tagGroups) {
+      const tagKey = this._artistKey(group.tag);
+      for (let index = 0; index < group.artists.length; index += 1) {
+        const entry = ensureEntry(group.artists[index], null);
+        if (!entry) continue;
+        entry.tagMatches.add(tagKey);
+        entry.tagRankSum += index + 1;
+      }
+    }
+
+    for (const group of relatedGroups) {
+      const seedKey = this._artistKey(group.seed);
+      for (let index = 0; index < group.artists.length; index += 1) {
+        const artist = group.artists[index];
+        const artistName = String(artist?.name || artist?.artistName || "").trim();
+        const entry = ensureEntry(
+          artistName,
+          artist?.mbid || artist?.id || artist?.foreignArtistId || null,
+        );
+        if (!entry) continue;
+        entry.relatedSeeds.add(seedKey);
+        entry.relatedRankSum += index + 1;
+        entry.popularityHint = Math.max(
+          entry.popularityHint,
+          Math.log10(1 + Math.max(0, Number(artist?.listeners || 0))) +
+            Math.max(0, Number(artist?.match || 0)),
+        );
+      }
+    }
+
+    const preliminary = [...candidateMap.values()]
+      .sort((left, right) => {
+        const leftSignal = left.tagMatches.size + left.relatedSeeds.size;
+        const rightSignal = right.tagMatches.size + right.relatedSeeds.size;
+        if (rightSignal !== leftSignal) return rightSignal - leftSignal;
+        if (right.relatedSeeds.size !== left.relatedSeeds.size) {
+          return right.relatedSeeds.size - left.relatedSeeds.size;
+        }
+        if (right.tagMatches.size !== left.tagMatches.size) {
+          return right.tagMatches.size - left.tagMatches.size;
+        }
+        if (left.relatedRankSum !== right.relatedRankSum) {
+          return left.relatedRankSum - right.relatedRankSum;
+        }
+        if (left.tagRankSum !== right.tagRankSum) {
+          return left.tagRankSum - right.tagRankSum;
+        }
+        return left.name.localeCompare(right.name);
+      })
+      .slice(0, Math.max(limit * 2, 60));
+
+    const normalizedTagSet = new Set(normalizedTags.map((entry) => this._artistKey(entry)));
+    const enriched = await Promise.all(
+      preliminary.map(async (artist, index) => {
+        const topTags = await this._getArtistTopTags(artist.name, artist.artistMbid);
+        const tagMatches = new Set(artist.tagMatches);
+        for (const tag of topTags) {
+          const tagKey = this._artistKey(tag);
+          if (normalizedTagSet.has(tagKey)) {
+            tagMatches.add(tagKey);
+          }
+        }
+        const focusDetails = this._getFocusTierDetails(
+          tagMatches.size,
+          totalTags,
+          artist.relatedSeeds.size,
+          totalRelated,
+        );
+        return {
+          ...artist,
+          sourceRank: index,
+          artistTags: topTags,
+          tagCoverage: tagMatches.size,
+          relatedCoverage: artist.relatedSeeds.size,
+          ...focusDetails,
+        };
+      }),
+    );
+
+    return enriched
+      .filter((artist) => Number(artist.focusPriority || 0) > 0)
+      .sort((left, right) => {
+        if (right.focusPriority !== left.focusPriority) {
+          return right.focusPriority - left.focusPriority;
+        }
+        if (right.tagCoverage !== left.tagCoverage) {
+          return right.tagCoverage - left.tagCoverage;
+        }
+        if (right.relatedCoverage !== left.relatedCoverage) {
+          return right.relatedCoverage - left.relatedCoverage;
+        }
+        if (right.popularityHint !== left.popularityHint) {
+          return right.popularityHint - left.popularityHint;
+        }
+        if (left.relatedRankSum !== right.relatedRankSum) {
+          return left.relatedRankSum - right.relatedRankSum;
+        }
+        if (left.tagRankSum !== right.tagRankSum) {
+          return left.tagRankSum - right.tagRankSum;
+        }
+        return left.name.localeCompare(right.name);
+      })
+      .slice(0, Math.max(limit, 1));
+  }
+
+  async _getFocusCandidates(limit, options = {}) {
+    const tags = this._normalizeFocusEntries(options?.tags);
+    const relatedArtists = this._normalizeFocusEntries(options?.relatedArtists);
+    if (limit <= 0 || (tags.length === 0 && relatedArtists.length === 0)) {
+      return [];
+    }
+    const focusArtistPool = await this._buildFocusArtistPool(
+      tags,
+      relatedArtists,
+      Math.min(150, Math.max(limit * 4, 48)),
+      options,
+    );
+    if (focusArtistPool.length === 0) return [];
+    const tracks = await this._getTracksForRankedArtists(focusArtistPool, limit, {
+      deepDive: options?.deepDive === true,
+      reason: "From focus filters",
+      blocklist: options?.blocklist,
+      excludeArtistKeys: options?.excludeArtistKeys,
+    }).catch(() => []);
+    const focusArtistMap = new Map(
+      focusArtistPool.map((artist) => [this._artistKey(artist.name), artist]),
+    );
+    return tracks
+      .map((track, index) => {
+        const artist = focusArtistMap.get(this._trackArtistKey(track));
+        if (!artist) return null;
+        return this._buildBaseCandidate(track, "focus", index, {
+          artistTags: artist.artistTags,
+          tagCoverage: artist.tagCoverage,
+          tagCoverageRatio: artist.tagCoverageRatio,
+          relatedCoverage: artist.relatedCoverage,
+          relatedCoverageRatio: artist.relatedCoverageRatio,
+          focusTier: artist.focusTier,
+          focusPriority: artist.focusPriority,
+          finalScore:
+            artist.focusPriority * 1000 +
+            artist.tagCoverageRatio * 120 +
+            artist.relatedCoverageRatio * 140 +
+            (artist.popularityHint || 0),
+        });
+      })
+      .filter((candidate) => {
+        if (!candidate) return false;
+        if (!(options?.excludeTrackKeys instanceof Set)) return true;
+        return !options.excludeTrackKeys.has(candidate.trackKey);
+      })
+      .sort((left, right) => {
+        if (right.focusPriority !== left.focusPriority) {
+          return right.focusPriority - left.focusPriority;
+        }
+        if (right.finalScore !== left.finalScore) {
+          return right.finalScore - left.finalScore;
+        }
+        return left.sourceRank - right.sourceRank;
+      });
+  }
+
+  _sortSourceCandidates(candidates) {
+    return [...(Array.isArray(candidates) ? candidates : [])].sort((left, right) => {
+      if (right.finalScore !== left.finalScore) {
+        return right.finalScore - left.finalScore;
+      }
+      return left.sourceRank - right.sourceRank;
+    });
+  }
+
+  _selectFromCandidates(candidates, count, usedArtistKeys) {
+    const picked = [];
+    for (const candidate of Array.isArray(candidates) ? candidates : []) {
+      if (picked.length >= count) break;
+      const artistKey = this._trackArtistKey(candidate);
+      if (!artistKey || usedArtistKeys.has(artistKey)) continue;
+      usedArtistKeys.add(artistKey);
+      picked.push(candidate);
+    }
+    return picked;
+  }
+
+  _buildSourceTargets(size, mix) {
+    return this._buildCounts(size, mix);
+  }
+
+  async buildFlowRunPlan(flow, options = {}) {
+    const requestedSize = Number(flow?.size || 0);
+    const targetSize =
+      Number.isFinite(requestedSize) && requestedSize > 0 ? Math.round(requestedSize) : 30;
+    const reserveSize =
+      Number.isFinite(Number(options?.reserveSize)) && Number(options.reserveSize) >= 0
+        ? Math.round(Number(options.reserveSize))
+        : Math.max(Math.ceil(targetSize * 0.75), 8);
+    const mix = flow?.mix || { discover: 34, mix: 33, trending: 33, focus: 0 };
+    const sourceTargets = this._buildSourceTargets(targetSize, mix);
+    const reserveTargets = this._buildSourceTargets(reserveSize, mix);
+    const combinedTargets = {
+      discover: Number(sourceTargets.discover || 0) + Number(reserveTargets.discover || 0),
+      mix: Number(sourceTargets.mix || 0) + Number(reserveTargets.mix || 0),
+      trending: Number(sourceTargets.trending || 0) + Number(reserveTargets.trending || 0),
+      focus: Number(sourceTargets.focus || 0) + Number(reserveTargets.focus || 0),
+    };
+    const tags = this._normalizeFocusEntries(flow?.tags);
+    const relatedArtists = this._normalizeFocusEntries(flow?.relatedArtists);
+    const blocklist = this._getBlocklist();
+    const excludeArtistKeys = new Set(
+      Array.isArray(options?.excludeArtistKeys) ? options.excludeArtistKeys : options?.excludeArtistKeys || [],
+    );
+    const excludeTrackKeys = new Set(
+      Array.isArray(options?.excludeTrackKeys) ? options.excludeTrackKeys : options?.excludeTrackKeys || [],
+    );
+    const libraryArtistKeys = await this._getLibraryArtistKeySet().catch(() => new Set());
+    const nonLibraryExcludeArtistKeys = new Set(excludeArtistKeys);
+    for (const entry of libraryArtistKeys) {
+      nonLibraryExcludeArtistKeys.add(entry);
+    }
+    const harvestLimitFor = (count) =>
+      Math.min(150, Math.max(Number(count || 0) * 6, 24));
+    const [discoverTracks, mixTracks, trendingTracks, focusCandidates] = await Promise.all([
+      combinedTargets.discover > 0
+        ? this.getDiscoverTracks(harvestLimitFor(combinedTargets.discover), {
             deepDive: flow?.deepDive === true,
             reason: "From discovery recommendations",
             blocklist,
+            excludeArtistKeys: nonLibraryExcludeArtistKeys,
           }).catch(() => [])
         : [],
-      sourceNeed.mix && perTypeLimit > 0
-        ? this.getMixTracks(perTypeLimit, {
+      combinedTargets.mix > 0
+        ? this.getMixTracks(harvestLimitFor(combinedTargets.mix), {
             deepDive: flow?.deepDive === true,
             reason: "From your library mix",
             blocklist,
           }).catch(() => [])
         : [],
-      sourceNeed.trending && perTypeLimit > 0
-        ? this.getTrendingTracks(perTypeLimit, {
+      combinedTargets.trending > 0
+        ? this.getTrendingTracks(harvestLimitFor(combinedTargets.trending), {
             deepDive: flow?.deepDive === true,
             reason: "From trending artists",
             blocklist,
+            excludeArtistKeys: nonLibraryExcludeArtistKeys,
+          }).catch(() => [])
+        : [],
+      combinedTargets.focus > 0
+        ? this._getFocusCandidates(harvestLimitFor(combinedTargets.focus), {
+            tags,
+            relatedArtists,
+            deepDive: flow?.deepDive === true,
+            blocklist,
+            excludeArtistKeys: nonLibraryExcludeArtistKeys,
+            excludeTrackKeys,
           }).catch(() => [])
         : [],
     ]);
-
-    const tagSources = await Promise.all(
-      Object.entries(tags).map(async ([tag, count]) => ({
-        key: `tag:${tag}`,
-        count,
-        tracks: await this.getTagTracks(tag, count, {
-          reason: `From genre: ${tag}`,
-          blocklist,
-        }).catch(() => []),
-      })),
-    );
-    const relatedSources = await Promise.all(
-      Object.entries(relatedArtists).map(async ([artist, count]) => ({
-        key: `related:${artist}`,
-        count,
-        tracks: await this.getRelatedArtistTracks(artist, count, {
-          deepDive: flow?.deepDive === true,
-          reason: `Similar to ${artist}`,
-          blocklist,
-        }).catch(() => []),
-      })),
-    );
-    const focusTotal = Math.min(tagsTotal + relatedTotal, totalTarget);
-    const focusTracks =
-      focusTotal > 0
-        ? this._dedupeAndFillSources(focusTotal, [
-            ...tagSources,
-            ...relatedSources,
-          ])
-        : [];
-    const focusCounts = this._buildWeightedSourceCounts(focusTotal, [
-      { key: "discover", weight: Number(counts.discover || 0) },
-      { key: "mix", weight: Number(counts.mix || 0) },
-      { key: "trending", weight: Number(counts.trending || 0) },
-    ]);
-    const orderedKeys = ["discover", "mix", "trending"];
-    const focusCountMap = focusCounts.reduce((acc, item) => {
-      acc[item.key] = item.count;
-      return acc;
-    }, {});
-    const sourceTracksMap = {
-      discover: discoverTracks,
-      mix: mixTracks,
-      trending: trendingTracks,
+    const candidateMap = {
+      discover: this._sortSourceCandidates(
+        discoverTracks
+          .map((track, index) => this._buildBaseCandidate(track, "discover", index))
+          .filter((candidate) => {
+            const artistKey = this._trackArtistKey(candidate);
+            return (
+              artistKey &&
+              !nonLibraryExcludeArtistKeys.has(artistKey) &&
+              !excludeTrackKeys.has(candidate.trackKey)
+            );
+          }),
+      ),
+      mix: this._sortSourceCandidates(
+        mixTracks
+          .map((track, index) => this._buildBaseCandidate(track, "mix", index))
+          .filter((candidate) => {
+            const artistKey = this._trackArtistKey(candidate);
+            return artistKey && !excludeArtistKeys.has(artistKey) && !excludeTrackKeys.has(candidate.trackKey);
+          }),
+      ),
+      trending: this._sortSourceCandidates(
+        trendingTracks
+          .map((track, index) => this._buildBaseCandidate(track, "trending", index))
+          .filter((candidate) => {
+            const artistKey = this._trackArtistKey(candidate);
+            return (
+              artistKey &&
+              !nonLibraryExcludeArtistKeys.has(artistKey) &&
+              !excludeTrackKeys.has(candidate.trackKey)
+            );
+          }),
+      ),
+      focus: this._sortSourceCandidates(focusCandidates),
     };
-    const trackKey = (track) => this._trackArtistKey(track);
-    const focusKeySet = new Set(
-      focusTracks.map((track) => trackKey(track)).filter(Boolean),
-    );
-    const focusBuckets = orderedKeys.reduce((acc, key) => {
-      const list = sourceTracksMap[key] || [];
-      acc[key] = list.filter((track) => focusKeySet.has(trackKey(track)));
-      return acc;
-    }, {});
-    const focusAssignments = {};
-    const focusShortfalls = {};
-    const usedFocusKeys = new Set();
-    for (const key of orderedKeys) {
-      const desired = Number(focusCountMap[key] || 0);
-      const candidates = focusBuckets[key] || [];
-      const picked = [];
-      for (const track of candidates) {
-        if (picked.length >= desired) break;
-        const keyValue = trackKey(track);
-        if (!keyValue || usedFocusKeys.has(keyValue)) continue;
-        usedFocusKeys.add(keyValue);
-        picked.push(track);
-      }
-      focusAssignments[key] = picked;
-      focusShortfalls[key] = Math.max(desired - picked.length, 0);
+    const orderedSources = ["focus", "mix", "discover", "trending"];
+    const usedArtistKeys = new Set(excludeArtistKeys);
+    const primaryTracks = [];
+    const primaryBySource = {};
+    for (const source of orderedSources) {
+      const picked = this._selectFromCandidates(
+        candidateMap[source],
+        Number(sourceTargets[source] || 0),
+        usedArtistKeys,
+      );
+      primaryBySource[source] = picked;
+      primaryTracks.push(...picked);
     }
-    const remainingFocusPool = focusTracks.filter(
-      (track) => !usedFocusKeys.has(trackKey(track)),
-    );
-    for (const key of orderedKeys) {
-      const shortfall = focusShortfalls[key] || 0;
-      if (shortfall <= 0) continue;
-      const picked = focusAssignments[key] || [];
-      while (picked.length < (focusCountMap[key] || 0) && remainingFocusPool.length > 0) {
-        const nextTrack = remainingFocusPool.shift();
-        const keyValue = trackKey(nextTrack);
-        if (!keyValue || usedFocusKeys.has(keyValue)) continue;
-        usedFocusKeys.add(keyValue);
-        picked.push(nextTrack);
-      }
-      focusAssignments[key] = picked;
+    const remainingPrimaryNeeded = Math.max(0, targetSize - primaryTracks.length);
+    if (remainingPrimaryNeeded > 0) {
+      const pooled = orderedSources.flatMap((source) => candidateMap[source]);
+      primaryTracks.push(
+        ...this._selectFromCandidates(pooled, remainingPrimaryNeeded, usedArtistKeys),
+      );
     }
-    const focusSlices = orderedKeys.map((key) => {
-      const tracks = focusAssignments[key] || [];
-      return { key: `focus:${key}`, count: tracks.length, tracks };
-    });
-    const baseSources = orderedKeys.map((key) => {
-      const focusCount = focusAssignments[key]?.length || 0;
-      const count = Math.max(Number(counts[key] || 0) - focusCount, 0);
-      const list = sourceTracksMap[key] || [];
-      const tracks = list.filter((track) => !usedFocusKeys.has(trackKey(track)));
-      return { key, count, tracks };
-    });
+    const reserveTracks = [];
+    for (const source of orderedSources) {
+      const needed = Math.max(0, Number(reserveTargets[source] || 0));
+      reserveTracks.push(
+        ...this._selectFromCandidates(candidateMap[source], needed, usedArtistKeys),
+      );
+    }
+    const remainingReserveNeeded = Math.max(0, reserveSize - reserveTracks.length);
+    if (remainingReserveNeeded > 0) {
+      const pooled = orderedSources.flatMap((source) => candidateMap[source]);
+      reserveTracks.push(
+        ...this._selectFromCandidates(pooled, remainingReserveNeeded, usedArtistKeys),
+      );
+    }
+    const finalPrimary = primaryTracks.slice(0, targetSize).map(({ trackKey, ...track }) => track);
+    const finalReserve = reserveTracks.slice(0, reserveSize).map(({ trackKey, ...track }) => track);
+    return {
+      primaryTracks: finalPrimary,
+      reserveTracks: finalReserve,
+      diagnostics: {
+        requested: {
+          size: targetSize,
+          reserveSize,
+          sources: sourceTargets,
+          reserveSources: reserveTargets,
+        },
+        achieved: {
+          primary: finalPrimary.length,
+          reserve: finalReserve.length,
+          sourceCounts: orderedSources.reduce((acc, source) => {
+            acc[source] = finalPrimary.filter((track) => track.source === source).length;
+            return acc;
+          }, {}),
+          reserveSourceCounts: orderedSources.reduce((acc, source) => {
+            acc[source] = finalReserve.filter((track) => track.source === source).length;
+            return acc;
+          }, {}),
+          focusTiers: [...finalPrimary, ...finalReserve].reduce((acc, track) => {
+            const tier = String(track.focusTier || "none");
+            acc[tier] = Number(acc[tier] || 0) + 1;
+            return acc;
+          }, {}),
+        },
+      },
+    };
+  }
 
-    return this._dedupeAndFillSources(totalTarget, [
-      ...focusSlices,
-      ...baseSources,
-    ]);
+  async getTracksForFlow(flow) {
+    const plan = await this.buildFlowRunPlan(flow);
+    return Array.isArray(plan?.primaryTracks) ? plan.primaryTracks : [];
   }
 
   async getDiscoverTracks(limit, options = {}) {
@@ -919,10 +1622,7 @@ export class WeeklyFlowPlaylistSource {
           { start: 0, end: 9 },
           { start: 0, end: Number.MAX_SAFE_INTEGER },
         ];
-    let excludeSet = options?.excludeArtistKeys;
-    if (!excludeSet) {
-      excludeSet = await this._getLibraryArtistKeySet().catch(() => new Set());
-    }
+    const excludeSet = options?.excludeArtistKeys;
     const shuffled = [...recommendations].sort(() => 0.5 - Math.random());
     const tracks = [];
     const seenArtists = new Set();
@@ -960,7 +1660,11 @@ export class WeeklyFlowPlaylistSource {
       }
     }
 
-    return this._filterTracksByBlocklist(tracks, options?.blocklist);
+    return this._filterTracksByArtists(
+      this._filterTracksByBlocklist(tracks, options?.blocklist),
+      null,
+      excludeSet,
+    );
   }
 
   async getTrendingTracks(limit, options = {}) {
@@ -972,7 +1676,11 @@ export class WeeklyFlowPlaylistSource {
       discoveryCache.globalTop || [],
       options?.blocklist,
     );
-    if (!Array.isArray(globalTop) || globalTop.length === 0) {
+    const candidates = this._filterArtistsByKeySet(
+      globalTop,
+      options?.excludeArtistKeys,
+    );
+    if (!Array.isArray(candidates) || candidates.length === 0) {
       throw new Error(
         "No trending artists available. Update discovery cache first.",
       );
@@ -988,7 +1696,7 @@ export class WeeklyFlowPlaylistSource {
           { start: 0, end: 9 },
           { start: 0, end: Number.MAX_SAFE_INTEGER },
         ];
-    const shuffled = [...globalTop].sort(() => 0.5 - Math.random());
+    const shuffled = [...candidates].sort(() => 0.5 - Math.random());
     const tracks = [];
     const seenArtists = new Set();
     for (const artist of shuffled) {
@@ -1023,7 +1731,11 @@ export class WeeklyFlowPlaylistSource {
       }
     }
 
-    return this._filterTracksByBlocklist(tracks, options?.blocklist);
+    return this._filterTracksByArtists(
+      this._filterTracksByBlocklist(tracks, options?.blocklist),
+      null,
+      options?.excludeArtistKeys,
+    );
   }
 
   async getTagTracks(tag, limit, options = {}) {
@@ -1058,6 +1770,7 @@ export class WeeklyFlowPlaylistSource {
       if (!artistName || !trackName) continue;
       const key = artistName.toLowerCase();
       if (!key || seen.has(key)) continue;
+      if (options?.excludeArtistKeys?.has(key)) continue;
       seen.add(key);
       const trackEntry = this._buildTrackEntry({
         artistName,
@@ -1068,7 +1781,11 @@ export class WeeklyFlowPlaylistSource {
       });
       if (trackEntry) result.push(trackEntry);
     }
-    return this._filterTracksByBlocklist(result, options?.blocklist);
+    return this._filterTracksByArtists(
+      this._filterTracksByBlocklist(result, options?.blocklist),
+      null,
+      options?.excludeArtistKeys,
+    );
   }
 
   async getRelatedArtistTracks(artistKey, limit, options = {}) {
@@ -1096,9 +1813,13 @@ export class WeeklyFlowPlaylistSource {
         ? similar.similarartists.artist
         : [similar.similarartists.artist]
       : [];
+    const candidates = this._filterArtistsByKeySet(
+      list,
+      options?.excludeArtistKeys,
+    );
     const tracks = [];
     const seenArtists = new Set();
-    for (const candidate of list) {
+    for (const candidate of candidates) {
       if (tracks.length >= limit) break;
       const artistName = String(candidate?.name || "").trim();
       if (!artistName) continue;
@@ -1129,7 +1850,11 @@ export class WeeklyFlowPlaylistSource {
         continue;
       }
     }
-    return this._filterTracksByBlocklist(tracks, options?.blocklist);
+    return this._filterTracksByArtists(
+      this._filterTracksByBlocklist(tracks, options?.blocklist),
+      null,
+      options?.excludeArtistKeys,
+    );
   }
 
   async getRecommendedTracks(limit, options = {}) {

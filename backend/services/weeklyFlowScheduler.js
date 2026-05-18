@@ -1,6 +1,5 @@
 import { downloadTracker } from "./weeklyFlowDownloadTracker.js";
 import { weeklyFlowWorker } from "./weeklyFlowWorker.js";
-import { playlistSource } from "./weeklyFlowPlaylistSource.js";
 import { playlistManager } from "./weeklyFlowPlaylistManager.js";
 import { flowPlaylistConfig } from "./weeklyFlowPlaylistConfig.js";
 import { soulseekClient } from "./simpleSoulseekClient.js";
@@ -26,14 +25,15 @@ export async function runScheduledRefresh() {
             weeklyFlowWorker.stop();
           }
           weeklyFlowWorker.clearIncompleteRetry(flow.id);
+          weeklyFlowWorker.clearPlaylistRunState(flow.id);
           playlistManager.updateConfig(false);
           await playlistManager.weeklyReset([flow.id]);
           downloadTracker.clearByPlaylistType(flow.id);
 
           const latestFlow = flowPlaylistConfig.getFlow(flow.id);
           if (!latestFlow || !latestFlow.enabled) return;
-          const tracks = await playlistSource.getTracksForFlow(latestFlow);
-          if (tracks.length === 0) {
+          const seeded = await weeklyFlowWorker.seedFlowRun(flow.id, latestFlow);
+          if (Number(seeded?.tracksQueued || 0) === 0) {
             flowPlaylistConfig.scheduleNextRun(flow.id);
             if (shouldStopWorker) {
               const stillPending = downloadTracker.getNextPending();
@@ -44,7 +44,6 @@ export async function runScheduledRefresh() {
             return;
           }
 
-          downloadTracker.addJobs(tracks, flow.id);
           if (!weeklyFlowWorker.running) {
             await weeklyFlowWorker.start();
           } else {
@@ -52,7 +51,7 @@ export async function runScheduledRefresh() {
           }
           flowPlaylistConfig.scheduleNextRun(flow.id);
           console.log(
-            `[WeeklyFlowScheduler] Refreshed ${flow.id} (${tracks.length} tracks)`,
+            `[WeeklyFlowScheduler] Refreshed ${flow.id} (${Number(seeded?.tracksQueued || 0)} tracks, ${Number(seeded?.reserveTracks || 0)} reserve)`,
           );
         },
       );

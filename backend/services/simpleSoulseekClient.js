@@ -264,6 +264,7 @@ export class SimpleSoulseekClient {
     this.userBlacklistTTLMs = 30 * 60 * 1000;
     this.userQueueEvents = new Map();
     this.userQueuePenaltyTTLMs = 20 * 60 * 1000;
+    this.userQueueBlacklist = new Map();
     this.metrics = {
       connectCalls: 0,
       connectSuccesses: 0,
@@ -271,6 +272,9 @@ export class SimpleSoulseekClient {
       downloadStarts: 0,
       downloadSuccesses: 0,
       downloadFailures: 0,
+      queuedFailures: 0,
+      offlineFailures: 0,
+      userQueueBlacklists: 0,
       lastConnectAt: null,
       lastDisconnectAt: null,
     };
@@ -657,7 +661,7 @@ export class SimpleSoulseekClient {
   _getQueuedTimeoutMs() {
     const raw = Number(process.env.SOULSEEK_QUEUED_TIMEOUT_MS);
     if (Number.isFinite(raw) && raw >= 3000) return Math.floor(raw);
-    return 30000;
+    return 12000;
   }
 
   getQueuedFirstTimeoutMs() {
@@ -669,7 +673,7 @@ export class SimpleSoulseekClient {
   getQueuedRetryTimeoutMs() {
     const raw = Number(process.env.SOULSEEK_QUEUED_TIMEOUT_RETRY_MS);
     if (Number.isFinite(raw) && raw >= 2500) return Math.floor(raw);
-    return Math.max(15000, Math.floor(this.getQueuedFirstTimeoutMs() * 0.75));
+    return 8000;
   }
 
   getQueuedTimeoutForAttempt(attemptIndex) {
@@ -763,6 +767,20 @@ export class SimpleSoulseekClient {
     return Number(entry.count || 0) >= this.userBlacklistThreshold;
   }
 
+  _isUserQueuedBlacklisted(user) {
+    const key = String(user || "")
+      .trim()
+      .toLowerCase();
+    if (!key) return false;
+    const until = Number(this.userQueueBlacklist.get(key) || 0);
+    if (!until) return false;
+    if (Date.now() >= until) {
+      this.userQueueBlacklist.delete(key);
+      return false;
+    }
+    return true;
+  }
+
   _recordUserFailure(user) {
     const key = String(user || "")
       .trim()
@@ -809,6 +827,10 @@ export class SimpleSoulseekClient {
     entry.count = Number(entry.count || 0) + 1;
     entry.lastQueuedAt = now;
     this.userQueueEvents.set(key, entry);
+    if (entry.count >= 2) {
+      this.userQueueBlacklist.set(key, now + this.userQueuePenaltyTTLMs);
+      this.metrics.userQueueBlacklists += 1;
+    }
   }
 
   _resetUserQueued(user) {
@@ -817,6 +839,7 @@ export class SimpleSoulseekClient {
       .toLowerCase();
     if (!key) return;
     this.userQueueEvents.delete(key);
+    this.userQueueBlacklist.delete(key);
   }
 
   _getUserQueuePenalty(user) {
@@ -824,6 +847,7 @@ export class SimpleSoulseekClient {
       .trim()
       .toLowerCase();
     if (!key) return 0;
+    if (this._isUserQueuedBlacklisted(key)) return 10000;
     const entry = this.userQueueEvents.get(key);
     if (!entry) return 0;
     const now = Date.now();
@@ -831,9 +855,9 @@ export class SimpleSoulseekClient {
       this.userQueueEvents.delete(key);
       return 0;
     }
-    const basePenalty = Math.min(5, Number(entry.count || 0)) * 40;
+    const basePenalty = Math.min(5, Number(entry.count || 0)) * 220;
     const recentBoost =
-      now - Number(entry.lastQueuedAt || 0) < 5 * 60 * 1000 ? 80 : 0;
+      now - Number(entry.lastQueuedAt || 0) < 5 * 60 * 1000 ? 240 : 120;
     return basePenalty + recentBoost;
   }
 
@@ -843,7 +867,7 @@ export class SimpleSoulseekClient {
   }
 
   isUserBlacklisted(user) {
-    return this._isUserBlacklisted(user);
+    return this._isUserBlacklisted(user) || this._isUserQueuedBlacklisted(user);
   }
 
   getUserQueuePenalty(user) {
@@ -956,7 +980,9 @@ export class SimpleSoulseekClient {
     const max = Number.isFinite(Number(limit)) ? Math.max(1, Number(limit)) : 5;
     const scanLimit = this._getMatchScanLimit();
     const notBlacklisted = results.filter(
-      (item) => !this._isUserBlacklisted(item?.user),
+      (item) =>
+        !this._isUserBlacklisted(item?.user) &&
+        !this._isUserQueuedBlacklisted(item?.user),
     );
     const candidates = notBlacklisted.length > 0 ? notBlacklisted : results;
     const source =
@@ -976,10 +1002,10 @@ export class SimpleSoulseekClient {
       const speed = Number(item?.speed || 0);
       const fileSize = Number(item?.size || 0);
       const sizePenalty =
-        fileSize > 0 ? Math.max(0, 500000 - fileSize) : 500000;
-      const slotScore = freeSlots > 0 ? 0 : 1000;
+        fileSize > 0 ? Math.max(0, 2000000 - fileSize) : 2000000;
+      const slotScore = freeSlots > 0 ? 0 : 3000;
       const speedScore =
-        speed > 0 ? Math.floor(100 - Math.min(speed / 10000, 100)) : 50;
+        speed > 0 ? Math.floor(220 - Math.min(speed / 5000, 220)) : 180;
       const queuePenalty = this._getUserQueuePenalty(item?.user);
       return {
         hasTrack: hasTrack ? 0 : 1,
@@ -1290,8 +1316,10 @@ export class SimpleSoulseekClient {
       const message = err instanceof Error ? err.message : String(err || "");
       if (this._isQueuedError(message)) {
         this._recordUserQueued(result?.user);
+        this.metrics.queuedFailures += 1;
       } else if (this._isUserOfflineError(message)) {
         this._blacklistUserImmediately(result?.user);
+        this.metrics.offlineFailures += 1;
       } else {
         this._recordUserFailure(result?.user);
       }
@@ -1328,6 +1356,9 @@ export class SimpleSoulseekClient {
         downloadStarts: this.metrics.downloadStarts,
         downloadSuccesses: this.metrics.downloadSuccesses,
         downloadFailures: this.metrics.downloadFailures,
+        queuedFailures: this.metrics.queuedFailures,
+        offlineFailures: this.metrics.offlineFailures,
+        userQueueBlacklists: this.metrics.userQueueBlacklists,
         lastConnectAt: this.metrics.lastConnectAt,
         lastDisconnectAt: this.metrics.lastDisconnectAt,
       },

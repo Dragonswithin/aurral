@@ -362,6 +362,46 @@ function scoreSiblingTrackConflict(baseName, context, titleScore) {
   return 0;
 }
 
+function isStrongEnoughCandidate({
+  titleScore,
+  artistScore,
+  albumScore,
+  variantMatch,
+  trackCountScore,
+  trackNumberMismatch,
+  siblingTrackPenalty,
+  context,
+}) {
+  if (variantMatch?.hardMismatch) {
+    return { valid: false, reason: "variant-mismatch" };
+  }
+  if (siblingTrackPenalty <= -100) {
+    return { valid: false, reason: "sibling-track-conflict" };
+  }
+  if (titleScore < 58) {
+    return { valid: false, reason: "weak-title-match" };
+  }
+  if (artistScore < 45) {
+    return { valid: false, reason: "weak-artist-match" };
+  }
+  if (titleScore < 72 && artistScore < 58) {
+    return { valid: false, reason: "weak-title-artist-combo" };
+  }
+  if (trackNumberMismatch && titleScore < 95) {
+    return { valid: false, reason: "track-number-mismatch" };
+  }
+  if (
+    context?.albumName &&
+    albumScore < 18 &&
+    trackCountScore < 18 &&
+    !(titleScore >= 90 && artistScore >= 90) &&
+    titleScore < 92
+  ) {
+    return { valid: false, reason: "weak-album-context" };
+  }
+  return { valid: true, reason: null };
+}
+
 function pickBestArtistScore(context, text) {
   const candidates = [
     context?.artistName,
@@ -429,20 +469,38 @@ function buildGroupCandidate(group, context, options = {}) {
       scoreTextMatch(baseName, context?.trackName),
       scoreTextMatch(path.basename(String(item?.file || "")), context?.trackName),
     );
-    const variantScore = scoreVariantCompatibility(
+    const variantMatch = scoreVariantCompatibility(
       context?.trackName,
       baseName,
-    ).score;
+    );
+    const variantScore = variantMatch.score;
     const trackNumberScore = scoreTrackNumberMatch(
       context?.trackNumber,
       extractTrackNumber(baseName),
     );
+    const actualTrackNumber = extractTrackNumber(baseName);
+    const trackNumberMismatch =
+      Number.isFinite(Number(context?.trackNumber)) &&
+      Number(context?.trackNumber) > 0 &&
+      Number.isFinite(Number(actualTrackNumber)) &&
+      Number(actualTrackNumber) > 0 &&
+      Number(context?.trackNumber) !== Number(actualTrackNumber);
     const titleConfidenceScore = scoreTitleConfidence(titleScore);
     const siblingTrackPenalty = scoreSiblingTrackConflict(
       baseName,
       context,
       titleScore,
     );
+    const preDownloadCheck = isStrongEnoughCandidate({
+      titleScore,
+      artistScore,
+      albumScore,
+      variantMatch,
+      trackCountScore,
+      trackNumberMismatch,
+      siblingTrackPenalty,
+      context,
+    });
     const formatScore =
       ext === `.${preferredFormat}` ? 18 : ext === ".flac" || ext === ".mp3" ? 9 : 0;
     const bitrateScore = Number.isFinite(Number(item?.bitrate))
@@ -468,6 +526,8 @@ function buildGroupCandidate(group, context, options = {}) {
       group,
       ext,
       score: totalScore,
+      preDownloadValid: preDownloadCheck.valid,
+      preDownloadRejectReason: preDownloadCheck.reason,
       isLikelyMatch:
         titleScore >= 75 &&
         artistScore >= 55 &&
@@ -480,10 +540,15 @@ function buildGroupCandidate(group, context, options = {}) {
         trackCountScore,
         userQueuePenaltyScore,
         variantScore,
+        variantHardMismatch: variantMatch.hardMismatch,
+        trackNumberMismatch,
         trackNumberScore,
         titleConfidenceScore,
         siblingTrackPenalty,
         formatScore,
+        speed: Number(item?.speed || 0),
+        slots: Number(item?.slots || 0),
+        bitrate: Number(item?.bitrate || 0),
       },
       resolvedAlbumName: context?.albumName || albumDir || null,
     });
@@ -638,8 +703,10 @@ export async function validateDownloadedTrack(filePath, candidate, context) {
     artistScore >= 60 &&
     durationValid &&
     !variantMatch.hardMismatch &&
-    trackNumberValid &&
-    (!context?.albumName || albumScore >= 28 || titleScore >= 95);
+    (trackNumberValid || (titleScore >= 98 && artistScore >= 90)) &&
+    (!context?.albumName ||
+      albumScore >= 28 ||
+      (titleScore >= 90 && artistScore >= 90));
 
   return {
     valid,
