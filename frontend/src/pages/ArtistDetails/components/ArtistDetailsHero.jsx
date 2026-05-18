@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import {
   Loader,
@@ -189,78 +189,96 @@ export function ArtistDetailsHero({
         }
       : null,
   ].filter(Boolean);
-  const tags = [
-    ...(Array.isArray(artist.genres) ? artist.genres : []).map((genre, idx) => ({
-      key: `genre-${idx}`,
-      name: typeof genre === "string" ? genre : genre?.name,
-    })),
-    ...(Array.isArray(artist.tags) ? artist.tags : []).map((tag, idx) => ({
-      key: `tag-${idx}`,
-      name: typeof tag === "string" ? tag : tag?.name,
-    })),
-  ].filter((tag) => tag.name);
+  const tags = useMemo(
+    () =>
+      [
+        ...(Array.isArray(artist.genres) ? artist.genres : []).map((genre, idx) => ({
+          key: `genre-${idx}`,
+          name: typeof genre === "string" ? genre : genre?.name,
+        })),
+        ...(Array.isArray(artist.tags) ? artist.tags : []).map((tag, idx) => ({
+          key: `tag-${idx}`,
+          name: typeof tag === "string" ? tag : tag?.name,
+        })),
+      ].filter((tag) => tag.name),
+    [artist.genres, artist.tags],
+  );
   const visibleTags = showAllTags ? tags : tags.slice(0, collapsedTagCount);
-  const primaryExternalLinks = [
-    lidarrArtistLink
-      ? {
-          key: "lidarr",
-          label: "Lidarr",
-          href: lidarrArtistLink,
-          logo: toCurrentColorSvg(lidarrLogo),
-          color: "#009252",
-        }
-      : null,
-    {
-      key: "lastfm",
-      label: "Last.fm",
-      href: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
-      logo: toCurrentColorSvg(lastFmLogo),
-      color: "#D1170D",
-    },
-    artist.id &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      artist.id
-    )
-      ? {
-          key: "musicbrainz",
-          label: "MusicBrainz",
-          href: `https://musicbrainz.org/artist/${artist.id}`,
-          logo: toCurrentColorSvg(musicBrainzLogo),
-          color: "#BA478F",
-        }
-      : null,
-    artist.id &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      artist.id
-    )
-      ? {
-          key: "listenbrainz",
-          label: "ListenBrainz",
-          href: `https://listenbrainz.org/artist/${encodeURIComponent(artist.id)}/`,
-          logo: toCurrentColorSvg(listenBrainzLogo),
-          color: "#353070",
-        }
-      : null,
-  ].filter(Boolean);
-  const secondaryExternalLinks = buildRelationLinks(artist).map((link) => ({
-    ...link,
-    color: "#a8acb8",
-  }));
-  const uniquePrimaryExternalLinks = [];
-  const uniqueSecondaryExternalLinks = [];
-  const seenExternalHrefs = new Set();
-  for (const link of primaryExternalLinks) {
-    const href = normalizeExternalHref(link?.href);
-    if (!href || seenExternalHrefs.has(href)) continue;
-    seenExternalHrefs.add(href);
-    uniquePrimaryExternalLinks.push({ ...link, href });
-  }
-  for (const link of secondaryExternalLinks) {
-    const href = normalizeExternalHref(link?.href);
-    if (!href || seenExternalHrefs.has(href)) continue;
-    seenExternalHrefs.add(href);
-    uniqueSecondaryExternalLinks.push({ ...link, href });
-  }
+  const primaryExternalLinks = useMemo(
+    () =>
+      [
+        lidarrArtistLink
+          ? {
+              key: "lidarr",
+              label: "Lidarr",
+              href: lidarrArtistLink,
+              logo: toCurrentColorSvg(lidarrLogo),
+              color: "#009252",
+            }
+          : null,
+        {
+          key: "lastfm",
+          label: "Last.fm",
+          href: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
+          logo: toCurrentColorSvg(lastFmLogo),
+          color: "#D1170D",
+        },
+        artist.id &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          artist.id
+        )
+          ? {
+              key: "musicbrainz",
+              label: "MusicBrainz",
+              href: `https://musicbrainz.org/artist/${artist.id}`,
+              logo: toCurrentColorSvg(musicBrainzLogo),
+              color: "#BA478F",
+            }
+          : null,
+        artist.id &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          artist.id
+        )
+          ? {
+              key: "listenbrainz",
+              label: "ListenBrainz",
+              href: `https://listenbrainz.org/artist/${encodeURIComponent(artist.id)}/`,
+              logo: toCurrentColorSvg(listenBrainzLogo),
+              color: "#353070",
+            }
+          : null,
+      ].filter(Boolean),
+    [artist.id, artist.name, lidarrArtistLink],
+  );
+  const secondaryExternalLinks = useMemo(
+    () =>
+      buildRelationLinks(artist).map((link) => ({
+        ...link,
+        color: "#a8acb8",
+      })),
+    [artist],
+  );
+  const { uniquePrimaryExternalLinks, uniqueSecondaryExternalLinks } = useMemo(() => {
+    const nextPrimaryExternalLinks = [];
+    const nextSecondaryExternalLinks = [];
+    const seenExternalHrefs = new Set();
+    for (const link of primaryExternalLinks) {
+      const href = normalizeExternalHref(link?.href);
+      if (!href || seenExternalHrefs.has(href)) continue;
+      seenExternalHrefs.add(href);
+      nextPrimaryExternalLinks.push({ ...link, href });
+    }
+    for (const link of secondaryExternalLinks) {
+      const href = normalizeExternalHref(link?.href);
+      if (!href || seenExternalHrefs.has(href)) continue;
+      seenExternalHrefs.add(href);
+      nextSecondaryExternalLinks.push({ ...link, href });
+    }
+    return {
+      uniquePrimaryExternalLinks: nextPrimaryExternalLinks,
+      uniqueSecondaryExternalLinks: nextSecondaryExternalLinks,
+    };
+  }, [primaryExternalLinks, secondaryExternalLinks]);
   const visibleSecondaryLinks = showAllSecondaryLinks
     ? uniqueSecondaryExternalLinks
     : uniqueSecondaryExternalLinks.slice(0, collapsedSecondaryLinkCount);
