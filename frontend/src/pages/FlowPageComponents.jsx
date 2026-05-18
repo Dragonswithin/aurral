@@ -1438,7 +1438,9 @@ export function FlowCard({
   canConvertToStatic,
   convertingId,
   togglingId,
+  rerunningId,
   deletingId,
+  onRunNow,
   onExport,
   onConvertToStatic,
   onToggleNameEditing,
@@ -1508,6 +1510,8 @@ export function FlowCard({
     isCurrentJobForFlow ||
     isGeneratingThisFlow ||
     isQueueCleanupThisFlow;
+  const isRerunningThisFlow = rerunningId === flow.id;
+  const canRunNow = enabled && !hasFlowWorkInProgress && !isRerunningThisFlow;
   let flowWorkerMessage = "";
   if (isCurrentJobForFlow) {
     flowWorkerMessage = `Download: ${currentJob.trackName} (${jobProgressPct}%)`;
@@ -1655,6 +1659,18 @@ export function FlowCard({
                     </button>
                   )}
                   <div className="my-1 border-t border-white/10 sm:hidden" />
+                  <button
+                    onClick={onRunNow}
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!canRunNow}
+                  >
+                    {isRerunningThisFlow ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Play className="w-4 h-4" />
+                    )}
+                    Run Now
+                  </button>
                   <button
                     onClick={onConvertToStatic}
                     className="w-full text-left px-3 py-2.5 text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"

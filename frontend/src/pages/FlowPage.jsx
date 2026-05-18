@@ -14,6 +14,7 @@ import {
   importSharedPlaylist,
   updateSharedPlaylist,
   setFlowEnabled,
+  startFlowPlaylist,
   getFlowTrackStreamUrl,
   getFlowArtworkUrl,
   updateFlowWorkerSettings,
@@ -604,6 +605,7 @@ function FlowPage() {
   const [deletingId, setDeletingId] = useState(null);
   const [convertingId, setConvertingId] = useState(null);
   const [togglingId, setTogglingId] = useState(null);
+  const [rerunningId, setRerunningId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [flowNameEditingId, setFlowNameEditingId] = useState(null);
   const [flowManageEditingId, setFlowManageEditingId] = useState(null);
@@ -1112,6 +1114,36 @@ function FlowPage() {
         return next;
       });
       setTogglingId(null);
+    }
+  };
+
+  const handleRunNow = async (flow) => {
+    if (!flow?.id || flow.enabled !== true) return;
+    setRerunningId(flow.id);
+    try {
+      const response = await startFlowPlaylist(flow.id, flow.size);
+      const tracksQueued = Number(response?.tracksQueued || 0);
+      showSuccess(
+        tracksQueued > 0
+          ? `${flow.name} queued ${tracksQueued} tracks`
+          : `${flow.name} run started`,
+      );
+      await fetchStatus();
+      if (tracksExpandedId === flow.id) {
+        await fetchFlowTracks(flow.id, {
+          showSpinner: false,
+          includeFailed: true,
+        });
+      }
+    } catch (err) {
+      showError(
+        err.response?.data?.message ||
+          err.response?.data?.error ||
+          err.message ||
+          "Failed to run flow",
+      );
+    } finally {
+      setRerunningId(null);
     }
   };
 
@@ -1901,7 +1933,9 @@ function FlowPage() {
               canConvertToStatic={canConvertToStatic}
               convertingId={convertingId}
               togglingId={togglingId}
+              rerunningId={rerunningId}
               deletingId={deletingId}
+              onRunNow={() => handleRunNow(flow)}
               onExport={() => handleExportFlow(flow)}
               onConvertToStatic={() => handleConvertFlowToStatic(flow)}
               onToggleNameEditing={() => handleToggleFlowNameEditing(flow)}
