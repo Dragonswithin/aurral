@@ -26,6 +26,7 @@ import {
   CreatePlaylistModal,
   PlaylistTrackModal,
 } from "../components/PlaylistModals";
+import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
 import { useWebSocketChannel } from "../hooks/useWebSocket";
 import {
@@ -636,6 +637,7 @@ function FlowPage() {
   const [playlistTrackError, setPlaylistTrackError] = useState("");
   const lastFlowWsMessageAtRef = useRef(0);
   const importInputRef = useRef(null);
+  const { user } = useAuth();
   const { showSuccess, showError } = useToast();
 
   const fetchStatus = useCallback(async () => {
@@ -1212,6 +1214,7 @@ function FlowPage() {
   };
 
   const handleOpenWorkerSettings = () => {
+    if (user?.role !== "admin") return;
     const current = getCurrentWorkerSettings();
     setWorkerSettingsBaseline(current);
     setWorkerSettingsDraft(current);
@@ -1760,14 +1763,16 @@ function FlowPage() {
           <h2 className="text-base font-semibold text-white">Playlists / Flows</h2>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={handleOpenWorkerSettings}
-            className="btn btn-secondary btn-sm p-2 opacity-80 hover:opacity-100"
-            aria-label="Open flow worker settings"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
+          {user?.role === "admin" && (
+            <button
+              type="button"
+              onClick={handleOpenWorkerSettings}
+              className="btn btn-secondary btn-sm p-2 opacity-80 hover:opacity-100"
+              aria-label="Open flow worker settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          )}
           <button
             type="button"
             onClick={handleOpenImportPicker}
@@ -1817,6 +1822,7 @@ function FlowPage() {
               <SharedPlaylistCard
                 key={playlist.id}
                 playlist={playlist}
+                isAdminView={user?.role === "admin"}
                 stats={getPlaylistStats(playlist.id)}
                 currentJob={status?.worker?.currentJob}
                 isEditing={editingId === playlist.id}
@@ -1908,6 +1914,7 @@ function FlowPage() {
             <FlowCard
               key={flow.id}
               flow={flow}
+              isAdminView={user?.role === "admin"}
               enabled={enabled}
               state={state}
               stats={displayStats}
@@ -1982,21 +1989,23 @@ function FlowPage() {
         onCancel={() => setConfirmDisable(null)}
         onConfirm={handleConfirmDisable}
       />
-      <FlowWorkerSettingsModal
-        isOpen={isWorkerSettingsOpen}
-        settings={workerSettingsDraft}
-        soulseekCredential={status?.soulseek?.credential || null}
-        hasChanges={hasWorkerSettingsChanges}
-        saving={savingWorkerSettings}
-        rotatingSoulseekCredential={rotatingSoulseekCredential}
-        onCancel={() => {
-          if (savingWorkerSettings || rotatingSoulseekCredential) return;
-          setIsWorkerSettingsOpen(false);
-        }}
-        onChange={setWorkerSettingsDraft}
-        onRotateSoulseekCredential={handleRotateSoulseekCredential}
-        onSave={handleSaveWorkerSettings}
-      />
+      {user?.role === "admin" && (
+        <FlowWorkerSettingsModal
+          isOpen={isWorkerSettingsOpen}
+          settings={workerSettingsDraft}
+          soulseekCredential={status?.soulseek?.credential || null}
+          hasChanges={hasWorkerSettingsChanges}
+          saving={savingWorkerSettings}
+          rotatingSoulseekCredential={rotatingSoulseekCredential}
+          onCancel={() => {
+            if (savingWorkerSettings || rotatingSoulseekCredential) return;
+            setIsWorkerSettingsOpen(false);
+          }}
+          onChange={setWorkerSettingsDraft}
+          onRotateSoulseekCredential={handleRotateSoulseekCredential}
+          onSave={handleSaveWorkerSettings}
+        />
+      )}
       <FlowImportReviewModal
         importReview={importReview}
         importing={importing}

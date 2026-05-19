@@ -97,7 +97,6 @@ function buildPermissions(role, permissions) {
     ...userOps.getDefaultPermissions(),
     ...(permissions || {}),
     accessSettings: false,
-    accessFlow: false,
   };
 }
 

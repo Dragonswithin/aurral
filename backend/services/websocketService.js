@@ -35,6 +35,7 @@ class WebSocketService {
   }
 
   handleConnection(ws, req) {
+    let sessionUser = null;
     if (isAuthRequired()) {
       const requestUrl = new URL(req.url || "", "http://localhost");
       const token = requestUrl.searchParams.get("token");
@@ -43,6 +44,7 @@ class WebSocketService {
         ws.close(4401, "Unauthorized");
         return;
       }
+      sessionUser = session.user;
     }
 
     const clientId = this.generateClientId();
@@ -50,6 +52,7 @@ class WebSocketService {
     const client = {
       id: clientId,
       ws,
+      user: sessionUser,
       subscriptions: new Set(['status']),
       connectedAt: Date.now(),
     };
@@ -147,6 +150,31 @@ class WebSocketService {
       }
     }
 
+    return sent;
+  }
+
+  broadcastPerClient(channel, buildData) {
+    let sent = 0;
+    for (const client of this.clients) {
+      if (!(client.subscriptions.has(channel) || client.subscriptions.has('*'))) {
+        continue;
+      }
+      if (client.ws.readyState !== 1) {
+        continue;
+      }
+      const payload = buildData(client);
+      if (!payload) {
+        continue;
+      }
+      client.ws.send(
+        JSON.stringify({
+          channel,
+          timestamp: Date.now(),
+          ...payload,
+        }),
+      );
+      sent++;
+    }
     return sent;
   }
 

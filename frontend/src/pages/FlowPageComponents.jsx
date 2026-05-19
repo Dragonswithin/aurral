@@ -1413,6 +1413,7 @@ const shouldHandleMobileCardTap = (event) => {
 
 export function FlowCard({
   flow,
+  isAdminView = false,
   artworkUrl,
   enabled,
   state,
@@ -1543,6 +1544,9 @@ export function FlowCard({
   }
   const typeLabel = enabled ? "Flow" : "Flow Draft";
   const statusSummary = enabled ? "" : "Flow ready when enabled";
+  const ownerLabel = isAdminView && flow?.ownerUsername
+    ? `Owner: ${flow.ownerUsername}`
+    : null;
 
   const handleMobileTrackToggle = (event) => {
     if (!shouldHandleMobileCardTap(event)) return;
@@ -1569,6 +1573,11 @@ export function FlowCard({
                   <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-[#c6c6cb]">
                     {flow.size} tracks
                   </span>
+                  {ownerLabel ? (
+                    <span className="rounded-full border border-[#90a07d]/25 bg-[#90a07d]/10 px-2 py-0.5 text-[11px] text-[#d8e5cc]">
+                      {ownerLabel}
+                    </span>
+                  ) : null}
                   {state === "running" && (
                     <span className="badge badge-success badge-sm gap-1.5 pl-1.5 pr-2">
                       <Loader2 className="w-3 h-3 animate-spin" />
@@ -2363,6 +2372,7 @@ export function FlowEmptyState({ onCreate, creating }) {
 
 export function SharedPlaylistCard({
   playlist,
+  isAdminView = false,
   stats,
   currentJob,
   artworkUrl,
@@ -2411,6 +2421,9 @@ export function SharedPlaylistCard({
     currentJob?.playlistType === playlist.id &&
     currentJob?.artistName &&
     currentJob?.trackName;
+  const ownerLabel = isAdminView && playlist?.ownerUsername
+    ? `Owner: ${playlist.ownerUsername}`
+    : null;
 
   const handleMobileTrackToggle = (event) => {
     if (!shouldHandleMobileCardTap(event)) return;
@@ -2434,6 +2447,11 @@ export function SharedPlaylistCard({
                 <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-[#c6c6cb]">
                   {playlist.trackCount} tracks
                 </span>
+                {ownerLabel ? (
+                  <span className="rounded-full border border-[#90a07d]/25 bg-[#90a07d]/10 px-2 py-0.5 text-[11px] text-[#d8e5cc]">
+                    {ownerLabel}
+                  </span>
+                ) : null}
               </div>
               <div className="flex shrink-0 items-center justify-end gap-1 self-end min-[420px]:self-start">
                 <button

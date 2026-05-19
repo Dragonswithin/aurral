@@ -3,6 +3,7 @@ import { weeklyFlowWorker } from "./weeklyFlowWorker.js";
 import { flowPlaylistConfig } from "./weeklyFlowPlaylistConfig.js";
 import { weeklyFlowOperationQueue } from "./weeklyFlowOperationQueue.js";
 import { soulseekClient } from "./simpleSoulseekClient.js";
+import { userOps } from "../config/db-helpers.js";
 
 function formatNextRunMessage(flows) {
   const nextRunAt = (Array.isArray(flows) ? flows : [])
@@ -52,23 +53,68 @@ function aggregateStats(statsByType, ids) {
   return base;
 }
 
+function buildOwnerMap(flows, sharedPlaylists) {
+  const ownerIds = new Set();
+  for (const item of [...(Array.isArray(flows) ? flows : []), ...(Array.isArray(sharedPlaylists) ? sharedPlaylists : [])]) {
+    const ownerUserId = Number(item?.ownerUserId);
+    if (Number.isFinite(ownerUserId)) {
+      ownerIds.add(ownerUserId);
+    }
+  }
+  const ownerMap = new Map();
+  for (const ownerUserId of ownerIds) {
+    const owner = userOps.getUserById(ownerUserId);
+    if (owner?.username) {
+      ownerMap.set(ownerUserId, owner.username);
+    }
+  }
+  return ownerMap;
+}
+
 export function getWeeklyFlowStatusSnapshot({
   includeJobs = false,
   flowId = null,
   jobsLimit = null,
+  user = null,
 } = {}) {
   const workerStatus = weeklyFlowWorker.getStatus();
-  const flows = flowPlaylistConfig.getFlows();
-  const sharedPlaylists = flowPlaylistConfig.getSharedPlaylistSummaries();
-  const flowIds = flows.map((flow) => flow.id);
-  const sharedPlaylistIds = sharedPlaylists.map((playlist) => playlist.id);
+  const flows = user
+    ? flowPlaylistConfig.getFlowsForUser(user)
+    : flowPlaylistConfig.getFlows();
+  const sharedPlaylists = (
+    user
+      ? flowPlaylistConfig.getSharedPlaylistsForUser(user)
+      : flowPlaylistConfig.getSharedPlaylists()
+  ).map((playlist) => ({
+    id: playlist.id,
+    name: playlist.name,
+    ownerUserId: playlist.ownerUserId ?? null,
+    sourceName: playlist.sourceName,
+    sourceFlowId: playlist.sourceFlowId,
+    importedAt: playlist.importedAt,
+    createdAt: playlist.createdAt,
+    trackCount: playlist.trackCount,
+  }));
+  const ownerMap = buildOwnerMap(flows, sharedPlaylists);
+  const flowsWithOwners = flows.map((flow) => ({
+    ...flow,
+    ownerUsername:
+      ownerMap.get(Number(flow?.ownerUserId)) || null,
+  }));
+  const sharedPlaylistsWithOwners = sharedPlaylists.map((playlist) => ({
+    ...playlist,
+    ownerUsername:
+      ownerMap.get(Number(playlist?.ownerUserId)) || null,
+  }));
+  const flowIds = flowsWithOwners.map((flow) => flow.id);
+  const sharedPlaylistIds = sharedPlaylistsWithOwners.map((playlist) => playlist.id);
   const scopedStats = downloadTracker.getStatsByPlaylistType([
     ...flowIds,
     ...sharedPlaylistIds,
   ]);
   const stats = aggregateStats(scopedStats, flowIds);
   const sharedStats = aggregateStats(scopedStats, sharedPlaylistIds);
-  const nextRunMessage = formatNextRunMessage(flows);
+  const nextRunMessage = formatNextRunMessage(flowsWithOwners);
   const operationQueue = weeklyFlowOperationQueue.getStatus();
   const queueLabel = String(operationQueue?.currentLabel || "");
   let phase = "idle";
@@ -124,9 +170,14 @@ export function getWeeklyFlowStatusSnapshot({
   ]);
   let jobs;
   if (includeJobs) {
+    const allowedPlaylistTypes = new Set([...flowIds, ...sharedPlaylistIds]);
     const sourceJobs = flowId
-      ? downloadTracker.getByPlaylistType(flowId)
-      : downloadTracker.getAll();
+      ? allowedPlaylistTypes.has(flowId)
+        ? downloadTracker.getByPlaylistType(flowId)
+        : []
+      : downloadTracker
+          .getAll()
+          .filter((job) => allowedPlaylistTypes.has(String(job?.playlistType || "")));
     jobs = jobsLimit ? sourceJobs.slice(0, jobsLimit) : sourceJobs;
   }
   return {
@@ -140,8 +191,8 @@ export function getWeeklyFlowStatusSnapshot({
     sharedStats,
     sharedPlaylistStats,
     jobs,
-    flows,
-    sharedPlaylists,
+    flows: flowsWithOwners,
+    sharedPlaylists: sharedPlaylistsWithOwners,
     retryCyclePausedByPlaylist,
     retryCycleScheduledByPlaylist,
     operationQueue,

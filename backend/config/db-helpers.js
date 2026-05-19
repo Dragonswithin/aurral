@@ -84,6 +84,7 @@ const getAllListeningHistoryUsersStmt = db.prepare(
 );
 
 const DEFAULT_PERMISSIONS = {
+  accessFlow: false,
   addArtist: true,
   addAlbum: true,
   changeMonitoring: false,

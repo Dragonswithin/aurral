@@ -5,8 +5,9 @@ import { soulseekClient } from "./simpleSoulseekClient.js";
 import { playlistManager } from "./weeklyFlowPlaylistManager.js";
 import { flowPlaylistConfig } from "./weeklyFlowPlaylistConfig.js";
 import { playlistSource } from "./weeklyFlowPlaylistSource.js";
-import { dbOps } from "../config/db-helpers.js";
+import { dbOps, userOps } from "../config/db-helpers.js";
 import { resolveWeeklyFlowTrackContext } from "./weeklyFlowTrackResolver.js";
+import { getListenHistoryProfile } from "./listeningHistory.js";
 import {
   buildFlowSearchQueries,
   rankFlowSearchResults,
@@ -645,6 +646,13 @@ export class WeeklyFlowWorker {
     };
   }
 
+  _getFlowListenHistoryProfile(flow) {
+    const ownerUserId = Number(flow?.ownerUserId);
+    if (!Number.isFinite(ownerUserId)) return null;
+    const owner = userOps.getUserById(ownerUserId);
+    return owner ? getListenHistoryProfile(owner) : null;
+  }
+
   async seedFlowRun(playlistType, flow, options = {}) {
     const key = String(playlistType || "").trim();
     if (!key || !flow) {
@@ -656,6 +664,9 @@ export class WeeklyFlowWorker {
         : null;
     const plan = await playlistSource.buildFlowRunPlan(
       sizeOverride ? { ...flow, size: sizeOverride } : flow,
+      {
+        listenHistoryProfile: this._getFlowListenHistoryProfile(flow),
+      },
     );
     this.clearPlaylistRunState(key);
     this.setPlaylistRunPlan(key, plan);
@@ -926,6 +937,7 @@ export class WeeklyFlowWorker {
           reserveSize: Math.max(Math.ceil(target * 0.25), 4),
           excludeArtistKeys: existingArtistKeys,
           excludeTrackKeys: existingKeys,
+          listenHistoryProfile: this._getFlowListenHistoryProfile(flow),
         },
       )
       .catch(() => null)
