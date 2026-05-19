@@ -105,10 +105,11 @@ app.use(
         connectSrc: ["'self'", "ws:", "wss:", "https://api.github.com"],
         mediaSrc: ["'self'", "https://*.dzcdn.net", "https://*.deezer.com"],
         frameSrc: ["'none'"],
+        frameAncestors: null,
         upgradeInsecureRequests: null,
       },
     },
-    frameguard: { action: "deny" },
+    frameguard: false,
   }),
 );
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
