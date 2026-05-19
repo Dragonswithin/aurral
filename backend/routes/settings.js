@@ -1,9 +1,11 @@
 import express from "express";
 import { dbOps } from "../config/db-helpers.js";
 import { DEFAULT_METADATA_BASE_URL, defaultData } from "../config/constants.js";
+import { reconcileLocalNetworkBypassSetting } from "../middleware/auth.js";
 import { noCache } from "../middleware/cache.js";
 import { requireAuth, requireAdmin } from "../middleware/requirePermission.js";
 import { validateExternalUrl } from "../middleware/urlValidator.js";
+import { websocketService } from "../services/websocketService.js";
 
 const router = express.Router();
 router.use(requireAuth);
@@ -29,6 +31,12 @@ router.get("/", noCache, (req, res) => {
         enableNarrowFallbacks: true,
       };
     }
+    settings.security = {
+      ...(settings.security || {}),
+      localNetworkBypass: {
+        enabled: settings?.security?.localNetworkBypass?.enabled === true,
+      },
+    };
     res.json(settings);
   } catch (error) {
     console.error("Settings GET error:", error);
@@ -40,9 +48,12 @@ router.get("/", noCache, (req, res) => {
 
 router.post("/", async (req, res) => {
   try {
-    const { quality, releaseTypes, integrations, rootFolderPath } = req.body;
+    const { quality, releaseTypes, integrations, rootFolderPath, security } =
+      req.body;
 
     const currentSettings = dbOps.getSettings();
+    const localBypassWasEnabled =
+      currentSettings?.security?.localNetworkBypass?.enabled === true;
     const lidarrExternalUrl = integrations?.lidarr?.externalUrl;
     if (lidarrExternalUrl !== undefined) {
       const trimmedExternalUrl = String(lidarrExternalUrl).trim();
@@ -165,6 +176,24 @@ router.post("/", async (req, res) => {
           ? releaseTypes
           : currentSettings.releaseTypes || defaultData.settings.releaseTypes,
       integrations: mergedIntegrations,
+      security:
+        security !== undefined
+          ? {
+              ...(currentSettings.security || {}),
+              ...security,
+              localNetworkBypass: security.localNetworkBypass
+                ? {
+                    ...(
+                      currentSettings.security?.localNetworkBypass ||
+                      defaultData.settings.security.localNetworkBypass
+                    ),
+                    ...security.localNetworkBypass,
+                    enabled: security.localNetworkBypass.enabled === true,
+                  }
+                : currentSettings.security?.localNetworkBypass ||
+                  defaultData.settings.security.localNetworkBypass,
+            }
+          : currentSettings.security || defaultData.settings.security,
     };
 
     if (updatedSettings?.integrations?.coverArtArchive) {
@@ -175,7 +204,14 @@ router.post("/", async (req, res) => {
     }
 
     dbOps.updateSettings(updatedSettings);
-    res.json(updatedSettings);
+    const reconciled = reconcileLocalNetworkBypassSetting().settings;
+    if (
+      localBypassWasEnabled &&
+      reconciled?.security?.localNetworkBypass?.enabled !== true
+    ) {
+      websocketService.reconcileAuthState();
+    }
+    res.json(reconciled);
   } catch (error) {
     console.error("Settings POST error:", error);
     res

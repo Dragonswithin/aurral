@@ -1,7 +1,11 @@
 import { WebSocketServer } from 'ws';
 import { dbOps, userOps } from "../config/db-helpers.js";
-import { getAuthPassword, isProxyAuthEnabled } from "../middleware/auth.js";
-import { getSessionByToken } from "../config/session-helpers.js";
+import {
+  getAuthPassword,
+  isProxyAuthEnabled,
+  resolveLocalNetworkBypassUser,
+  resolveSessionUserFromToken,
+} from "../middleware/auth.js";
 
 const isAuthRequired = () => {
   const settings = dbOps.getSettings();
@@ -36,15 +40,29 @@ class WebSocketService {
 
   handleConnection(ws, req) {
     let sessionUser = null;
+    let authSource = null;
     if (isAuthRequired()) {
       const requestUrl = new URL(req.url || "", "http://localhost");
       const token = requestUrl.searchParams.get("token");
-      const session = getSessionByToken(token);
-      if (!session?.user) {
+      sessionUser = resolveSessionUserFromToken(token);
+      if (sessionUser) {
+        authSource = "session";
+      } else {
+        sessionUser = resolveLocalNetworkBypassUser({
+          headers: req.headers || {},
+          socket: req.socket || {},
+          connection: req.connection || {},
+          ip: req.socket?.remoteAddress || "",
+          ips: [],
+        });
+        if (sessionUser) {
+          authSource = "local-network-bypass";
+        }
+      }
+      if (!sessionUser) {
         ws.close(4401, "Unauthorized");
         return;
       }
-      sessionUser = session.user;
     }
 
     const clientId = this.generateClientId();
@@ -53,6 +71,7 @@ class WebSocketService {
       id: clientId,
       ws,
       user: sessionUser,
+      authSource,
       subscriptions: new Set(['status']),
       connectedAt: Date.now(),
     };
@@ -219,6 +238,20 @@ class WebSocketService {
       downloadId,
       ...result,
     });
+  }
+
+  reconcileAuthState() {
+    for (const client of this.clients) {
+      if (client.authSource !== "local-network-bypass") {
+        continue;
+      }
+      if (client.ws.readyState !== 1) {
+        continue;
+      }
+      try {
+        client.ws.close(4401, "Unauthorized");
+      } catch {}
+    }
   }
 
   emitDownloadFailed(downloadId, error) {

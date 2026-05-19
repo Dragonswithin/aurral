@@ -2,6 +2,76 @@ import { UserPlus, Lock, Pencil, Trash2, X } from "lucide-react";
 import { GRANULAR_PERMISSIONS, granularPerms } from "../constants";
 import { loginApi, setStoredAuth } from "../../../utils/api";
 
+function getLocalBypassStatus(status) {
+  if (!status) {
+    return {
+      title: "Unavailable: status unknown",
+      detail: "Aurral could not load the current local-network auto-login status.",
+      canToggle: false,
+    };
+  }
+  if (status.active) {
+    return {
+      title: "Active for this device",
+      detail:
+        "This device is currently being auto-signed in as the sole admin from the trusted local subnet.",
+      canToggle: true,
+    };
+  }
+  if (status.enabled) {
+    return {
+      title: "Enabled",
+      detail:
+        "Auto-login is enabled for the sole admin user. It will only activate from the server's trusted local subnet.",
+      canToggle: true,
+    };
+  }
+  switch (status.reason) {
+    case "disabled":
+      return {
+        title: "Disabled",
+        detail:
+          "Automatically sign in as the sole admin user when accessing Aurral from this server's local subnet. If additional users are added, this setting turns off automatically.",
+        canToggle: true,
+      };
+    case "not_single_user":
+      return {
+        title: "Unavailable: more than one user exists",
+        detail:
+          "Local-network auto-login is only available while exactly one stored user exists.",
+        canToggle: false,
+      };
+    case "sole_user_not_admin":
+      return {
+        title: "Unavailable: sole user is not admin",
+        detail:
+          "The only stored user must have the admin role before local-network auto-login can be enabled.",
+        canToggle: false,
+      };
+    case "not_trusted_network":
+      return {
+        title: "Unavailable: local subnet could not be determined",
+        detail:
+          "Aurral could not infer a single trusted IPv4 local subnet for this server, so local-network auto-login stays disabled.",
+        canToggle: false,
+      };
+    case "not_onboarded":
+      return {
+        title: "Unavailable: onboarding incomplete",
+        detail:
+          "Finish onboarding before enabling local-network auto-login.",
+        canToggle: false,
+      };
+    default:
+      return {
+        title: "Unavailable",
+        detail:
+          "Local-network auto-login is not currently available for this installation.",
+        canToggle: false,
+      };
+  }
+}
+
 export function SettingsUsersTab({
   authUser,
   usersList,
@@ -43,10 +113,18 @@ export function SettingsUsersTab({
   updateUser,
   deleteUser,
   changeMyPassword,
+  settings,
+  updateSettings,
+  handleSaveSettings,
+  health,
+  refreshSettingsData,
   showSuccess,
   showError,
 }) {
   const isSelfEdit = editUser && editUser.id === authUser?.id;
+  const localBypassStatus = getLocalBypassStatus(health?.localNetworkBypass);
+  const localBypassEnabled =
+    settings?.security?.localNetworkBypass?.enabled === true;
 
   return (
     <div className="card animate-fade-in space-y-6">
@@ -177,6 +255,56 @@ export function SettingsUsersTab({
         </div>
       ) : (
         <>
+          <div
+            className="p-5 rounded-lg space-y-4"
+            style={{
+              backgroundColor: "#1a1a1e",
+              boxShadow: "0 0 0 1px #2a2a2e",
+            }}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <h3 className="text-lg font-medium text-main">
+                  Auto-login from local network
+                </h3>
+                <p className="text-sm" style={{ color: "#c1c1c3" }}>
+                  {localBypassStatus.title}
+                </p>
+              </div>
+              <label className="inline-flex items-center gap-3">
+                <span className="text-sm text-sub">
+                  {localBypassEnabled ? "On" : "Off"}
+                </span>
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 rounded border-gray-600 text-[#707e61] focus:ring-[#707e61]"
+                  checked={localBypassEnabled}
+                  disabled={!localBypassStatus.canToggle}
+                  onChange={async (e) => {
+                    const nextSettings = {
+                      ...settings,
+                      security: {
+                        ...(settings.security || {}),
+                        localNetworkBypass: {
+                          enabled: e.target.checked,
+                        },
+                      },
+                    };
+                    updateSettings(nextSettings);
+                    try {
+                      await handleSaveSettings(null, nextSettings);
+                    } catch {
+                      // handleSaveSettings already reports failure and resets local state.
+                    }
+                  }}
+                />
+              </label>
+            </div>
+            <p className="text-sm" style={{ color: "#8a8a8f" }}>
+              {localBypassStatus.detail}
+            </p>
+          </div>
+
           <div className="rounded-lg overflow-hidden">
             {loadingUsers ? (
               <div className="p-8 text-center">
@@ -326,7 +454,8 @@ export function SettingsUsersTab({
                         await deleteUser(deleteUserTarget.id);
                         showSuccess("User deleted");
                         setDeleteUserTarget(null);
-                        refreshUsers();
+                        await refreshUsers();
+                        await refreshSettingsData();
                       } catch (err) {
                         showError(
                           err.response?.data?.error || "Failed to delete"
@@ -376,18 +505,26 @@ export function SettingsUsersTab({
                     }
                     setCreatingUser(true);
                     try {
+                      const shouldWarnLocalBypass =
+                        health?.localNetworkBypass?.enabled === true &&
+                        usersList.length === 1;
                       await createUser(
                         newUserUsername.trim(),
                         newUserPassword,
                         "user",
                         newUserPermissions
                       );
-                      showSuccess("User created");
+                      showSuccess(
+                        shouldWarnLocalBypass
+                          ? "User created. Local-network auto-login was disabled."
+                          : "User created"
+                      );
                       setShowAddUserModal(false);
                       setNewUserUsername("");
                       setNewUserPassword("");
                       setNewUserPermissions({ ...GRANULAR_PERMISSIONS });
-                      refreshUsers();
+                      await refreshUsers();
+                      await refreshSettingsData();
                     } catch (err) {
                       showError(
                         err.response?.data?.error ||
@@ -569,7 +706,8 @@ export function SettingsUsersTab({
                       });
                       showSuccess("User updated");
                       setEditUser(null);
-                      refreshUsers();
+                      await refreshUsers();
+                      await refreshSettingsData();
                     } catch (err) {
                       showError(
                         err.response?.data?.error ||

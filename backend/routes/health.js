@@ -10,6 +10,7 @@ import {
   getAuthUser,
   isAuthRequiredByConfig,
   issueStreamToken,
+  getLocalNetworkBypassStatus,
 } from "../middleware/auth.js";
 import { getDiscoveryCache } from "../services/discoveryService.js";
 import { getCachedArtistCount } from "../services/libraryManager.js";
@@ -28,6 +29,7 @@ function buildBootstrapPayload(req) {
   const authRequired = isAuthRequiredByConfig();
   const authUser = getAuthUser();
   const currentUser = resolveRequestUser(req);
+  const localNetworkBypass = getLocalNetworkBypassStatus(req);
   const lidarrConfigured = lidarrClient.isConfigured();
 
   const payload = {
@@ -44,6 +46,7 @@ function buildBootstrapPayload(req) {
     musicbrainzConfigured: !!settings.integrations?.metadata?.baseUrl,
     metadataConfigured: !!settings.integrations?.metadata?.baseUrl,
     metadataProviders: getMetadataProviderHealthSnapshot(),
+    localNetworkBypass,
   };
 
   if (currentUser) {

@@ -67,6 +67,11 @@ const defaultSettings = {
       notifyWeeklyFlowDone: false,
     },
   },
+  security: {
+    localNetworkBypass: {
+      enabled: false,
+    },
+  },
 };
 
 export function useSettingsData(showSuccess, showError, showInfo) {
@@ -220,17 +225,21 @@ export function useSettingsData(showSuccess, showError, showInfo) {
       const toSave = settingsOverride ?? settings;
       setSaving(true);
       try {
-        await updateAppSettings(toSave);
-        setOriginalSettings(JSON.parse(JSON.stringify(toSave)));
+        const savedSettings = await updateAppSettings(toSave);
+        const normalizedSettings = normalizeSettings(savedSettings);
+        setSettingsState(normalizedSettings);
+        setOriginalSettings(JSON.parse(JSON.stringify(normalizedSettings)));
         setHasUnsavedChanges(false);
         showSuccess("Settings saved successfully!");
+        await refreshHealth();
       } catch (err) {
+        await fetchSettings();
         showError("Failed to save settings: " + err.message);
       } finally {
         setSaving(false);
       }
     },
-    [settings, showSuccess, showError],
+    [settings, showSuccess, showError, refreshHealth, fetchSettings],
   );
 
   const handleRefreshDiscovery = useCallback(async () => {

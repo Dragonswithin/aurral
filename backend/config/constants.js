@@ -217,6 +217,11 @@ export const defaultData = {
         notifyWeeklyFlowDone: false,
       },
     },
+    security: {
+      localNetworkBypass: {
+        enabled: false,
+      },
+    },
     queueCleaner: {
       enabled: true,
       blocklist: true,

@@ -17,6 +17,12 @@ export const normalizeSettings = (savedSettings) => {
     ...savedSettings,
     releaseTypes: savedSettings.releaseTypes || allReleaseTypes,
     quality: savedSettings.quality || "standard",
+    security: {
+      ...(savedSettings.security || {}),
+      localNetworkBypass: {
+        enabled: savedSettings?.security?.localNetworkBypass?.enabled === true,
+      },
+    },
     integrations: {
       lidarr: {
         url: "",

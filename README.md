@@ -197,6 +197,22 @@ Navidrome should be configured to purge missing tracks so flow rotations do not 
 
 Aurral uses local user accounts created during onboarding. Authentication is HTTP Basic Auth at the API layer, so use HTTPS if you expose it publicly.
 
+### Local-network auto-login
+
+Aurral also supports an optional trusted local-network auto-login mode from `Settings -> Users`.
+
+- It is only available when exactly one stored user exists and that user is an `admin`.
+- When enabled, requests from the server's inferred trusted IPv4 local subnet are automatically resolved as that sole admin user.
+- If you add another user, Aurral disables local-network auto-login immediately.
+- If the installation later returns to a single admin user, the setting stays off until you re-enable it manually.
+- Anyone on that trusted subnet is treated as the admin while the feature is active.
+
+Notes:
+
+- V1 trusts only the server's inferred IPv4 local subnet plus loopback access.
+- If Aurral cannot infer a single trusted subnet, the feature remains unavailable.
+- Behind Docker or a reverse proxy, correct client IP forwarding is required for this to behave as expected.
+
 ### Reset forgotten admin password
 
 Set a specific password:

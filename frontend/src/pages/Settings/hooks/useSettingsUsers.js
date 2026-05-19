@@ -43,7 +43,10 @@ export function useSettingsUsers(authUser, showSuccess, showError, activeTab) {
   }, [activeTab, authUser?.role]);
 
   const refreshUsers = () => {
-    getUsers().then(setUsersList);
+    return getUsers().then((nextUsers) => {
+      setUsersList(nextUsers);
+      return nextUsers;
+    });
   };
 
   return {

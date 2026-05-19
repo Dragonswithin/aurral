@@ -2,8 +2,10 @@ import express from "express";
 import bcrypt from "bcrypt";
 import { userOps, dbOps } from "../config/db-helpers.js";
 import { requireAuth, requireAdmin } from "../middleware/requirePermission.js";
+import { reconcileLocalNetworkBypassSetting } from "../middleware/auth.js";
 import { requirePasswordStrength } from "../middleware/validation.js";
 import { deleteSessionsByUserId } from "../config/session-helpers.js";
+import { websocketService } from "../services/websocketService.js";
 import {
   getListenHistoryCacheNamespace,
   getListenHistoryProfile,
@@ -12,6 +14,14 @@ import {
 } from "../services/listeningHistory.js";
 
 const router = express.Router();
+
+const reconcileLocalBypassAfterUserMutation = () => {
+  const result = reconcileLocalNetworkBypassSetting();
+  if (result.changed) {
+    websocketService.reconcileAuthState();
+  }
+  return result;
+};
 
 const normalizeRootFolderPath = (value) => {
   const normalized = String(value || "").trim();
@@ -114,6 +124,7 @@ router.post("/", requireAuth, requireAdmin, (req, res) => {
     if (!created) {
       return res.status(500).json({ error: "Failed to create user" });
     }
+    reconcileLocalBypassAfterUserMutation();
     res
       .status(201)
       .json({
@@ -249,6 +260,7 @@ router.patch("/:id", requireAuth, (req, res) => {
       });
     }
     const updated = userOps.updateUser(id, updates);
+    reconcileLocalBypassAfterUserMutation();
     res.json(updated);
   } catch (e) {
     res
@@ -491,6 +503,7 @@ router.delete("/:id", requireAuth, requireAdmin, (req, res) => {
     }
     deleteSessionsByUserId(id);
     userOps.deleteUser(id);
+    reconcileLocalBypassAfterUserMutation();
     res.json({ success: true });
   } catch (e) {
     res

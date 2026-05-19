@@ -343,6 +343,9 @@ export const dbOps = {
     const queueCleaner = dbHelpers.parseJSON(
       getSettingStmt.get("queueCleaner")?.value
     );
+    const security = dbHelpers.parseJSON(
+      getSettingStmt.get("security")?.value
+    );
     const rootFolderPath = getSettingStmt.get("rootFolderPath")?.value;
     const releaseTypes = dbHelpers.parseJSON(
       getSettingStmt.get("releaseTypes")?.value
@@ -413,6 +416,10 @@ export const dbOps = {
       integrations: decryptIntegrations(integrations, encKey) || {},
       quality: quality || "standard",
       queueCleaner: queueCleaner || {},
+      security:
+        security && typeof security === "object"
+          ? security
+          : { localNetworkBypass: { enabled: false } },
       rootFolderPath: rootFolderPath || null,
       releaseTypes: releaseTypes || [],
       weeklyFlowPlaylists: merged,
@@ -455,6 +462,12 @@ export const dbOps = {
         upsertSettingStmt.run(
           "queueCleaner",
           dbHelpers.stringifyJSON(settings.queueCleaner)
+        );
+      }
+      if (settings.security !== undefined) {
+        upsertSettingStmt.run(
+          "security",
+          dbHelpers.stringifyJSON(settings.security)
         );
       }
       if (

@@ -165,6 +165,11 @@ function SettingsPage() {
             updateUser={users.updateUser}
             deleteUser={users.deleteUser}
             changeMyPassword={users.changeMyPassword}
+            settings={data.settings}
+            updateSettings={data.updateSettings}
+            handleSaveSettings={data.handleSaveSettings}
+            health={data.health}
+            refreshSettingsData={data.fetchSettings}
             showSuccess={showSuccess}
             showError={showError}
           />
