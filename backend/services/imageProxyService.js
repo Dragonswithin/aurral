@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import axios from "axios";
+import sharp from "sharp";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,6 +12,10 @@ const IMAGE_PROXY_ROUTE = "/api/image-proxy";
 const IMAGE_PROXY_DIR = path.join(__dirname, "..", "data", "image-proxy");
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 25000;
+const OPTIMIZED_IMAGE_MAX_BYTES = 1024 * 1024;
+const DEFAULT_WEBP_QUALITY = 70;
+const FALLBACK_WEBP_QUALITIES = [70, 60, 50, 40];
+const FALLBACK_MAX_DIMENSIONS = [null, 1600, 1400, 1200, 1000, 800];
 const inflightRequests = new Map();
 const cacheEntriesByKey = new Map();
 const cacheKeysBySourceUrl = new Map();
@@ -35,6 +40,12 @@ const MIME_EXTENSION_MAP = {
   "image/avif": "avif",
   "image/svg+xml": "svg",
 };
+const OPTIMIZABLE_CONTENT_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/avif",
+]);
 
 const ensureCacheDir = () => {
   fs.mkdirSync(IMAGE_PROXY_DIR, { recursive: true });
@@ -109,6 +120,18 @@ const getCachePaths = (cacheKey) => ({
   baseImagePath: path.join(IMAGE_PROXY_DIR, `${cacheKey}`),
 });
 
+const removeStaleCachedFiles = (cacheKey, keepExtension) => {
+  ensureCacheDir();
+  const prefix = `${cacheKey}.`;
+  for (const file of fs.readdirSync(IMAGE_PROXY_DIR)) {
+    if (!file.startsWith(prefix) || file.endsWith(".json")) continue;
+    if (keepExtension && file === `${cacheKey}.${keepExtension}`) continue;
+    try {
+      fs.unlinkSync(path.join(IMAGE_PROXY_DIR, file));
+    } catch {}
+  }
+};
+
 const buildLocalImageUrl = (cacheKey, extension) =>
   `${IMAGE_PROXY_ROUTE}/${cacheKey}.${extension}`;
 
@@ -162,6 +185,7 @@ const writeCacheEntry = (cacheKey, buffer, contentType, sourceUrl) => {
     size: buffer.length,
   };
 
+  removeStaleCachedFiles(cacheKey, extension);
   fs.writeFileSync(imagePath, buffer);
   fs.writeFileSync(metaPath, JSON.stringify(meta));
   const entry = {
@@ -176,6 +200,122 @@ const writeCacheEntry = (cacheKey, buffer, contentType, sourceUrl) => {
     cacheKeysBySourceUrl.set(sourceUrl, cacheKey);
   }
   return entry;
+};
+
+const shouldNormalizeCachedEntry = (entry) => {
+  if (!entry?.imagePath || !entry?.meta?.contentType) return false;
+  if (!OPTIMIZABLE_CONTENT_TYPES.has(entry.meta.contentType)) return false;
+  return (
+    entry.meta.contentType !== "image/webp" ||
+    Number(entry.meta.size || 0) > OPTIMIZED_IMAGE_MAX_BYTES
+  );
+};
+
+const optimizeImageBuffer = async (buffer, contentType) => {
+  if (!OPTIMIZABLE_CONTENT_TYPES.has(contentType)) {
+    return {
+      buffer,
+      contentType,
+    };
+  }
+
+  let metadata = null;
+  try {
+    metadata = await sharp(buffer, { animated: false }).metadata();
+  } catch {
+    return {
+      buffer,
+      contentType,
+    };
+  }
+
+  const largestDimension = Math.max(metadata?.width || 0, metadata?.height || 0);
+  const dimensionSteps = FALLBACK_MAX_DIMENSIONS.filter(
+    (dimension) => dimension === null || largestDimension > dimension,
+  );
+  if (dimensionSteps.length === 0) {
+    dimensionSteps.push(null);
+  }
+
+  let bestCandidate = null;
+
+  for (const maxDimension of dimensionSteps) {
+    for (const quality of FALLBACK_WEBP_QUALITIES) {
+      let candidate = sharp(buffer, { animated: false }).rotate();
+      if (maxDimension) {
+        candidate = candidate.resize({
+          width: maxDimension,
+          height: maxDimension,
+          fit: "inside",
+          withoutEnlargement: true,
+        });
+      }
+
+      const optimizedBuffer = await candidate
+        .webp({
+          quality,
+          effort: 4,
+        })
+        .toBuffer();
+
+      if (
+        !bestCandidate ||
+        optimizedBuffer.length < bestCandidate.buffer.length
+      ) {
+        bestCandidate = {
+          buffer: optimizedBuffer,
+          contentType: "image/webp",
+        };
+      }
+
+      if (
+        quality === DEFAULT_WEBP_QUALITY &&
+        optimizedBuffer.length <= OPTIMIZED_IMAGE_MAX_BYTES
+      ) {
+        return {
+          buffer: optimizedBuffer,
+          contentType: "image/webp",
+        };
+      }
+
+      if (optimizedBuffer.length <= OPTIMIZED_IMAGE_MAX_BYTES) {
+        return {
+          buffer: optimizedBuffer,
+          contentType: "image/webp",
+        };
+      }
+    }
+  }
+
+  return bestCandidate || { buffer, contentType };
+};
+
+const normalizeCachedEntryIfNeeded = async (entry) => {
+  if (!shouldNormalizeCachedEntry(entry)) {
+    return entry;
+  }
+
+  let buffer = null;
+  try {
+    buffer = fs.readFileSync(entry.imagePath);
+  } catch {
+    return entry;
+  }
+
+  const optimized = await optimizeImageBuffer(buffer, entry.meta.contentType);
+  if (
+    optimized.contentType === entry.meta.contentType &&
+    optimized.buffer.length === buffer.length
+  ) {
+    return entry;
+  }
+
+  return writeCacheEntry(
+    entry.cacheKey,
+    optimized.buffer,
+    optimized.contentType,
+    normalizeKnownImageUrl(entry.meta.sourceUrl) || entry.meta.sourceUrl || null,
+  );
 };
 
 const fetchAndCacheImage = async (sourceUrl) => {
@@ -210,10 +350,15 @@ const fetchAndCacheImage = async (sourceUrl) => {
     throw new Error("Upstream response is not an image");
   }
 
-  return writeCacheEntry(
-    hashValue(normalizedSourceUrl),
+  const optimized = await optimizeImageBuffer(
     Buffer.from(response.data),
     contentType,
+  );
+
+  return writeCacheEntry(
+    hashValue(normalizedSourceUrl),
+    optimized.buffer,
+    optimized.contentType,
     normalizedSourceUrl,
   );
 };
@@ -223,7 +368,7 @@ export const warmImageProxy = async (sourceUrl) => {
   if (cacheKeyFromLocalUrl) {
     const cachedLocal = getCachedEntryFromKey(cacheKeyFromLocalUrl);
     if (cachedLocal?.imagePath) {
-      return cachedLocal;
+      return normalizeCachedEntryIfNeeded(cachedLocal);
     }
     throw new Error("Missing local cached image");
   }
@@ -235,7 +380,7 @@ export const warmImageProxy = async (sourceUrl) => {
 
   const cached = getCachedEntry(normalizedSourceUrl);
   if (cached?.isFresh) {
-    return cached;
+    return normalizeCachedEntryIfNeeded(cached);
   }
 
   if (inflightRequests.has(normalizedSourceUrl)) {
