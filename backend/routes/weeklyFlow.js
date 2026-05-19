@@ -4,7 +4,6 @@ import fsp from "fs/promises";
 import path from "path";
 import { downloadTracker } from "../services/weeklyFlowDownloadTracker.js";
 import { weeklyFlowWorker } from "../services/weeklyFlowWorker.js";
-import { playlistSource } from "../services/weeklyFlowPlaylistSource.js";
 import { soulseekClient } from "../services/simpleSoulseekClient.js";
 import { playlistManager } from "../services/weeklyFlowPlaylistManager.js";
 import {
@@ -31,6 +30,96 @@ const AUDIO_CONTENT_TYPES = {
   ".flac": "audio/flac",
   ".ogg": "audio/ogg",
   ".wav": "audio/wav",
+};
+
+const getFlowEntryName = (value) => {
+  if (typeof value === "string" || typeof value === "number") {
+    const text = String(value).trim();
+    return text || null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const candidates = [
+    value.name,
+    value.artistName,
+    value.artist,
+    value.tag,
+    value.label,
+    value.value,
+  ];
+  for (const candidate of candidates) {
+    const text = String(candidate || "").trim();
+    if (text) return text;
+  }
+  return null;
+};
+
+const normalizeFlowStringArray = (value) => {
+  if (Array.isArray(value)) {
+    return [
+      ...new Set(
+        value.map((entry) => getFlowEntryName(entry)).filter(Boolean),
+      ),
+    ];
+  }
+  if (value && typeof value === "object") {
+    return [
+      ...new Set(
+        Object.keys(value)
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean),
+      ),
+    ];
+  }
+  const single = getFlowEntryName(value);
+  return single ? [single] : [];
+};
+
+const normalizeFlowMixForValidation = (mix, recipe) => {
+  const source = mix && typeof mix === "object" && !Array.isArray(mix)
+    ? mix
+    : recipe && typeof recipe === "object" && !Array.isArray(recipe)
+      ? recipe
+      : {};
+  return {
+    discover: Math.max(0, Number(source?.discover || 0) || 0),
+    mix: Math.max(0, Number(source?.mix || 0) || 0),
+    trending: Math.max(0, Number(source?.trending || 0) || 0),
+    focus: Math.max(0, Number(source?.focus || 0) || 0),
+  };
+};
+
+const validateFlowPayload = ({
+  name,
+  mix,
+  recipe,
+  size,
+  tags,
+  relatedArtists,
+  scheduleDays,
+} = {}) => {
+  if (!name || !String(name).trim()) {
+    return "name is required";
+  }
+  const parsedSize = Number(size);
+  if (!Number.isFinite(parsedSize) || parsedSize <= 0) {
+    return "size must be a positive number";
+  }
+  const normalizedMix = normalizeFlowMixForValidation(mix, recipe);
+  const totalWeight = Object.values(normalizedMix).reduce((sum, value) => sum + value, 0);
+  if (totalWeight <= 0) {
+    return "at least one source must be enabled";
+  }
+  const normalizedTags = normalizeFlowStringArray(tags);
+  const normalizedRelated = normalizeFlowStringArray(relatedArtists);
+  if (normalizedMix.focus > 0 && normalizedTags.length === 0 && normalizedRelated.length === 0) {
+    return "Focus needs at least one genre tag or related artist";
+  }
+  if (!Array.isArray(scheduleDays) || scheduleDays.length === 0) {
+    return "scheduleDays must include at least one day";
+  }
+  return null;
 };
 
 const isPathInsideRoot = (candidatePath, rootPath) => {
@@ -383,6 +472,7 @@ const queueFlowEnableRefresh = (flowId, mutationVersion) => {
       try {
         playlistManager.updateConfig(false);
         await playlistManager.weeklyReset([flowId]);
+        weeklyFlowWorker.clearPlaylistRunState(flowId);
         downloadTracker.clearByPlaylistType(flowId);
 
         if (
@@ -395,7 +485,7 @@ const queueFlowEnableRefresh = (flowId, mutationVersion) => {
 
         const latestFlow = flowPlaylistConfig.getFlow(flowId);
         if (!latestFlow) return;
-        const tracks = await playlistSource.getTracksForFlow(latestFlow);
+        const seeded = await weeklyFlowWorker.seedFlowRun(flowId, latestFlow);
 
         if (
           flowEnableMutationVersion.get(flowId) !== mutationVersion ||
@@ -404,11 +494,10 @@ const queueFlowEnableRefresh = (flowId, mutationVersion) => {
           return;
         }
 
-        if (tracks.length === 0) {
+        if (Number(seeded?.tracksQueued || 0) === 0) {
           await restartWorkerIfPending();
           return;
         }
-        downloadTracker.addJobs(tracks, flowId);
       } finally {
         releaseMutation();
       }
@@ -437,6 +526,7 @@ const queueFlowDisableCleanup = (flowId, mutationVersion) => {
       try {
         playlistManager.updateConfig(false);
         await playlistManager.weeklyReset([flowId]);
+        weeklyFlowWorker.clearPlaylistRunState(flowId);
         downloadTracker.clearByPlaylistType(flowId);
 
         if (flowEnableMutationVersion.get(flowId) !== mutationVersion) {
@@ -488,6 +578,7 @@ router.post("/start/:flowId", async (req, res) => {
         try {
           playlistManager.updateConfig(false);
           await playlistManager.weeklyReset([flowId]);
+          weeklyFlowWorker.clearPlaylistRunState(flowId);
           downloadTracker.clearByPlaylistType(flowId);
 
           if (flowEnableMutationVersion.get(flowId) !== mutationVersion) {
@@ -498,19 +589,20 @@ router.post("/start/:flowId", async (req, res) => {
             Number.isFinite(Number(limit)) && Number(limit) > 0
               ? Number(limit)
               : latestFlow.size || DEFAULT_LIMIT;
-          const tracks = await playlistSource.getTracksForFlow({
-            ...latestFlow,
+          const seeded = await weeklyFlowWorker.seedFlowRun(flowId, latestFlow, {
             size,
           });
           if (flowEnableMutationVersion.get(flowId) !== mutationVersion) {
             return { cancelled: true };
           }
-          if (tracks.length === 0) {
+          if (Number(seeded?.tracksQueued || 0) === 0) {
             return { empty: true, flowName: latestFlow.name };
           }
-
-          const jobIds = downloadTracker.addJobs(tracks, flowId);
-          return { jobIds, tracksQueued: tracks.length };
+          return {
+            jobIds: seeded?.jobIds || [],
+            tracksQueued: Number(seeded?.tracksQueued || 0),
+            reserveTracks: Number(seeded?.reserveTracks || 0),
+          };
         } finally {
           releaseMutation();
         }
@@ -542,6 +634,7 @@ router.post("/start/:flowId", async (req, res) => {
       flowId,
       tracksQueued: result?.tracksQueued || 0,
       jobIds: result?.jobIds || [],
+      reserveTracks: result?.reserveTracks || 0,
     });
   } catch (error) {
     res.status(500).json({
@@ -582,8 +675,9 @@ router.post("/flows", async (req, res) => {
       scheduleDays,
       scheduleTime,
     } = req.body || {};
-    if (!name || !String(name).trim()) {
-      return res.status(400).json({ error: "name is required" });
+    const validationError = validateFlowPayload(req.body || {});
+    if (validationError) {
+      return res.status(400).json({ error: validationError, message: validationError });
     }
     const flow = flowPlaylistConfig.createFlow({
       name,
@@ -615,6 +709,10 @@ router.post("/flows", async (req, res) => {
 router.put("/flows/:flowId", async (req, res) => {
   try {
     const { flowId } = req.params;
+    const existingFlow = flowPlaylistConfig.getFlow(flowId);
+    if (!existingFlow) {
+      return res.status(404).json({ error: "Flow not found" });
+    }
     const {
       name,
       mix,
@@ -626,6 +724,13 @@ router.put("/flows/:flowId", async (req, res) => {
       scheduleDays,
       scheduleTime,
     } = req.body || {};
+    const validationError = validateFlowPayload({
+      ...existingFlow,
+      ...req.body,
+    });
+    if (validationError) {
+      return res.status(400).json({ error: validationError, message: validationError });
+    }
     const updated = flowPlaylistConfig.updateFlow(flowId, {
       name,
       mix,
@@ -671,6 +776,7 @@ router.delete("/flows/:flowId", async (req, res) => {
         let didDelete = false;
         try {
           weeklyFlowWorker.setRetryCyclePaused(flowId, false);
+          weeklyFlowWorker.clearPlaylistRunState(flowId);
           playlistManager.updateConfig(false);
           await playlistManager.weeklyReset([flowId]);
           downloadTracker.clearByPlaylistType(flowId);

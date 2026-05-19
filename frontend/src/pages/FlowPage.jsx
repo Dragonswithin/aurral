@@ -14,6 +14,7 @@ import {
   importSharedPlaylist,
   updateSharedPlaylist,
   setFlowEnabled,
+  startFlowPlaylist,
   getFlowTrackStreamUrl,
   getFlowArtworkUrl,
   updateFlowWorkerSettings,
@@ -59,56 +60,16 @@ function formatNextRun(nextRunAt, now = Date.now()) {
   return days === 1 ? "1 day" : `${days} days`;
 }
 
-const DEFAULT_MIX = { discover: 50, mix: 30, trending: 20 };
+const DEFAULT_MIX = { discover: 34, mix: 33, trending: 33, focus: 0 };
 const DEFAULT_SIZE = 30;
-
-const MIX_PRESETS = [
-  {
-    id: "balanced",
-    label: "Balanced",
-    mix: DEFAULT_MIX,
-  },
-  {
-    id: "discover",
-    label: "Discover Focus",
-    mix: { discover: 70, mix: 20, trending: 10 },
-  },
-  {
-    id: "library",
-    label: "Library Mix",
-    mix: { discover: 25, mix: 65, trending: 10 },
-  },
-  {
-    id: "trending",
-    label: "Trending Lift",
-    mix: { discover: 35, mix: 20, trending: 45 },
-  },
-  {
-    id: "custom",
-    label: "Custom",
-    mix: null,
-  },
-];
-
-const FOCUS_STRENGTHS = {
-  light: 20,
-  medium: 35,
-  heavy: 50,
-};
-
-const FOCUS_OPTIONS = [
-  { id: "light", label: "Light" },
-  { id: "medium", label: "Medium" },
-  { id: "heavy", label: "Heavy" },
-];
 
 const NEW_FLOW_TEMPLATE = {
   name: "Discover",
   size: DEFAULT_SIZE,
   mix: DEFAULT_MIX,
   deepDive: false,
-  tags: {},
-  relatedArtists: {},
+  tags: [],
+  relatedArtists: [],
   scheduleTime: "00:00",
 };
 const FLOW_SHARE_FILE_VERSION = 1;
@@ -184,6 +145,50 @@ const parseListInput = (value) =>
     .map((entry) => entry.trim())
     .filter(Boolean);
 
+const getFlowEntryName = (value) => {
+  if (typeof value === "string" || typeof value === "number") {
+    const text = String(value).trim();
+    return text || null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const candidates = [
+    value.name,
+    value.artistName,
+    value.artist,
+    value.tag,
+    value.label,
+    value.value,
+  ];
+  for (const candidate of candidates) {
+    const text = String(candidate || "").trim();
+    if (text) return text;
+  }
+  return null;
+};
+
+const normalizeFlowEntryList = (value) => {
+  const raw = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+      ? Object.keys(value)
+      : value == null
+        ? []
+        : [value];
+  const seen = new Set();
+  const out = [];
+  for (const entry of raw) {
+    const text = getFlowEntryName(entry);
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+};
+
 const normalizeScheduleDays = (value) => {
   if (!Array.isArray(value)) return [];
   const unique = new Set();
@@ -217,8 +222,9 @@ const normalizeMixPercent = (mix) => {
     discover: Number(mix?.discover ?? 0),
     mix: Number(mix?.mix ?? 0),
     trending: Number(mix?.trending ?? 0),
+    focus: Number(mix?.focus ?? 0),
   };
-  const sum = raw.discover + raw.mix + raw.trending;
+  const sum = raw.discover + raw.mix + raw.trending + raw.focus;
   if (!Number.isFinite(sum) || sum <= 0) {
     return { ...DEFAULT_MIX };
   }
@@ -226,6 +232,7 @@ const normalizeMixPercent = (mix) => {
     { key: "discover", value: raw.discover },
     { key: "mix", value: raw.mix },
     { key: "trending", value: raw.trending },
+    { key: "focus", value: raw.focus },
   ];
   const scaled = weights.map((w) => ({
     ...w,
@@ -249,197 +256,22 @@ const normalizeMixPercent = (mix) => {
   return out;
 };
 
-const getPresetForMix = (mix) => {
-  const normalized = normalizeMixPercent(mix);
-  const preset = MIX_PRESETS.find(
-    (entry) =>
-      entry.mix &&
-      entry.mix.discover === normalized.discover &&
-      entry.mix.mix === normalized.mix &&
-      entry.mix.trending === normalized.trending
-  );
-  return preset?.id ?? "custom";
-};
-
-const buildCountsFromMixPercent = (size, mix) => {
-  const weights = normalizeMixPercent(mix);
-  const entries = [
-    { key: "discover", value: weights.discover },
-    { key: "mix", value: weights.mix },
-    { key: "trending", value: weights.trending },
-  ];
-  const scaled = entries.map((entry) => ({
-    ...entry,
-    raw: (entry.value / 100) * size,
-  }));
-  const floored = scaled.map((entry) => ({
-    ...entry,
-    count: Math.floor(entry.raw),
-    remainder: entry.raw - Math.floor(entry.raw),
-  }));
-  let remaining = size - floored.reduce((acc, entry) => acc + entry.count, 0);
-  const ordered = [...floored].sort((a, b) => b.remainder - a.remainder);
-  for (let i = 0; i < ordered.length && remaining > 0; i++) {
-    ordered[i].count += 1;
-    remaining -= 1;
-  }
-  const out = {};
-  for (const entry of ordered) {
-    out[entry.key] = entry.count;
-  }
-  return out;
-};
-
-const getFocusPercentFromStrength = (strength) =>
-  FOCUS_STRENGTHS[strength] ?? FOCUS_STRENGTHS.medium;
-
-const getFocusStrengthFromPercent = (percent) => {
-  const numeric = Number(percent || 0);
-  if (!Number.isFinite(numeric) || numeric <= 0) return "medium";
-  const entries = Object.entries(FOCUS_STRENGTHS);
-  const closest = entries.reduce((best, [key, value]) => {
-    if (!best) return { key, distance: Math.abs(value - numeric) };
-    const distance = Math.abs(value - numeric);
-    return distance < best.distance ? { key, distance } : best;
-  }, null);
-  return closest?.key ?? "medium";
-};
-
-const buildCountsFromFocusPercent = (size, tagPercent, relatedPercent) => {
-  const safeSize = Number.isFinite(size) && size > 0 ? size : 0;
-  const tag = Math.max(0, Number(tagPercent || 0));
-  const related = Math.max(0, Number(relatedPercent || 0));
-  const totalPercent = tag + related;
-  if (safeSize <= 0 || totalPercent <= 0) {
-    return { tag: 0, related: 0, remaining: safeSize };
-  }
-  const targetTotal = Math.round((totalPercent / 100) * safeSize);
-  const entries = [
-    { key: "tag", raw: (tag / 100) * safeSize },
-    { key: "related", raw: (related / 100) * safeSize },
-  ];
-  const floored = entries.map((entry) => ({
-    ...entry,
-    count: Math.floor(entry.raw),
-    remainder: entry.raw - Math.floor(entry.raw),
-  }));
-  let remaining = targetTotal - floored.reduce((acc, entry) => acc + entry.count, 0);
-  const ordered = [...floored].sort((a, b) => b.remainder - a.remainder);
-  for (let i = 0; i < ordered.length && remaining > 0; i++) {
-    ordered[i].count += 1;
-    remaining -= 1;
-  }
-  const out = {};
-  for (const entry of ordered) {
-    out[entry.key] = entry.count;
-  }
-  return {
-    tag: out.tag ?? 0,
-    related: out.related ?? 0,
-    remaining: Math.max(0, safeSize - (out.tag ?? 0) - (out.related ?? 0)),
-  };
-};
-
-const buildFocusStrengthFromCounts = (size, tagCount, relatedCount) => {
-  const safeSize = Number.isFinite(size) && size > 0 ? size : 0;
-  if (safeSize <= 0) {
-    return { tagStrength: "medium", relatedStrength: "medium" };
-  }
-  const tag = Math.max(0, Number(tagCount || 0));
-  const related = Math.max(0, Number(relatedCount || 0));
-  const totalPercent = Math.round(((tag + related) / safeSize) * 100);
-  if (totalPercent <= 0) {
-    return { tagStrength: "medium", relatedStrength: "medium" };
-  }
-  const entries = [
-    { key: "tag", raw: (tag / safeSize) * 100 },
-    { key: "related", raw: (related / safeSize) * 100 },
-  ];
-  const floored = entries.map((entry) => ({
-    ...entry,
-    count: Math.floor(entry.raw),
-    remainder: entry.raw - Math.floor(entry.raw),
-  }));
-  let remaining = totalPercent - floored.reduce((acc, entry) => acc + entry.count, 0);
-  const ordered = [...floored].sort((a, b) => b.remainder - a.remainder);
-  for (let i = 0; i < ordered.length && remaining > 0; i++) {
-    ordered[i].count += 1;
-    remaining -= 1;
-  }
-  const out = {};
-  for (const entry of ordered) {
-    out[entry.key] = entry.count;
-  }
-  return {
-    tagStrength: getFocusStrengthFromPercent(out.tag ?? 0),
-    relatedStrength: getFocusStrengthFromPercent(out.related ?? 0),
-  };
-};
-
-const distributeCount = (total, values) => {
-  const items = values.filter(Boolean);
-  if (!items.length || total <= 0) return new Map();
-  const per = Math.floor(total / items.length);
-  let remaining = total - per * items.length;
-  const result = new Map();
-  for (const item of items) {
-    const extra = remaining > 0 ? 1 : 0;
-    if (remaining > 0) remaining -= 1;
-    result.set(item, per + extra);
-  }
-  return result;
-};
-
-const sumWeightMap = (value) => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
-  return Object.values(value).reduce((acc, entry) => {
-    const parsed = Number(entry);
-    return acc + (Number.isFinite(parsed) ? parsed : 0);
-  }, 0);
-};
-
 const flowToForm = (flow) => {
-  const tagsMap =
-    flow?.tags && typeof flow.tags === "object" && !Array.isArray(flow.tags)
-      ? flow.tags
-      : {};
-  const relatedMap =
-    flow?.relatedArtists &&
-    typeof flow.relatedArtists === "object" &&
-    !Array.isArray(flow.relatedArtists)
-      ? flow.relatedArtists
-      : {};
-  const tagCount = sumWeightMap(tagsMap);
-  const relatedCount = sumWeightMap(relatedMap);
-  const recipeCounts =
-    flow?.recipe && typeof flow.recipe === "object" && !Array.isArray(flow.recipe)
-      ? flow.recipe
-      : null;
-  const recipeTotal = sumWeightMap(recipeCounts);
+  const tagsList = normalizeFlowEntryList(flow?.tags);
+  const relatedList = normalizeFlowEntryList(flow?.relatedArtists);
   const rawSize = Number(flow?.size || 0);
   const size =
     Number.isFinite(rawSize) && rawSize > 0
       ? rawSize
-      : recipeTotal > 0
-        ? recipeTotal
-        : DEFAULT_SIZE;
+      : DEFAULT_SIZE;
   const mix = normalizeMixPercent(flow?.mix || DEFAULT_MIX);
-  const preset = getPresetForMix(mix);
-  const focusStrengths = buildFocusStrengthFromCounts(
-    Number.isFinite(size) ? size : 0,
-    tagCount,
-    relatedCount
-  );
   return {
     name: flow?.name || "",
     size: Number.isFinite(size) && size > 0 ? Math.round(size) : DEFAULT_SIZE,
     mix,
-    mixPreset: preset,
     deepDive: flow?.deepDive === true,
-    includeTags: Object.keys(tagsMap).join(", "),
-    includeRelatedArtists: Object.keys(relatedMap).join(", "),
-    tagStrength: focusStrengths.tagStrength,
-    relatedStrength: focusStrengths.relatedStrength,
+    includeTags: tagsList.join(", "),
+    includeRelatedArtists: relatedList.join(", "),
     scheduleDays:
       normalizeScheduleDays(flow?.scheduleDays).length > 0
         ? normalizeScheduleDays(flow?.scheduleDays)
@@ -460,54 +292,22 @@ const buildFlowFromForm = (draft) => {
   const size = Math.round(sizeValue);
   const includeTags = parseListInput(draft?.includeTags);
   const includeRelatedArtists = parseListInput(draft?.includeRelatedArtists);
-  const tagFocusPercent =
-    includeTags.length > 0
-      ? getFocusPercentFromStrength(draft?.tagStrength)
-      : 0;
-  const relatedFocusPercent =
-    includeRelatedArtists.length > 0
-      ? getFocusPercentFromStrength(draft?.relatedStrength)
-      : 0;
-  if (tagFocusPercent + relatedFocusPercent > 100) {
-    throw new Error("Tag and related focus exceeds 100%");
-  }
   const scheduleDays = normalizeScheduleDays(draft?.scheduleDays);
   if (scheduleDays.length === 0) {
     throw new Error("Select at least one day for this flow schedule");
   }
   const scheduleTime = normalizeScheduleTime(draft?.scheduleTime);
-  const focusCounts = buildCountsFromFocusPercent(
-    size,
-    tagFocusPercent,
-    relatedFocusPercent
-  );
-  const tagFocus = focusCounts.tag;
-  const relatedFocus = focusCounts.related;
   const mix = normalizeMixPercent(draft?.mix);
-  const recipe = buildCountsFromMixPercent(size, mix);
-  const tags = {};
-  if (tagFocus > 0 && includeTags.length > 0) {
-    const tagCounts = distributeCount(tagFocus, includeTags);
-    for (const [tag, count] of tagCounts.entries()) {
-      if (count <= 0) continue;
-      tags[tag] = count;
-    }
-  }
-  const relatedArtists = {};
-  if (relatedFocus > 0 && includeRelatedArtists.length > 0) {
-    const relatedCounts = distributeCount(relatedFocus, includeRelatedArtists);
-    for (const [artist, count] of relatedCounts.entries()) {
-      if (count <= 0) continue;
-      relatedArtists[artist] = count;
-    }
+  const focusEnabled = Number(mix.focus || 0) > 0;
+  if (focusEnabled && includeTags.length === 0 && includeRelatedArtists.length === 0) {
+    throw new Error("Focus needs at least one genre tag or related artist");
   }
   return {
     name,
     size,
     mix,
-    recipe,
-    tags,
-    relatedArtists,
+    tags: includeTags,
+    relatedArtists: includeRelatedArtists,
     deepDive: draft?.deepDive === true,
     scheduleDays,
     scheduleTime,
@@ -526,8 +326,6 @@ const normalizeDraftForCompare = (draft) => {
     mix: normalizeMixPercent(draft?.mix),
     includeTags: normalizeList(draft?.includeTags),
     includeRelatedArtists: normalizeList(draft?.includeRelatedArtists),
-    tagStrength: draft?.tagStrength ?? "medium",
-    relatedStrength: draft?.relatedStrength ?? "medium",
     deepDive: draft?.deepDive === true,
     scheduleDays: normalizeScheduleDays(draft?.scheduleDays),
     scheduleTime: normalizeScheduleTime(draft?.scheduleTime),
@@ -807,6 +605,7 @@ function FlowPage() {
   const [deletingId, setDeletingId] = useState(null);
   const [convertingId, setConvertingId] = useState(null);
   const [togglingId, setTogglingId] = useState(null);
+  const [rerunningId, setRerunningId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [flowNameEditingId, setFlowNameEditingId] = useState(null);
   const [flowManageEditingId, setFlowManageEditingId] = useState(null);
@@ -983,12 +782,9 @@ function FlowPage() {
           next[flow.id] = normalized;
           continue;
         }
-        const current = next[flow.id];
         next[flow.id] = {
           ...normalized,
-          ...current,
-          tagStrength: current.tagStrength ?? normalized.tagStrength,
-          relatedStrength: current.relatedStrength ?? normalized.relatedStrength,
+          ...next[flow.id],
         };
       }
       return next;
@@ -1318,6 +1114,36 @@ function FlowPage() {
         return next;
       });
       setTogglingId(null);
+    }
+  };
+
+  const handleRunNow = async (flow) => {
+    if (!flow?.id || flow.enabled !== true) return;
+    setRerunningId(flow.id);
+    try {
+      const response = await startFlowPlaylist(flow.id, flow.size);
+      const tracksQueued = Number(response?.tracksQueued || 0);
+      showSuccess(
+        tracksQueued > 0
+          ? `${flow.name} queued ${tracksQueued} tracks`
+          : `${flow.name} run started`,
+      );
+      await fetchStatus();
+      if (tracksExpandedId === flow.id) {
+        await fetchFlowTracks(flow.id, {
+          showSpinner: false,
+          includeFailed: true,
+        });
+      }
+    } catch (err) {
+      showError(
+        err.response?.data?.message ||
+          err.response?.data?.error ||
+          err.message ||
+          "Failed to run flow",
+      );
+    } finally {
+      setRerunningId(null);
     }
   };
 
@@ -2107,7 +1933,9 @@ function FlowPage() {
               canConvertToStatic={canConvertToStatic}
               convertingId={convertingId}
               togglingId={togglingId}
+              rerunningId={rerunningId}
               deletingId={deletingId}
+              onRunNow={() => handleRunNow(flow)}
               onExport={() => handleExportFlow(flow)}
               onConvertToStatic={() => handleConvertFlowToStatic(flow)}
               onToggleNameEditing={() => handleToggleFlowNameEditing(flow)}
@@ -2136,8 +1964,6 @@ function FlowPage() {
                   });
                 }
               }}
-              mixPresets={MIX_PRESETS}
-              focusOptions={FOCUS_OPTIONS}
               normalizeMixPercent={normalizeMixPercent}
             />
           );
