@@ -477,9 +477,13 @@ if (
   };
 }
 
-export const getDiscoveryCache = (lastfmUsername = null) => {
-  if (lastfmUsername) {
-    const userDbData = dbOps.getDiscoveryCache(lastfmUsername);
+export const getDiscoveryCache = (listenHistoryProfile = null) => {
+  const cacheNamespace =
+    typeof listenHistoryProfile === "string"
+      ? String(listenHistoryProfile).trim() || null
+      : getListenHistoryCacheNamespace(listenHistoryProfile);
+  if (cacheNamespace) {
+    const userDbData = dbOps.getDiscoveryCache(cacheNamespace);
     const hasUserData =
       userDbData.recommendations?.length > 0 ||
       userDbData.basedOn?.length > 0;

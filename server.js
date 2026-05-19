@@ -298,19 +298,30 @@ const broadcastDownloadStatuses = async () => {
 };
 
 const WEEKLY_FLOW_STATUS_INTERVAL_MS = 4000;
-let lastWeeklyFlowStatusPayload = null;
+const lastWeeklyFlowStatusPayloadByUser = new Map();
 const broadcastWeeklyFlowStatus = async () => {
   try {
     if (!hasWsSubscribers("weekly-flow")) return;
-    const status = getWeeklyFlowStatusSnapshot();
-    const payload = JSON.stringify(status);
-    if (payload !== lastWeeklyFlowStatusPayload) {
-      lastWeeklyFlowStatusPayload = payload;
-      websocketService.broadcast("weekly-flow", {
+    websocketService.broadcastPerClient("weekly-flow", (client) => {
+      const status = getWeeklyFlowStatusSnapshot({
+        user: client?.user || null,
+      });
+      const cacheKey =
+        client?.user?.role === "admin"
+          ? "admin"
+          : client?.user?.id != null
+            ? `user:${client.user.id}`
+            : `anon:${client?.id || "unknown"}`;
+      const payload = JSON.stringify(status);
+      if (lastWeeklyFlowStatusPayloadByUser.get(cacheKey) === payload) {
+        return null;
+      }
+      lastWeeklyFlowStatusPayloadByUser.set(cacheKey, payload);
+      return {
         type: "weekly_flow_status",
         status,
-      });
-    }
+      };
+    });
   } catch (error) {
     console.warn("Failed to broadcast weekly flow status:", error.message);
   }

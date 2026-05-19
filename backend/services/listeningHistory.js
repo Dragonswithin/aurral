@@ -22,25 +22,32 @@ export function normalizeListenHistoryUsername(value) {
 }
 
 export function getListenHistoryProfile(source = {}) {
+  const safeSource =
+    source && typeof source === "object" && !Array.isArray(source)
+      ? source
+      : {};
   const explicitUsername =
-    source.listenHistoryUsername ?? source.listen_history_username;
-  const legacyLastfmUsername = source.lastfmUsername ?? source.lastfm_username;
+    safeSource.listenHistoryUsername ?? safeSource.listen_history_username;
+  const legacyLastfmUsername =
+    safeSource.lastfmUsername ?? safeSource.lastfm_username;
   const username = normalizeListenHistoryUsername(
     explicitUsername != null ? explicitUsername : legacyLastfmUsername,
   );
   const hasExplicitProvider =
-    source.listenHistoryProvider !== undefined ||
-    source.listen_history_provider !== undefined;
+    safeSource.listenHistoryProvider !== undefined ||
+    safeSource.listen_history_provider !== undefined;
   const provider = username
     ? hasExplicitProvider
       ? normalizeListenHistoryProvider(
-          source.listenHistoryProvider ?? source.listen_history_provider,
+          safeSource.listenHistoryProvider ??
+            safeSource.listen_history_provider,
         )
       : legacyLastfmUsername != null
         ? "lastfm"
         : DEFAULT_LISTEN_HISTORY_PROVIDER
     : normalizeListenHistoryProvider(
-        source.listenHistoryProvider ?? source.listen_history_provider,
+        safeSource.listenHistoryProvider ??
+          safeSource.listen_history_provider,
       );
 
   return {

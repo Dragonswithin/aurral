@@ -305,16 +305,16 @@ export class WeeklyFlowPlaylistSource {
     };
   }
 
-  _getRecommendedArtists() {
-    const discoveryCache = getDiscoveryCache();
+  _getRecommendedArtists(listenHistoryProfile = null) {
+    const discoveryCache = getDiscoveryCache(listenHistoryProfile);
     return Array.isArray(discoveryCache.recommendations)
       ? discoveryCache.recommendations
       : [];
   }
 
-  _getRecommendedArtistSet() {
+  _getRecommendedArtistSet(listenHistoryProfile = null) {
     const set = new Set();
-    for (const artist of this._getRecommendedArtists()) {
+    for (const artist of this._getRecommendedArtists(listenHistoryProfile)) {
       if (artist?.id) {
         set.add(this._artistKey(artist.id));
       }
@@ -328,9 +328,9 @@ export class WeeklyFlowPlaylistSource {
     return set;
   }
 
-  _getRecommendedArtistMap() {
+  _getRecommendedArtistMap(listenHistoryProfile = null) {
     const map = new Map();
-    for (const artist of this._getRecommendedArtists()) {
+    for (const artist of this._getRecommendedArtists(listenHistoryProfile)) {
       if (!artist) continue;
       const keys = this._artistKeysFromArtist(artist);
       for (const key of keys) {
@@ -342,11 +342,11 @@ export class WeeklyFlowPlaylistSource {
     return map;
   }
 
-  _getRecommendedArtistsByTags(tags, match) {
+  _getRecommendedArtistsByTags(tags, match, listenHistoryProfile = null) {
     const wanted = tags.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean);
     if (wanted.length === 0) return [];
     const requiredAll = match === "all";
-    return this._getRecommendedArtists().filter((artist) => {
+    return this._getRecommendedArtists(listenHistoryProfile).filter((artist) => {
       const artistTags = Array.isArray(artist.tags)
         ? artist.tags.map((t) => String(t).toLowerCase())
         : [];
@@ -1454,6 +1454,7 @@ export class WeeklyFlowPlaylistSource {
     }
     const harvestLimitFor = (count) =>
       Math.min(150, Math.max(Number(count || 0) * 6, 24));
+    const listenHistoryProfile = options?.listenHistoryProfile || null;
     const [discoverTracks, mixTracks, trendingTracks, focusCandidates] = await Promise.all([
       combinedTargets.discover > 0
         ? this.getDiscoverTracks(harvestLimitFor(combinedTargets.discover), {
@@ -1461,6 +1462,7 @@ export class WeeklyFlowPlaylistSource {
             reason: "From discovery recommendations",
             blocklist,
             excludeArtistKeys: nonLibraryExcludeArtistKeys,
+            listenHistoryProfile,
           }).catch(() => [])
         : [],
       combinedTargets.mix > 0
@@ -1476,6 +1478,7 @@ export class WeeklyFlowPlaylistSource {
             reason: "From trending artists",
             blocklist,
             excludeArtistKeys: nonLibraryExcludeArtistKeys,
+            listenHistoryProfile,
           }).catch(() => [])
         : [],
       combinedTargets.focus > 0
@@ -1601,7 +1604,7 @@ export class WeeklyFlowPlaylistSource {
       throw new Error("Last.fm API key not configured");
     }
 
-    const discoveryCache = getDiscoveryCache();
+    const discoveryCache = getDiscoveryCache(options?.listenHistoryProfile);
     const recommendations = this._filterArtistsByBlocklist(
       discoveryCache.recommendations || [],
       options?.blocklist,
@@ -1671,7 +1674,7 @@ export class WeeklyFlowPlaylistSource {
     if (!getLastfmApiKey()) {
       throw new Error("Last.fm API key not configured");
     }
-    const discoveryCache = getDiscoveryCache();
+    const discoveryCache = getDiscoveryCache(options?.listenHistoryProfile);
     const globalTop = this._filterArtistsByBlocklist(
       discoveryCache.globalTop || [],
       options?.blocklist,
@@ -1858,7 +1861,7 @@ export class WeeklyFlowPlaylistSource {
   }
 
   async getRecommendedTracks(limit, options = {}) {
-    const discoveryCache = getDiscoveryCache();
+    const discoveryCache = getDiscoveryCache(options?.listenHistoryProfile);
     const recommendations = this._filterArtistsByBlocklist(
       discoveryCache.recommendations || [],
       options?.blocklist,

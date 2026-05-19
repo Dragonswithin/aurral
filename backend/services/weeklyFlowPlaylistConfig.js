@@ -343,6 +343,10 @@ const normalizeFlow = (flow) => {
   return {
     id: flow?.id || randomUUID(),
     name: name || "Flow",
+    ownerUserId:
+      flow?.ownerUserId != null && Number.isFinite(Number(flow.ownerUserId))
+        ? Math.trunc(Number(flow.ownerUserId))
+        : null,
     enabled: flow?.enabled === true,
     scheduleDays: normalizeScheduleDays(flow?.scheduleDays),
     scheduleTime: normalizeScheduleTime(flow?.scheduleTime),
@@ -466,6 +470,11 @@ const normalizeSharedPlaylist = (playlist) => {
   return {
     id: playlist?.id || randomUUID(),
     name: name || "Shared Playlist",
+    ownerUserId:
+      playlist?.ownerUserId != null &&
+      Number.isFinite(Number(playlist.ownerUserId))
+        ? Math.trunc(Number(playlist.ownerUserId))
+        : null,
     sourceName: String(playlist?.sourceName || "").trim() || null,
     sourceFlowId: String(playlist?.sourceFlowId || "").trim() || null,
     importedAt:
@@ -631,6 +640,12 @@ const assertUniqueFlowName = (flows, nextName, exceptFlowId = null) => {
   }
 };
 
+const canUserAccessOwnerScopedEntity = (user, ownerUserId) => {
+  if (user?.role === "admin") return true;
+  if (!user || ownerUserId == null) return false;
+  return Number(user.id) === Number(ownerUserId);
+};
+
 const assertUniqueSharedPlaylistName = (
   playlists,
   nextName,
@@ -649,12 +664,29 @@ const assertUniqueSharedPlaylistName = (
 };
 
 export const flowPlaylistConfig = {
+  canUserAccessFlow(user, flow) {
+    return canUserAccessOwnerScopedEntity(user, flow?.ownerUserId ?? null);
+  },
+
+  canUserAccessSharedPlaylist(user, playlist) {
+    return canUserAccessOwnerScopedEntity(user, playlist?.ownerUserId ?? null);
+  },
+
   getFlows() {
     return getStoredFlows();
   },
 
+  getFlowsForUser(user) {
+    return getStoredFlows().filter((flow) => this.canUserAccessFlow(user, flow));
+  },
+
   getFlow(flowId) {
     return getStoredFlows().find((flow) => flow.id === flowId) || null;
+  },
+
+  getFlowForUser(user, flowId) {
+    const flow = this.getFlow(flowId);
+    return this.canUserAccessFlow(user, flow) ? flow : null;
   },
 
   isEnabled(flowId) {
@@ -672,6 +704,7 @@ export const flowPlaylistConfig = {
     relatedArtists,
     scheduleDays,
     scheduleTime,
+    ownerUserId = null,
   }) {
     const flows = getStoredFlows();
     assertUniqueFlowName(flows, name);
@@ -686,6 +719,7 @@ export const flowPlaylistConfig = {
       relatedArtists,
       scheduleDays,
       scheduleTime,
+      ownerUserId,
       enabled: false,
       nextRunAt: null,
     });
@@ -810,10 +844,17 @@ export const flowPlaylistConfig = {
     return getStoredSharedPlaylists();
   },
 
+  getSharedPlaylistsForUser(user) {
+    return getStoredSharedPlaylists().filter((playlist) =>
+      this.canUserAccessSharedPlaylist(user, playlist),
+    );
+  },
+
   getSharedPlaylistSummaries() {
     return getStoredSharedPlaylists().map((playlist) => ({
       id: playlist.id,
       name: playlist.name,
+      ownerUserId: playlist.ownerUserId,
       sourceName: playlist.sourceName,
       sourceFlowId: playlist.sourceFlowId,
       importedAt: playlist.importedAt,
@@ -830,12 +871,24 @@ export const flowPlaylistConfig = {
     );
   },
 
-  createSharedPlaylist({ name, sourceName, sourceFlowId, tracks = [] }) {
+  getSharedPlaylistForUser(user, playlistId) {
+    const playlist = this.getSharedPlaylist(playlistId);
+    return this.canUserAccessSharedPlaylist(user, playlist) ? playlist : null;
+  },
+
+  createSharedPlaylist({
+    name,
+    sourceName,
+    sourceFlowId,
+    tracks = [],
+    ownerUserId = null,
+  }) {
     const playlists = getStoredSharedPlaylists();
     assertUniqueSharedPlaylistName(playlists, name);
     const playlist = normalizeSharedPlaylist({
       id: randomUUID(),
       name,
+      ownerUserId,
       sourceName,
       sourceFlowId,
       tracks,
