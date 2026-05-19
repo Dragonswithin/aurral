@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { dbOps } from "../backend/config/db-helpers.js";
-import { defaultData } from "../backend/config/constants.js";
+import {
+  defaultData,
+  DEFAULT_METADATA_BASE_URL,
+} from "../backend/config/constants.js";
 import {
   __setMetadataProviderHealthStateForTests,
   getMetadataProviderHealthSnapshot,
@@ -26,9 +29,9 @@ test("default settings use BrainzMash metadata and the official Cover Art Archiv
   );
   assert.equal(
     defaultData.settings.integrations.metadata.baseUrl,
-    "https://lidarrapi.brainzmash.cc",
+    DEFAULT_METADATA_BASE_URL,
   );
-  assert.equal(getMusicbrainzApiBaseUrl(), "https://lidarrapi.brainzmash.cc");
+  assert.equal(getMusicbrainzApiBaseUrl(), DEFAULT_METADATA_BASE_URL);
   assert.equal(getCoverArtArchiveApiBaseUrl(), "https://coverartarchive.org");
 });
 
@@ -46,10 +49,8 @@ test("backend metadata provider defaults to BrainzMash when unset", () => {
     },
   });
 
-  assert.equal(getMusicbrainzApiBaseUrl(), "https://lidarrapi.brainzmash.cc");
-  assert.deepEqual(getMusicbrainzApiBaseUrls(), [
-    "https://lidarrapi.brainzmash.cc",
-  ]);
+  assert.equal(getMusicbrainzApiBaseUrl(), DEFAULT_METADATA_BASE_URL);
+  assert.deepEqual(getMusicbrainzApiBaseUrls(), [DEFAULT_METADATA_BASE_URL]);
 });
 
 test("custom BrainzMash base URL is respected end to end", () => {
