@@ -3,7 +3,7 @@ import { dbOps } from "../config/db-helpers.js";
 import { downloadTracker } from "./weeklyFlowDownloadTracker.js";
 
 const LEGACY_TYPES = ["discover", "mix", "trending"];
-const DEFAULT_MIX = { discover: 34, mix: 33, trending: 33 };
+const DEFAULT_MIX = { discover: 34, mix: 33, trending: 33, focus: 0 };
 const DEFAULT_SIZE = 30;
 const DEFAULT_SCHEDULE_TIME = "00:00";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -38,6 +38,48 @@ const normalizeWeightMap = (value) => {
   return out;
 };
 
+const getFlowEntryName = (value) => {
+  if (typeof value === "string" || typeof value === "number") {
+    const text = String(value).trim();
+    return text || null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const candidates = [
+    value.name,
+    value.artistName,
+    value.artist,
+    value.tag,
+    value.label,
+    value.value,
+  ];
+  for (const candidate of candidates) {
+    const text = String(candidate || "").trim();
+    if (text) return text;
+  }
+  return null;
+};
+
+const normalizeStringArray = (value) => {
+  const raw = Array.isArray(value)
+    ? value
+    : value == null
+      ? []
+      : [value];
+  const seen = new Set();
+  const out = [];
+  for (const entry of raw) {
+    const text = getFlowEntryName(entry);
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+};
+
 const sumWeightMap = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
   return Object.values(value).reduce((acc, entry) => {
@@ -48,7 +90,7 @@ const sumWeightMap = (value) => {
 
 const normalizeRecipeCounts = (value, fallback) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return fallback ?? { discover: 0, mix: 0, trending: 0 };
+    return fallback ?? { discover: 0, mix: 0, trending: 0, focus: 0 };
   }
   const parseField = (entry) => {
     const parsed = Number(entry);
@@ -59,6 +101,7 @@ const normalizeRecipeCounts = (value, fallback) => {
     discover: parseField(value?.discover ?? 0),
     mix: parseField(value?.mix ?? 0),
     trending: parseField(value?.trending ?? 0),
+    focus: parseField(value?.focus ?? 0),
   };
 };
 
@@ -71,13 +114,10 @@ const clampCount = (value, min = 1, max = 100) => {
 const normalizeStringList = (value) => {
   if (value == null) return [];
   if (Array.isArray(value)) {
-    return value.map((item) => String(item || "").trim()).filter(Boolean);
+    return value.map((item) => getFlowEntryName(item)).filter(Boolean);
   }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed ? [trimmed] : [];
-  }
-  return [];
+  const single = getFlowEntryName(value);
+  return single ? [single] : [];
 };
 
 const normalizeScheduleDays = (value) => {
@@ -154,7 +194,7 @@ const distributeCount = (total, values) => {
 
 const extractFromBlocks = (value) => {
   if (!Array.isArray(value)) return null;
-  const recipe = { discover: 0, mix: 0, trending: 0 };
+  const recipe = { discover: 0, mix: 0, trending: 0, focus: 0 };
   const tags = {};
   const relatedArtists = {};
   let deepDive = false;
@@ -204,13 +244,14 @@ const buildCountsFromMix = (size, mix) => {
     { key: "discover", value: Number(mix?.discover ?? 0) },
     { key: "mix", value: Number(mix?.mix ?? 0) },
     { key: "trending", value: Number(mix?.trending ?? 0) },
+    { key: "focus", value: Number(mix?.focus ?? 0) },
   ];
   const sum = weights.reduce(
     (acc, w) => acc + (Number.isFinite(w.value) ? w.value : 0),
     0,
   );
   if (sum <= 0 || !Number.isFinite(sum) || size <= 0) {
-    return { discover: 0, mix: 0, trending: 0 };
+    return { discover: 0, mix: 0, trending: 0, focus: 0 };
   }
   const scaled = weights.map((w) => ({
     ...w,
@@ -239,8 +280,9 @@ const normalizeMix = (mix) => {
     discover: Number(mix?.discover ?? 0),
     mix: Number(mix?.mix ?? 0),
     trending: Number(mix?.trending ?? 0),
+    focus: Number(mix?.focus ?? 0),
   };
-  const sum = raw.discover + raw.mix + raw.trending;
+  const sum = raw.discover + raw.mix + raw.trending + raw.focus;
   if (!Number.isFinite(sum) || sum <= 0) {
     return { ...DEFAULT_MIX };
   }
@@ -248,6 +290,7 @@ const normalizeMix = (mix) => {
     { key: "discover", value: raw.discover },
     { key: "mix", value: raw.mix },
     { key: "trending", value: raw.trending },
+    { key: "focus", value: raw.focus },
   ];
   const scaled = weights.map((w) => ({
     ...w,
@@ -275,26 +318,28 @@ const normalizeFlow = (flow) => {
   const name = String(flow?.name || "").trim();
   const blocksData = extractFromBlocks(flow?.blocks);
   const size = clampSize(flow?.size);
-  const mix = normalizeMix(flow?.mix ?? blocksData?.recipe);
-  const tags =
-    Object.keys(normalizeWeightMap(flow?.tags)).length > 0
-      ? normalizeWeightMap(flow?.tags)
-      : normalizeWeightMap(blocksData?.tags);
-  const relatedArtists =
-    Object.keys(normalizeWeightMap(flow?.relatedArtists)).length > 0
-      ? normalizeWeightMap(flow?.relatedArtists)
-      : normalizeWeightMap(blocksData?.relatedArtists);
-  const tagsTotal = sumWeightMap(tags);
-  const relatedTotal = sumWeightMap(relatedArtists);
+  const mixSource =
+    flow?.mix ??
+    (flow?.recipe && typeof flow.recipe === "object" ? flow.recipe : null) ??
+    blocksData?.recipe;
+  const mix = normalizeMix(mixSource);
+  const normalizedTagsArray = normalizeStringArray(flow?.tags);
+  const normalizedRelatedArray = normalizeStringArray(flow?.relatedArtists);
+  const legacyTags = normalizeWeightMap(flow?.tags);
+  const legacyRelatedArtists = normalizeWeightMap(flow?.relatedArtists);
+  const tags = normalizedTagsArray.length > 0
+    ? normalizedTagsArray
+    : Object.keys(legacyTags).length > 0
+      ? Object.keys(legacyTags)
+      : normalizeStringArray(Object.keys(normalizeWeightMap(blocksData?.tags)));
+  const relatedArtists = normalizedRelatedArray.length > 0
+    ? normalizedRelatedArray
+    : Object.keys(legacyRelatedArtists).length > 0
+      ? Object.keys(legacyRelatedArtists)
+      : normalizeStringArray(
+          Object.keys(normalizeWeightMap(blocksData?.relatedArtists)),
+        );
   const baseSize = blocksData?.size > 0 ? blocksData.size : size;
-  const recipeSize = baseSize;
-  const recipeFallback = buildCountsFromMix(recipeSize, mix);
-  const recipe = normalizeRecipeCounts(
-    flow?.recipe,
-    blocksData?.recipe ?? recipeFallback,
-  );
-  const recipeTotal = sumWeightMap(recipe);
-  const computedSize = recipeTotal > 0 ? recipeTotal : baseSize;
   return {
     id: flow?.id || randomUUID(),
     name: name || "Flow",
@@ -306,9 +351,8 @@ const normalizeFlow = (flow) => {
       flow?.nextRunAt != null && Number.isFinite(Number(flow.nextRunAt))
         ? Number(flow.nextRunAt)
         : null,
-    size: computedSize > 0 ? computedSize : baseSize,
+    size: baseSize > 0 ? baseSize : size,
     mix,
-    recipe,
     tags,
     relatedArtists,
     createdAt:
@@ -447,7 +491,7 @@ const buildLegacyFlows = (settings) => {
         ? { discover: 0, mix: 100, trending: 0 }
         : type === "trending"
           ? { discover: 0, mix: 0, trending: 100 }
-          : { discover: 100, mix: 0, trending: 0 };
+          : { discover: 100, mix: 0, trending: 0, focus: 0 };
     return normalizeFlow({
       id: randomUUID(),
       name: titleCase(type),

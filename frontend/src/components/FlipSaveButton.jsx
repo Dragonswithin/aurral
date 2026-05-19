@@ -8,14 +8,16 @@ function FlipSaveButton({
   onClick,
   label = "Save",
   savedLabel = "Saved",
+  showSavedState,
 }) {
   const handleClick = (e) => {
     if (disabled || saving) return;
     onClick(e);
   };
+  const shouldFlip = showSavedState ?? disabled;
 
   return (
-    <div className={`btn-flip-wrap${disabled ? " flipped" : ""}`}>
+    <div className={`btn-flip-wrap${shouldFlip ? " flipped" : ""}`}>
       <button
         type="button"
         className="btn-flip"
@@ -43,6 +45,7 @@ FlipSaveButton.propTypes = {
   onClick: PropTypes.func.isRequired,
   label: PropTypes.string,
   savedLabel: PropTypes.string,
+  showSavedState: PropTypes.bool,
 };
 
 export default FlipSaveButton;

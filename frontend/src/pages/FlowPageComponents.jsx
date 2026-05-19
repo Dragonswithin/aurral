@@ -40,21 +40,15 @@ const SOURCE_MIX_COLORS = {
   discover: TAG_COLORS[10],
   mix: TAG_COLORS[4],
   trending: TAG_COLORS[12],
+  focus: TAG_COLORS[2],
 };
 
-const MIX_PRESET_COLORS = {
-  balanced: TAG_COLORS[1],
-  discover: TAG_COLORS[2],
-  library: TAG_COLORS[11],
-  trending: TAG_COLORS[7],
-  custom: TAG_COLORS[0],
-};
-
-const FOCUS_STRENGTH_COLORS = {
-  light: "#7e896fff",
-  medium: "#667059ff",
-  heavy: "#48513eff",
-};
+const SOURCE_MIX_OPTIONS = [
+  { key: "discover", label: "Discover" },
+  { key: "mix", label: "Library" },
+  { key: "trending", label: "Trending" },
+  { key: "focus", label: "Focus" },
+];
 
 const WEEKDAY_OPTIONS = [
   { id: 0, short: "Su", full: "Sunday" },
@@ -66,12 +60,6 @@ const WEEKDAY_OPTIONS = [
   { id: 6, short: "S", full: "Saturday" },
 ];
 
-const SCHEDULE_COUNT_LABELS = {
-  3: "three times",
-  4: "four times",
-  5: "five times",
-  6: "six times",
-};
 const FLOW_WORKER_CONCURRENCY_OPTIONS = [1, 2, 3];
 const FLOW_WORKER_FORMAT_OPTIONS = [
   { id: "flac", label: "FLAC" },
@@ -95,10 +83,98 @@ const SCHEDULE_HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => {
   };
 });
 
-export function MixSlider({ mix, onChange, normalizeMixPercent }) {
+const getEnabledSourceKeys = (mix) =>
+  SOURCE_MIX_OPTIONS.map((option) => option.key).filter(
+    (key) => Number(mix?.[key] || 0) > 0
+  );
+
+const distributeEvenly = (keys, total = 100) => {
+  if (!Array.isArray(keys) || keys.length === 0) return {};
+  const base = Math.floor(total / keys.length);
+  let remainder = total - base * keys.length;
+  return keys.reduce((acc, key) => {
+    acc[key] = base + (remainder > 0 ? 1 : 0);
+    if (remainder > 0) remainder -= 1;
+    return acc;
+  }, {});
+};
+
+const toggleSourceInMix = (mix, key, normalizeMixPercent) => {
   const normalized = normalizeMixPercent(mix);
+  const activeKeys = getEnabledSourceKeys(normalized);
+  const isActive = normalized[key] > 0;
+  if (isActive) {
+    if (activeKeys.length <= 1) {
+      return normalized;
+    }
+    const next = { ...normalized, [key]: 0 };
+    const remainingKeys = activeKeys.filter((entry) => entry !== key);
+    const remainingTotal = remainingKeys.reduce(
+      (sum, entry) => sum + Number(next[entry] || 0),
+      0
+    );
+    if (remainingTotal <= 0) {
+      return normalizeMixPercent(distributeEvenly(remainingKeys));
+    }
+    return normalizeMixPercent(next);
+  }
+
+  const nextKeys = [...activeKeys, key];
+  if (activeKeys.length === 0) {
+    return normalizeMixPercent(distributeEvenly(nextKeys));
+  }
+  const nextValue = Math.round(100 / nextKeys.length);
+  const scale = (100 - nextValue) / 100;
+  const next = { discover: 0, mix: 0, trending: 0, focus: 0, [key]: nextValue };
+  for (const activeKey of activeKeys) {
+    next[activeKey] = Math.max(1, normalized[activeKey] * scale);
+  }
+  return normalizeMixPercent(next);
+};
+
+export function MixSlider({
+  mix,
+  onChange,
+  normalizeMixPercent,
+  trackCounts = {},
+  trailingControl = null,
+}) {
+  const normalized = normalizeMixPercent(mix);
+  const activeKeys = getEnabledSourceKeys(normalized);
   const barRef = useRef(null);
   const dragRef = useRef(null);
+
+  const updateFromClientX = useCallback(
+    (clientX, handleIndex) => {
+      const rect = barRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const clampedX = Math.min(Math.max(clientX - rect.left, 0), rect.width);
+      const percent = rect.width > 0 ? (clampedX / rect.width) * 100 : 0;
+      if (activeKeys.length < 2) return;
+      const leftKey = activeKeys[handleIndex];
+      const rightKey = activeKeys[handleIndex + 1];
+      if (!leftKey || !rightKey) return;
+      const prefixStart = activeKeys
+        .slice(0, handleIndex)
+        .reduce((sum, key) => sum + Number(normalized[key] || 0), 0);
+      const pairTotal =
+        Number(normalized[leftKey] || 0) + Number(normalized[rightKey] || 0);
+      const nextLeft = Math.min(
+        Math.max(percent - prefixStart, 0),
+        pairTotal,
+      );
+      const next = {
+        discover: normalized.discover,
+        mix: normalized.mix,
+        trending: normalized.trending,
+        focus: normalized.focus,
+      };
+      next[leftKey] = nextLeft;
+      next[rightKey] = Math.max(0, pairTotal - nextLeft);
+      onChange(normalizeMixPercent(next));
+    },
+    [activeKeys, normalized, onChange, normalizeMixPercent]
+  );
 
   const startDrag = (event, handle) => {
     event.preventDefault();
@@ -106,42 +182,6 @@ export function MixSlider({ mix, onChange, normalizeMixPercent }) {
     event.currentTarget?.setPointerCapture?.(event.pointerId);
     updateFromClientX(event.clientX, handle);
   };
-
-  const updateFromClientX = useCallback(
-    (clientX, handle) => {
-      const rect = barRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const clampedX = Math.min(Math.max(clientX - rect.left, 0), rect.width);
-      const percent = rect.width > 0 ? (clampedX / rect.width) * 100 : 0;
-      if (handle === "left") {
-        const totalLeft = 100 - normalized.trending;
-        const nextDiscover = Math.min(Math.max(percent, 0), totalLeft);
-        const nextMix = Math.max(0, totalLeft - nextDiscover);
-        onChange(
-          normalizeMixPercent({
-            discover: nextDiscover,
-            mix: nextMix,
-            trending: normalized.trending,
-          })
-        );
-        return;
-      }
-      const totalRight = 100 - normalized.discover;
-      const nextMix = Math.min(
-        Math.max(percent - normalized.discover, 0),
-        totalRight
-      );
-      const nextTrending = Math.max(0, totalRight - nextMix);
-      onChange(
-        normalizeMixPercent({
-          discover: normalized.discover,
-          mix: nextMix,
-          trending: nextTrending,
-        })
-      );
-    },
-    [normalized, onChange, normalizeMixPercent]
-  );
 
   useEffect(() => {
     const handleMove = (event) => {
@@ -159,87 +199,240 @@ export function MixSlider({ mix, onChange, normalizeMixPercent }) {
     };
   }, [updateFromClientX]);
 
-  const leftPosition = normalized.discover;
-  const rightPosition = normalized.discover + normalized.mix;
-  const minHandleInset = 1.5;
-  const minHandleGap = 2.5;
   const labelMinPercent = 6;
-  const showDiscoverLabel = normalized.discover >= labelMinPercent;
-  const showMixLabel = normalized.mix >= labelMinPercent;
-  const showTrendingLabel = normalized.trending >= labelMinPercent;
-  const clampToInset = (value) =>
-    Math.min(Math.max(value, minHandleInset), 100 - minHandleInset);
-  let displayLeft = clampToInset(leftPosition);
-  let displayRight = clampToInset(rightPosition);
-  if (displayRight - displayLeft < minHandleGap) {
-    const midpoint = (displayLeft + displayRight) / 2;
-    displayLeft = clampToInset(midpoint - minHandleGap / 2);
-    displayRight = clampToInset(displayLeft + minHandleGap);
-    if (displayRight - displayLeft < minHandleGap) {
-      displayLeft = clampToInset(displayRight - minHandleGap);
-    }
+  const cumulativePositions = [];
+  let runningPosition = 0;
+  for (const key of activeKeys) {
+    runningPosition += Number(normalized[key] || 0);
+    cumulativePositions.push(runningPosition);
   }
+  const handles = cumulativePositions
+    .slice(0, -1)
+    .map((position, index) => ({
+      key: `boundary-${index}`,
+      position: Math.min(Math.max(position, 1.5), 98.5),
+      handleIndex: index,
+      ariaLabel: `Adjust ${SOURCE_MIX_OPTIONS.find((option) => option.key === activeKeys[index])?.label || "source"} and ${SOURCE_MIX_OPTIONS.find((option) => option.key === activeKeys[index + 1])?.label || "source"} mix`,
+    }));
 
   return (
-    <div className="grid gap-2">
-      <div className="flex flex-wrap items-center justify-between text-xs text-[#8b8b90]">
-        <span>Discover {normalized.discover}%</span>
-        <span>Library {normalized.mix}%</span>
-        <span>Trending {normalized.trending}%</span>
+    <div className="grid gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-2">
+          {SOURCE_MIX_OPTIONS.map((option) => {
+            const isActive = normalized[option.key] > 0;
+            const isOnlyActive = isActive && activeKeys.length === 1;
+            return (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() =>
+                  onChange(toggleSourceInMix(normalized, option.key, normalizeMixPercent))
+                }
+                disabled={isOnlyActive}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                  isActive
+                    ? "text-[#141414]"
+                    : "border-white/10 bg-white/[0.035] text-[#9f9fa7] hover:bg-white/[0.07]"
+                } ${isOnlyActive ? "cursor-not-allowed opacity-75" : ""}`}
+                style={
+                  isActive
+                    ? {
+                        backgroundColor: SOURCE_MIX_COLORS[option.key],
+                        borderColor: SOURCE_MIX_COLORS[option.key],
+                      }
+                    : undefined
+                }
+                aria-pressed={isActive}
+              >
+                <span>{option.label}</span>
+                <span className={isActive ? "text-black/65" : "text-[#76767d]"}>
+                  {isActive ? "On" : "Off"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {trailingControl ? (
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            {trailingControl}
+          </div>
+        ) : null}
       </div>
       <div
         ref={barRef}
         className="relative h-9 rounded-full border border-white/10 bg-white/5 select-none"
-        style={{ touchAction: "none" }}
+        style={{ touchAction: handles.length > 0 ? "none" : "auto" }}
       >
         <div className="absolute inset-0 flex overflow-hidden rounded-full">
-          <div
-            className="h-full text-[10px] font-semibold text-black/70 flex items-center justify-center"
-            style={{
-              width: `${normalized.discover}%`,
-              backgroundColor: SOURCE_MIX_COLORS.discover,
-            }}
-          >
-            {showDiscoverLabel ? "Discover" : ""}
-          </div>
-          <div
-            className="h-full text-[10px] font-semibold text-black/70 flex items-center justify-center"
-            style={{
-              width: `${normalized.mix}%`,
-              backgroundColor: SOURCE_MIX_COLORS.mix,
-            }}
-          >
-            {showMixLabel ? "Library" : ""}
-          </div>
-          <div
-            className="h-full text-[10px] font-semibold text-black/70 flex items-center justify-center"
-            style={{
-              width: `${normalized.trending}%`,
-              backgroundColor: SOURCE_MIX_COLORS.trending,
-            }}
-          >
-            {showTrendingLabel ? "Trending" : ""}
-          </div>
+          {SOURCE_MIX_OPTIONS.map((option) => {
+            const percent = Number(normalized[option.key] || 0);
+            const showLabel = percent >= labelMinPercent;
+            return (
+              <div
+                key={option.key}
+                className="h-full text-[10px] font-semibold text-black/70 flex items-center justify-center"
+                style={{
+                  width: `${percent}%`,
+                  backgroundColor: SOURCE_MIX_COLORS[option.key],
+                }}
+              >
+                {showLabel ? `${option.label} (${trackCounts[option.key] ?? 0})` : ""}
+              </div>
+            );
+          })}
         </div>
-        <button
-          type="button"
-          onPointerDown={(event) => startDrag(event, "left")}
-          className="absolute top-0 h-full w-4 -ml-2 cursor-ew-resize z-10"
-          style={{ left: `${displayLeft}%` }}
-          aria-label="Adjust discover and library mix"
-        >
-          <span className="absolute left-1/2 top-1 bottom-1 w-2 -translate-x-1/2 rounded-full bg-white/80" />
-        </button>
-        <button
-          type="button"
-          onPointerDown={(event) => startDrag(event, "right")}
-          className="absolute top-0 h-full w-4 -ml-2 cursor-ew-resize z-10"
-          style={{ left: `${displayRight}%` }}
-          aria-label="Adjust library and trending mix"
-        >
-          <span className="absolute left-1/2 top-1 bottom-1 w-2 -translate-x-1/2 rounded-full bg-white/80" />
-        </button>
+        {handles.map((handle) => (
+          <button
+            key={handle.key}
+            type="button"
+            onPointerDown={(event) => startDrag(event, handle.handleIndex)}
+            className="absolute top-0 h-full w-4 -ml-2 cursor-ew-resize z-10"
+            style={{ left: `${handle.position}%` }}
+            aria-label={handle.ariaLabel}
+          >
+            <span className="absolute left-1/2 top-1 bottom-1 w-2 -translate-x-1/2 rounded-full bg-white/80" />
+          </button>
+        ))}
       </div>
+    </div>
+  );
+}
+
+function getCommaTokenInputState(value, options = {}) {
+  const raw = String(value ?? "");
+  const endsWithComma = raw.endsWith(",");
+  const commitAll = options?.commitAll === true;
+  const parts = raw.split(",");
+  const dedupeCommitted = (entries) => {
+    const seen = new Set();
+    return entries
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .filter((entry) => {
+        const key = entry.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  };
+  const committedParts = dedupeCommitted(parts.slice(0, -1));
+  if (endsWithComma || commitAll) {
+    return {
+      committed: dedupeCommitted(parts),
+      pending: "",
+    };
+  }
+  const pending = String(parts[parts.length - 1] ?? "").replace(/^\s+/, "");
+  return {
+    committed: committedParts,
+    pending,
+  };
+}
+
+function buildCommaTokenInputValue(committed, pending) {
+  const seen = new Set();
+  const safeCommitted = committed
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean)
+    .filter((entry) => {
+      const key = entry.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  const rawPending = String(pending ?? "").replace(/^\s+/, "");
+  const normalizedPending = rawPending.trim();
+  if (safeCommitted.length === 0) return rawPending.replace(/^\s+/, "");
+  if (!normalizedPending) return `${safeCommitted.join(", ")}, `;
+  return `${safeCommitted.join(", ")}, ${rawPending}`;
+}
+
+function getFocusDraftValidation(draft, normalizeMixPercent) {
+  const normalizedMix = normalizeMixPercent(draft?.mix);
+  const focusEnabled = Number(normalizedMix.focus || 0) > 0;
+  const hasFocusFilters =
+    getCommaTokenInputState(draft?.includeTags, { commitAll: true }).committed.length > 0 ||
+    getCommaTokenInputState(draft?.includeRelatedArtists, { commitAll: true }).committed.length > 0;
+  return {
+    focusEnabled,
+    hasFocusFilters,
+    focusValidationError:
+      focusEnabled && !hasFocusFilters
+        ? "Focus needs at least one genre tag or related artist."
+        : "",
+  };
+}
+
+function CommaTokenInput({
+  value,
+  placeholder,
+  onChange,
+  chipClassName,
+}) {
+  const [isFocused, setIsFocused] = useState(false);
+  const inputRef = useRef(null);
+  const { committed, pending } = getCommaTokenInputState(value, {
+    commitAll: !isFocused,
+  });
+  const rawValue = String(value ?? "");
+
+  const commitNormalizedValue = useCallback(() => {
+    const nextCommitted = getCommaTokenInputState(rawValue, {
+      commitAll: true,
+    }).committed;
+    onChange(buildCommaTokenInputValue(nextCommitted, ""));
+  }, [onChange, rawValue]);
+
+  useEffect(() => {
+    if (!isFocused) return;
+    inputRef.current?.focus();
+  }, [isFocused]);
+
+  return (
+    <div
+      className="min-h-10 w-full rounded-md border border-white/10 bg-[#1f1f24] px-3 py-2 text-sm text-white transition focus-within:border-[#90a07d] focus-within:ring-1 focus-within:ring-[#90a07d]"
+      onClick={() => setIsFocused(true)}
+    >
+      {isFocused ? (
+        <input
+          ref={inputRef}
+          type="text"
+          className="w-full bg-transparent text-sm text-white outline-none placeholder:text-[#6f6f76]"
+          placeholder={placeholder}
+          value={rawValue}
+          onFocus={() => setIsFocused(true)}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitNormalizedValue();
+              inputRef.current?.blur();
+            }
+          }}
+          onBlur={() => {
+            setIsFocused(false);
+            commitNormalizedValue();
+          }}
+        />
+      ) : (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {committed.map((entry) => (
+            <span
+              key={`${placeholder}-${entry}`}
+              className={chipClassName}
+            >
+              {entry}
+            </span>
+          ))}
+          {committed.length === 0 ? (
+            <span className="text-sm text-[#6f6f76]">{placeholder}</span>
+          ) : null}
+          {pending ? (
+            <span className="text-sm text-[#c9c9cf]">{pending}</span>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
@@ -251,55 +444,12 @@ export function FlowFormFields({
   errorMessage,
   onDraftChange,
   onClearError,
-  mixPresets,
-  focusOptions,
   normalizeMixPercent,
 }) {
   const updateDraft = (updater) => {
     onDraftChange((prev) => updater(prev));
     if (onClearError) onClearError();
   };
-  const parseList = (value) =>
-    String(value ?? "")
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-  const sizeValue = Number(draft?.size);
-  const trackCount =
-    Number.isFinite(sizeValue) && sizeValue > 0 ? Math.round(sizeValue) : "some";
-  const tags = parseList(draft?.includeTags);
-  const relatedArtists = parseList(draft?.includeRelatedArtists);
-  const tagStrengthId = draft?.tagStrength ?? "medium";
-  const relatedStrengthId = draft?.relatedStrength ?? "medium";
-  const tagIntensityPhrase =
-    {
-      light: "sprinkle in tags like",
-      medium: "feature tags like",
-      heavy: "focus heavily on tags like",
-    }[tagStrengthId] ?? "feature tags like";
-  const relatedIntensityPhrase =
-    {
-      light: "a few related artists like",
-      medium: "artists related to",
-      heavy: "lots of artists related to",
-    }[relatedStrengthId] ?? "artists related to";
-  const tagPhrase = tags.length ? `${tagIntensityPhrase} ${tags.join(", ")}` : "";
-  const relatedPhrase = relatedArtists.length
-    ? `${relatedIntensityPhrase} ${relatedArtists.join(", ")}`
-    : "";
-  const mix = normalizeMixPercent(draft?.mix);
-  const mixPreset = draft?.mixPreset ?? "custom";
-  const mixPhrase =
-    {
-      balanced: "Keep it balanced across Discover, Mix, and Trending",
-      discover: "Lean into discovery",
-      library: "Let the library do most of the work",
-      trending: "Give it a trending lift",
-    }[mixPreset] ??
-    `A custom blend of ${mix.discover}% Discover, ${mix.mix}% Mix, ${mix.trending}% Trending`;
-  const deepDivePhrase = draft?.deepDive
-    ? "dig into deep cuts"
-    : "stick with the most popular picks";
   const normalizedMix = normalizeMixPercent(draft?.mix);
   const totalSize = Number.isFinite(Number(remaining)) && Number(remaining) > 0 ? Math.round(Number(remaining)) : 0;
   const scheduleDays = Array.isArray(draft?.scheduleDays)
@@ -308,37 +458,17 @@ export function FlowFormFields({
       )
     : [];
   const scheduleTime = String(draft?.scheduleTime || "00:00");
-  const scheduleTimeLabel =
-    SCHEDULE_HOUR_OPTIONS.find((option) => option.value === scheduleTime)?.label ||
-    scheduleTime;
-  const schedulePhrase =
-    scheduleDays.length === 7
-      ? "Update daily"
-      : scheduleDays.length === 1
-        ? `Update every ${WEEKDAY_OPTIONS.find((day) => day.id === scheduleDays[0])?.full.toLowerCase() || "week"}`
-        : scheduleDays.length === 2
-          ? `Update twice a week on ${WEEKDAY_OPTIONS.filter((day) => scheduleDays.includes(day.id))
-              .map((day) => day.full.toLowerCase())
-              .join(" and ")}`
-          : scheduleDays.length >= 3 && scheduleDays.length <= 6
-            ? `Update ${SCHEDULE_COUNT_LABELS[scheduleDays.length]} a week`
-            : "Update weekly";
-  const scheduleTimePhrase = `at ${scheduleTimeLabel}`;
-  const clauses = [
-    schedulePhrase,
-    scheduleTimePhrase,
-    mixPhrase,
-    tagPhrase,
-    relatedPhrase,
-    deepDivePhrase,
-  ].filter(Boolean);
-  const madlibsText = `${clauses.join(", ")}. No more than ${trackCount} tracks.`;
+  const { focusEnabled, focusValidationError } = getFocusDraftValidation(
+    draft,
+    normalizeMixPercent,
+  );
   
   const mixScaled = (() => {
     const entries = [
       { key: "discover", value: normalizedMix.discover },
       { key: "mix", value: normalizedMix.mix },
       { key: "trending", value: normalizedMix.trending },
+      { key: "focus", value: normalizedMix.focus },
     ];
     const scaled = entries.map((e) => ({
       ...e,
@@ -363,16 +493,16 @@ export function FlowFormFields({
   return (
     <div className="grid gap-6">
       <div className="grid gap-4 rounded-lg border border-white/10 bg-white/5 p-4">
-        <div className="-mx-1 flex items-end gap-3 overflow-x-auto px-1 pb-1 sm:mx-0 sm:flex-wrap sm:gap-6 sm:overflow-visible sm:px-0 sm:pb-0">
-          <div className="grid w-[4.75rem] shrink-0 gap-1.5 sm:w-24">
-            <label className="text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
+        <div className="grid gap-4 lg:grid-cols-[96px_minmax(0,1fr)_160px] lg:items-start">
+          <div className="grid content-start gap-2">
+            <label className="flex min-h-5 items-end text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
               Tracks
             </label>
             <input
               type="number"
               min="1"
               max="100"
-              className={inputClassName}
+              className={`${inputClassName} w-[4.75rem] text-center sm:w-24 lg:text-left`}
               value={draft.size}
               onChange={(event) => {
                 const value = event.target.value;
@@ -380,19 +510,19 @@ export function FlowFormFields({
               }}
             />
           </div>
-          <div className="grid shrink-0 gap-1.5">
-            <label className="text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
+          <div className="grid content-start justify-start gap-2 lg:justify-center">
+            <label className="flex min-h-5 items-end justify-start text-xs uppercase tracking-wider text-[#8b8b90] font-medium lg:justify-center">
               Update Days
             </label>
-            <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="inline-flex w-fit items-center gap-1.5 rounded-xl bg-black/10 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-2">
               {WEEKDAY_OPTIONS.map((day) => {
                 const checked = scheduleDays.includes(day.id);
                 return (
                   <label
                     key={day.id}
-                    className={`inline-flex h-9 w-9 items-center justify-center rounded text-xs font-semibold transition-colors cursor-pointer sm:h-10 sm:w-10 ${
+                    className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-semibold transition-colors cursor-pointer sm:h-10 sm:w-10 ${
                       checked
-                        ? "bg-[#718062] text-[#f4f1eb]"
+                        ? "bg-[#8f8f97] text-white"
                         : "bg-[#15161a] text-[#a7aab5] hover:bg-[#202229] hover:text-[#dde1ea]"
                     }`}
                     title={day.full}
@@ -429,26 +559,29 @@ export function FlowFormFields({
               })}
             </div>
           </div>
-          <div className="grid w-[6.75rem] shrink-0 gap-1.5 sm:w-36">
-              <label className="text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
+          <div className="grid content-start justify-start gap-2 lg:justify-self-end">
+              <label className="flex min-h-5 items-end text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
               Update Hour
               </label>
-              <select
-                className={inputClassName}
-                value={scheduleTime}
-                onChange={(event) =>
-                  updateDraft((prev) => ({
-                    ...prev,
-                    scheduleTime: event.target.value || "00:00",
-                  }))
-                }
-              >
-                {SCHEDULE_HOUR_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              <div className="relative w-[6.75rem] sm:w-40">
+                <select
+                  className={`${inputClassName} w-full appearance-none pr-10`}
+                  value={scheduleTime}
+                  onChange={(event) =>
+                    updateDraft((prev) => ({
+                      ...prev,
+                      scheduleTime: event.target.value || "00:00",
+                    }))
+                  }
+                >
+                  {SCHEDULE_HOUR_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#b8b8bf]" />
+              </div>
             </div>
         </div>
       </div>
@@ -458,175 +591,93 @@ export function FlowFormFields({
           <div className="text-xs uppercase tracking-[0.3em] text-[#8b8b90] font-semibold">
             Source Mix
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {mixPresets.map((preset) => (
+        </div>
+
+        <div className="pt-1">
+          <MixSlider
+            mix={draft.mix}
+            trackCounts={mixScaled}
+            trailingControl={
               <button
-                key={preset.id}
                 type="button"
                 onClick={() =>
                   updateDraft((prev) => ({
                     ...prev,
-                    mix: preset.mix ?? prev.mix,
-                    mixPreset: preset.id,
+                    deepDive: !(prev?.deepDive === true),
                   }))
                 }
-                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                  draft.mixPreset === preset.id
-                    ? "text-[#f4f1eb]"
-                    : "bg-white/10 text-[#c1c1c3] hover:bg-white/20"
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                  draft.deepDive === true
+                    ? "border-[#d6d6db] bg-[#d6d6db] text-[#141414]"
+                    : "border-white/10 bg-white/[0.035] text-[#9f9fa7] hover:bg-white/[0.07]"
                 }`}
-                style={
-                  draft.mixPreset === preset.id
-                    ? { backgroundColor: MIX_PRESET_COLORS[preset.id] }
-                    : undefined
-                }
+                aria-pressed={draft.deepDive === true}
               >
-                {preset.label}
+                <span>Deep Dive</span>
+                <span className={draft.deepDive === true ? "text-black/65" : "text-[#76767d]"}>
+                  {draft.deepDive === true ? "On" : "Off"}
+                </span>
               </button>
-            ))}
-          </div>
-        </div>
-        
-        <div className="pt-1">
-          <MixSlider
-            mix={draft.mix}
+            }
             onChange={(nextMix) =>
               updateDraft((prev) => ({
                 ...prev,
                 mix: nextMix,
-                mixPreset: "custom",
               }))
             }
             normalizeMixPercent={normalizeMixPercent}
           />
-          <div className="mt-2 text-[10px] text-[#8b8b90] flex justify-between px-1">
-            <span>{mixScaled.discover} tracks</span>
-            <span>{mixScaled.mix} tracks</span>
-            <span>{mixScaled.trending} tracks</span>
-          </div>
         </div>
       </div>
 
-      <div className="grid gap-4 rounded-lg border border-white/10 bg-white/5 p-4">
+      <div className={`grid gap-4 rounded-lg border border-white/10 bg-white/5 p-4 transition-opacity ${focusEnabled ? "" : "opacity-60"}`}>
         <div className="flex items-center justify-between">
-          <div className="text-xs uppercase tracking-[0.3em] text-[#8b8b90] font-semibold">
-            Focus Filters
-          </div>
-          <div className="flex items-center gap-2">
-             <span className="text-xs text-[#c1c1c3]">Deep Dive</span>
-             <PillToggle
-                checked={draft.deepDive === true}
-                onChange={(event) =>
-                  updateDraft((prev) => ({
-                    ...prev,
-                    deepDive: event.target.checked,
-                  }))
-                }
-              />
+          <div className="grid gap-1">
+            <div className="text-xs uppercase tracking-[0.3em] text-[#8b8b90] font-semibold">
+              Focus Filters
+            </div>
+            {focusValidationError ? (
+              <div className="text-[11px] font-medium text-amber-300">
+                {focusValidationError}
+              </div>
+            ) : null}
           </div>
         </div>
 
         <div className="grid gap-4">
           <div className="grid gap-1.5">
             <label className="text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
-              Genre Tags
+              Genre Tags (separate by comma)
             </label>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                type="text"
-                className={`${inputClassName} flex-1`}
-                placeholder="lofi, indie"
-                value={draft.includeTags}
-                onChange={(event) =>
-                  updateDraft((prev) => ({
-                    ...prev,
-                    includeTags: event.target.value,
-                  }))
-                }
-              />
-              <div className="flex bg-black/20 rounded p-1 gap-1 shrink-0">
-                {focusOptions.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() =>
-                      updateDraft((prev) => ({
-                        ...prev,
-                        tagStrength: option.id,
-                      }))
-                    }
-                    className={`px-3 py-1 rounded text-xs transition-colors ${
-                      (draft.tagStrength ?? "medium") === option.id
-                        ? "text-white font-medium"
-                        : "text-[#8b8b90] hover:text-white"
-                    }`}
-                    style={
-                      (draft.tagStrength ?? "medium") === option.id
-                        ? { backgroundColor: FOCUS_STRENGTH_COLORS[option.id] }
-                        : undefined
-                    }
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <CommaTokenInput
+              value={draft.includeTags}
+              placeholder="lofi, indie"
+              chipClassName="rounded-full border border-[#90a07d]/35 bg-[#90a07d]/12 px-2.5 py-1 text-[11px] font-medium text-[#d7e0ce]"
+              onChange={(nextValue) =>
+                updateDraft((prev) => ({
+                  ...prev,
+                  includeTags: nextValue,
+                }))
+              }
+            />
           </div>
 
           <div className="grid gap-1.5">
             <label className="text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
-              Related Artists
+              Related Artists (separate by comma)
             </label>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                type="text"
-                className={`${inputClassName} flex-1`}
-                placeholder="Artist A, Artist B"
-                value={draft.includeRelatedArtists}
-                onChange={(event) =>
-                  updateDraft((prev) => ({
-                    ...prev,
-                    includeRelatedArtists: event.target.value,
-                  }))
-                }
-              />
-              <div className="flex bg-black/20 rounded p-1 gap-1 shrink-0">
-                {focusOptions.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() =>
-                      updateDraft((prev) => ({
-                        ...prev,
-                        relatedStrength: option.id,
-                      }))
-                    }
-                    className={`px-3 py-1 rounded text-xs transition-colors ${
-                      (draft.relatedStrength ?? "medium") === option.id
-                        ? "text-white font-medium"
-                        : "text-[#8b8b90] hover:text-white"
-                    }`}
-                    style={
-                      (draft.relatedStrength ?? "medium") === option.id
-                        ? { backgroundColor: FOCUS_STRENGTH_COLORS[option.id] }
-                        : undefined
-                    }
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <CommaTokenInput
+              value={draft.includeRelatedArtists}
+              placeholder="artist a, artist b"
+              chipClassName="rounded-full border border-[#7aa2f7]/35 bg-[#7aa2f7]/12 px-2.5 py-1 text-[11px] font-medium text-[#d8e4ff]"
+              onChange={(nextValue) =>
+                updateDraft((prev) => ({
+                  ...prev,
+                  includeRelatedArtists: nextValue,
+                }))
+              }
+            />
           </div>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-white/5 bg-white/5 p-4">
-        <div className="text-xs uppercase tracking-[0.3em] text-[#8b8b90] mb-2 font-semibold">
-          Summary
-        </div>
-        <div className="text-sm text-[#c1c1c3] leading-relaxed italic">
-          &quot;{madlibsText}&quot;
         </div>
       </div>
       
@@ -760,7 +811,7 @@ export function FlowStatusCards({
   );
 }
 
-export function MoreMenu({ children }) {
+export function MoreMenu({ children, activeButtonClass = "btn-primary" }) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -781,7 +832,7 @@ export function MoreMenu({ children }) {
       <button 
         type="button" 
         onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }} 
-        className={`btn btn-sm gap-2 px-2.5 ${isOpen ? "btn-primary" : "btn-secondary"}`}
+        className={`btn btn-sm gap-2 px-2.5 ${isOpen ? activeButtonClass : "btn-secondary"}`}
         aria-label="More options"
       >
         <MoreHorizontal className="w-4 h-4" />
@@ -1387,7 +1438,9 @@ export function FlowCard({
   canConvertToStatic,
   convertingId,
   togglingId,
+  rerunningId,
   deletingId,
+  onRunNow,
   onExport,
   onConvertToStatic,
   onToggleNameEditing,
@@ -1403,10 +1456,14 @@ export function FlowCard({
   onApply,
   onDraftChange,
   onClearError,
-  mixPresets,
-  focusOptions,
   normalizeMixPercent,
 }) {
+  const { focusValidationError } = getFocusDraftValidation(
+    simpleDraft,
+    normalizeMixPercent,
+  );
+  const saveDisabled = !hasChanges || Boolean(focusValidationError);
+  const showSavedState = !hasChanges;
   const processed = Number(stats?.done || 0);
   const total = Number(stats?.total || 0);
   const processedDisplay = total > 0 ? Math.min(processed, total) : processed;
@@ -1453,6 +1510,8 @@ export function FlowCard({
     isCurrentJobForFlow ||
     isGeneratingThisFlow ||
     isQueueCleanupThisFlow;
+  const isRerunningThisFlow = rerunningId === flow.id;
+  const canRunNow = enabled && !hasFlowWorkInProgress && !isRerunningThisFlow;
   let flowWorkerMessage = "";
   if (isCurrentJobForFlow) {
     flowWorkerMessage = `Download: ${currentJob.trackName} (${jobProgressPct}%)`;
@@ -1494,36 +1553,40 @@ export function FlowCard({
     <div className="bg-card overflow-visible border border-white/5 -mx-4 rounded-none sm:mx-0 sm:rounded-lg">
       <div className="p-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
         <div
-          className={`min-w-0 flex-1 flex gap-3 sm:gap-4 ${enabled ? "" : "opacity-50"} cursor-pointer sm:cursor-default`}
+          className="min-w-0 flex-1 flex gap-3 sm:gap-4 cursor-pointer sm:cursor-default"
           onClick={handleMobileTrackToggle}
         >
-          <PlaylistArtworkThumb artworkUrl={artworkUrl} name={flow.name} />
+          <div className={enabled ? "" : "opacity-50"}>
+            <PlaylistArtworkThumb artworkUrl={artworkUrl} name={flow.name} />
+          </div>
           <div className="min-w-0 flex-1 grid gap-2">
             <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
-                <span className="rounded-full bg-black/25 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[#d2dac9]">
-                  {typeLabel}
-                </span>
-                <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-[#c6c6cb]">
-                  {flow.size} tracks
-                </span>
-                {state === "running" && (
-                  <span className="badge badge-success badge-sm gap-1.5 pl-1.5 pr-2">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    Running
+              <div className={enabled ? "" : "opacity-50"}>
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+                  <span className="rounded-full bg-black/25 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[#d2dac9]">
+                    {typeLabel}
                   </span>
-                )}
-                {togglingId === flow.id && (
-                  <span className="badge badge-secondary badge-sm gap-1.5 pl-1.5 pr-2">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    Updating
+                  <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-[#c6c6cb]">
+                    {flow.size} tracks
                   </span>
-                )}
+                  {state === "running" && (
+                    <span className="badge badge-success badge-sm gap-1.5 pl-1.5 pr-2">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Running
+                    </span>
+                  )}
+                  {togglingId === flow.id && (
+                    <span className="badge badge-secondary badge-sm gap-1.5 pl-1.5 pr-2">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Updating
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex shrink-0 items-center justify-end gap-1 self-end min-[420px]:self-start">
                 <button
                   onClick={onViewTracks}
-                  className={`hidden sm:inline-flex btn ${isTracksOpen ? "btn-primary" : "btn-secondary"} btn-sm gap-2 px-2.5`}
+                  className={`hidden sm:inline-flex btn ${isTracksOpen ? "btn-neutral-active" : "btn-secondary"} btn-sm gap-2 px-2.5`}
                   aria-label={isTracksOpen ? `Close ${flow.name} tracks` : `View ${flow.name} tracks`}
                   title={isTracksOpen ? `Close ${flow.name} tracks` : `View ${flow.name} tracks`}
                   aria-pressed={isTracksOpen}
@@ -1534,7 +1597,7 @@ export function FlowCard({
                 </button>
                 <button
                   onClick={onToggleEditing}
-                  className={`hidden sm:inline-flex btn ${isEditing ? "btn-primary" : "btn-secondary"} btn-sm gap-2 px-2.5`}
+                  className={`hidden sm:inline-flex btn ${isEditing ? "btn-neutral-active" : "btn-secondary"} btn-sm gap-2 px-2.5`}
                   aria-label={isEditing ? "Close editor" : "Edit flow"}
                   title={isEditing ? `Close ${flow.name} editor` : `Edit ${flow.name}`}
                   aria-pressed={isEditing}
@@ -1542,7 +1605,7 @@ export function FlowCard({
                   <Pencil className="w-4 h-4" />
                   <span className="hidden md:inline">Manage</span>
                 </button>
-                <MoreMenu>
+                <MoreMenu activeButtonClass="btn-neutral-active">
                   <button
                     onClick={onViewTracks}
                     className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white sm:hidden disabled:cursor-not-allowed disabled:opacity-50"
@@ -1597,6 +1660,18 @@ export function FlowCard({
                   )}
                   <div className="my-1 border-t border-white/10 sm:hidden" />
                   <button
+                    onClick={onRunNow}
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!canRunNow}
+                  >
+                    {isRerunningThisFlow ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Play className="w-4 h-4" />
+                    )}
+                    Run Now
+                  </button>
+                  <button
                     onClick={onConvertToStatic}
                     className="w-full text-left px-3 py-2.5 text-sm text-[#d6d6d8] hover:bg-white/10 hover:text-white flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
                     disabled={!canConvertToStatic || convertingId === flow.id}
@@ -1636,95 +1711,97 @@ export function FlowCard({
               </div>
             </div>
             <div className="space-y-1">
-              <div className="flex min-w-0 items-start gap-2">
-                {isNameEditing ? (
-                  <input
-                    type="text"
-                    className="input input-sm h-9 w-full max-w-md bg-[#1c1b22] text-base font-medium text-white"
-                    value={simpleDraft?.name ?? ""}
-                    onChange={(event) =>
-                      onDraftChange((prev) => ({
-                        ...prev,
-                        name: event.target.value,
-                      }))
-                    }
-                    onInput={onClearError}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        if (isNameDirty) {
-                          onNameApply();
-                          return;
-                        }
-                        onNameCancel();
-                      }
-                      if (event.key === "Escape") {
-                        event.preventDefault();
-                        onNameCancel();
-                      }
-                    }}
-                    aria-label={`Edit ${flow.name} name`}
-                  />
-                ) : (
-                  <h3 className="min-w-0 truncate text-sm font-medium text-white sm:text-base">
-                    {flow.name}
-                  </h3>
-                )}
-                <div className="hidden shrink-0 items-center gap-1 sm:flex">
-                  <button
-                    type="button"
-                    onClick={
-                      isNameEditing
-                        ? (isNameDirty ? onNameApply : onNameCancel)
-                        : onToggleNameEditing
-                    }
-                    className={`btn ${isNameEditing ? "btn-primary" : "btn-ghost"} btn-xs px-2`}
-                    aria-label={isNameEditing ? `Save ${flow.name}` : `Edit ${flow.name}`}
-                    title={isNameEditing ? `Save ${flow.name}` : `Edit ${flow.name}`}
-                    disabled={isNameApplying}
-                  >
-                    {isNameApplying ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : isNameEditing ? (
-                      <Check className="w-3.5 h-3.5" />
-                    ) : (
-                      <Pencil className="w-3.5 h-3.5" />
-                    )}
-                  </button>
+              <div className={enabled ? "" : "opacity-50"}>
+                <div className="flex min-w-0 items-start gap-2">
                   {isNameEditing ? (
+                    <input
+                      type="text"
+                      className="input input-sm h-9 w-full max-w-md bg-[#1c1b22] text-base font-medium text-white"
+                      value={simpleDraft?.name ?? ""}
+                      onChange={(event) =>
+                        onDraftChange((prev) => ({
+                          ...prev,
+                          name: event.target.value,
+                        }))
+                      }
+                      onInput={onClearError}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          if (isNameDirty) {
+                            onNameApply();
+                            return;
+                          }
+                          onNameCancel();
+                        }
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          onNameCancel();
+                        }
+                      }}
+                      aria-label={`Edit ${flow.name} name`}
+                    />
+                  ) : (
+                    <h3 className="min-w-0 truncate text-sm font-medium text-white sm:text-base">
+                      {flow.name}
+                    </h3>
+                  )}
+                  <div className="hidden shrink-0 items-center gap-1 sm:flex">
                     <button
                       type="button"
-                      onClick={onNameCancel}
-                      className="btn btn-ghost btn-xs px-2"
-                      aria-label={`Cancel editing ${flow.name}`}
-                      title={`Cancel editing ${flow.name}`}
+                      onClick={
+                        isNameEditing
+                          ? (isNameDirty ? onNameApply : onNameCancel)
+                          : onToggleNameEditing
+                      }
+                      className={`btn ${isNameEditing ? "btn-primary" : "btn-ghost"} btn-xs px-2`}
+                      aria-label={isNameEditing ? `Save ${flow.name}` : `Edit ${flow.name}`}
+                      title={isNameEditing ? `Save ${flow.name}` : `Edit ${flow.name}`}
                       disabled={isNameApplying}
                     >
-                      <X className="w-3.5 h-3.5" />
+                      {isNameApplying ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : isNameEditing ? (
+                        <Check className="w-3.5 h-3.5" />
+                      ) : (
+                        <Pencil className="w-3.5 h-3.5" />
+                      )}
                     </button>
-                  ) : null}
+                    {isNameEditing ? (
+                      <button
+                        type="button"
+                        onClick={onNameCancel}
+                        className="btn btn-ghost btn-xs px-2"
+                        aria-label={`Cancel editing ${flow.name}`}
+                        title={`Cancel editing ${flow.name}`}
+                        disabled={isNameApplying}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-              <div className="hidden flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[#b5b5bc] sm:gap-x-3 sm:text-xs md:flex">
-                {statusSummary ? <span>{statusSummary}</span> : null}
-                {statusSummary && metaItems.length > 0 ? (
-                  <>
-                    <span className="text-white/25">•</span>
-                  </>
-                ) : null}
-                {metaItems.length > 0 ? <span>{metaItems.join(" • ")}</span> : null}
+                <div className="hidden flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[#b5b5bc] sm:gap-x-3 sm:text-xs md:flex">
+                  {statusSummary ? <span>{statusSummary}</span> : null}
+                  {statusSummary && metaItems.length > 0 ? (
+                    <>
+                      <span className="text-white/25">•</span>
+                    </>
+                  ) : null}
+                  {metaItems.length > 0 ? <span>{metaItems.join(" • ")}</span> : null}
+                </div>
               </div>
             </div>
               {flowWorkerMessage ? (
-              <div className="hidden truncate text-xs text-[#9aa886] sm:block">
+              <div className={`hidden truncate text-xs text-[#9aa886] sm:block ${enabled ? "" : "opacity-50"}`}>
                 {flowWorkerMessage}
               </div>
             ) : null}
-            <div className="text-[11px] text-[#9aa886] sm:hidden">
+            <div className={`text-[11px] text-[#9aa886] sm:hidden ${enabled ? "" : "opacity-50"}`}>
               {isTracksOpen ? "Tap card to hide tracks" : "Tap card to view tracks"}
             </div>
             {(state === "running" || state === "completed") && total > 0 ? (
-              <div className="grid gap-1.5">
+              <div className={`grid gap-1.5 ${enabled ? "" : "opacity-50"}`}>
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
                   <div
                     className={`h-full rounded-full transition-all duration-300 ${
@@ -1740,7 +1817,7 @@ export function FlowCard({
                   <span>Pending {pendingCount}</span>
                   <span className="text-white/25">•</span>
                   <span>Downloading {downloadingCount}</span>
-                  <span className="text-white/25">•</span>
+                    <span className="text-white/25">•</span>
                   <span>Done {processedDisplay}</span>
                 </div>
               </div>
@@ -1760,8 +1837,6 @@ export function FlowCard({
               errorMessage={simpleError}
               onDraftChange={onDraftChange}
               onClearError={onClearError}
-              mixPresets={mixPresets}
-              focusOptions={focusOptions}
               normalizeMixPercent={normalizeMixPercent}
             />
             <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1769,11 +1844,12 @@ export function FlowCard({
                 Cancel
               </button>
               <FlipSaveButton
-                disabled={!hasChanges}
+                disabled={saveDisabled}
                 saving={isApplying}
                 onClick={onApply}
                 label="Save"
                 savedLabel="Saved"
+                showSavedState={showSavedState}
               />
             </div>
           </div>
@@ -2363,7 +2439,7 @@ export function SharedPlaylistCard({
                 <button
                   type="button"
                   onClick={onViewTracks}
-                  className={`hidden sm:inline-flex btn ${isTracksOpen ? "btn-primary" : "btn-secondary"} btn-sm gap-2 px-2.5`}
+                  className={`hidden sm:inline-flex btn ${isTracksOpen ? "btn-neutral-active" : "btn-secondary"} btn-sm gap-2 px-2.5`}
                   aria-label={isTracksOpen ? `Close ${playlist.name} tracks` : `View ${playlist.name} tracks`}
                   title={isTracksOpen ? `Close ${playlist.name} tracks` : `View ${playlist.name} tracks`}
                   aria-pressed={isTracksOpen}
@@ -2371,7 +2447,7 @@ export function SharedPlaylistCard({
                   <ListMusic className="w-4 h-4" />
                   <span className="hidden md:inline">Tracks</span>
                 </button>
-                <MoreMenu>
+                <MoreMenu activeButtonClass="btn-neutral-active">
                   <button
                     type="button"
                     onClick={onViewTracks}
