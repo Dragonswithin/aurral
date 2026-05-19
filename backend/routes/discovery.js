@@ -318,10 +318,11 @@ router.get("/", requireAuth, async (req, res) => {
     discoveryCache.recommendations?.length > 0 ||
     discoveryCache.globalTop?.length > 0 ||
     discoveryCache.topGenres?.length > 0;
+  const hasCompletedRefresh = !!discoveryCache.lastUpdated;
 
   let isUpdating = discoveryCache.isUpdating || false;
 
-  if (!hasData && !isUpdating) {
+  if (!hasData && !hasCompletedRefresh && !isUpdating) {
     lastDiscoveryRevalidateAt = Date.now();
     updateDiscoveryCache().catch((err) => {
       console.error("[Discover] Lazy discovery refresh failed:", err.message);

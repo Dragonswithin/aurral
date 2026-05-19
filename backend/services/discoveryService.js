@@ -462,6 +462,7 @@ let discoveryCache = { ...EMPTY_CACHE };
 
 const dbData = dbOps.getDiscoveryCache();
 if (
+  dbData.lastUpdated ||
   dbData.recommendations?.length > 0 ||
   dbData.globalTop?.length > 0 ||
   dbData.topGenres?.length > 0
@@ -502,6 +503,7 @@ export const getDiscoveryCache = (listenHistoryProfile = null) => {
 
   const dbData = dbOps.getDiscoveryCache();
   if (
+    (dbData.lastUpdated && !discoveryCache.lastUpdated) ||
     (dbData.recommendations?.length > 0 &&
       (!discoveryCache.recommendations ||
         discoveryCache.recommendations.length === 0)) ||
