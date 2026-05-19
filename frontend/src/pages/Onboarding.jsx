@@ -26,13 +26,10 @@ const STEPS = [
   "welcome",
   "admin",
   "lidarr",
-  "metadata",
   "navidrome",
   "lastfm",
   "done",
 ];
-
-const DEFAULT_METADATA_BASE_URL = "https://brainzmash.kell.ly";
 
 function Onboarding() {
   const [step, setStep] = useState(0);
@@ -41,9 +38,6 @@ function Onboarding() {
   const [authPasswordConfirm, setAuthPasswordConfirm] = useState("");
   const [lidarrUrl, setLidarrUrl] = useState("");
   const [lidarrApiKey, setLidarrApiKey] = useState("");
-  const [metadataBaseUrl, setMetadataBaseUrl] = useState(
-    DEFAULT_METADATA_BASE_URL,
-  );
   const [navidromeUrl, setNavidromeUrl] = useState("");
   const [navidromeUsername, setNavidromeUsername] = useState("");
   const [navidromePassword, setNavidromePassword] = useState("");
@@ -75,7 +69,6 @@ function Onboarding() {
     currentStep === "done" ||
     (currentStep === "admin" && adminComplete) ||
     (currentStep === "lidarr" && lidarrTestSuccess) ||
-    (currentStep === "metadata" && metadataBaseUrl.trim()) ||
     (currentStep === "navidrome" && (!hasNavidrome || navidromeTestSuccess)) ||
     currentStep === "lastfm";
   const isPrimaryDisabled =
@@ -172,9 +165,6 @@ function Onboarding() {
                 apiKey: lidarrApiKey.trim(),
               }
             : undefined,
-        metadata: metadataBaseUrl.trim()
-          ? { baseUrl: metadataBaseUrl.trim() }
-          : undefined,
         navidrome:
           navidromeUrl.trim() && navidromeUsername.trim() && navidromePassword
             ? {
@@ -241,9 +231,8 @@ function Onboarding() {
                 Welcome to Aurral
               </h2>
               <p className="text-sm" style={{ color: "#c1c1c3" }}>
-                Set up your admin account, connect Lidarr, and confirm the
-                BrainzMash metadata endpoint. Navidrome and Last.fm are optional
-                but recommended.
+                Set up your admin account and connect Lidarr. Navidrome and
+                Last.fm are optional but recommended.
               </p>
             </div>
           </>
@@ -330,29 +319,6 @@ function Onboarding() {
                 }}
               />
             </div>
-          </>
-        )}
-
-        {currentStep === "metadata" && (
-          <>
-            <div className="flex items-center gap-2 mb-4">
-              <h2 className="text-xl font-bold" style={{ color: "#fff" }}>
-                Metadata endpoint
-              </h2>
-            </div>
-            <p className="text-sm mb-4" style={{ color: "#c1c1c3" }}>
-              Aurral uses this BrainzMash-compatible metadata base URL for artist
-              and album data during local testing.
-            </p>
-            <input
-              type="url"
-              autoComplete="off"
-              className={inputClass}
-              style={inputStyle}
-              placeholder={DEFAULT_METADATA_BASE_URL}
-              value={metadataBaseUrl}
-              onChange={(e) => setMetadataBaseUrl(e.target.value)}
-            />
           </>
         )}
 
