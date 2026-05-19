@@ -603,6 +603,14 @@ export function ArtistDetailsLibraryAlbums({
                         </span>
                       </div>
                       <div className="flex flex-shrink-0 items-center gap-2">
+                        {track.length && (
+                          <span className="text-xs" style={{ color: "#c1c1c3" }}>
+                            {Math.floor(track.length / 60000)}:
+                            {Math.floor((track.length % 60000) / 1000)
+                              .toString()
+                              .padStart(2, "0")}
+                          </span>
+                        )}
                         {onAddTrackToPlaylist ? (
                           <button
                             type="button"
@@ -626,14 +634,6 @@ export function ArtistDetailsLibraryAlbums({
                             </span>
                           </button>
                         ) : null}
-                        {track.length && (
-                          <span className="text-xs" style={{ color: "#c1c1c3" }}>
-                            {Math.floor(track.length / 60000)}:
-                            {Math.floor((track.length % 60000) / 1000)
-                              .toString()
-                              .padStart(2, "0")}
-                          </span>
-                        )}
                         {track.hasFile ||
                         libraryAlbum?.statistics?.percentOfTracks >= 100 ||
                         libraryAlbum?.statistics?.sizeOnDisk > 0 ? (

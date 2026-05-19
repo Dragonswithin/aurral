@@ -4,6 +4,7 @@ import {
   ArrowDownWideNarrow,
   ArrowUpDown,
   ArrowUpWideNarrow,
+  Star,
   Loader,
   Music,
   CheckCircle,
@@ -22,7 +23,6 @@ import {
   Pause,
 } from "lucide-react";
 import AddAlbumButton from "../../../components/AddAlbumButton";
-import { getPopularityScale, segmentsFromScale } from "../utils";
 import { matchesReleaseTypeFilter } from "../utils";
 
 export function ArtistDetailsReleaseGroups({
@@ -260,15 +260,26 @@ export function ArtistDetailsReleaseGroups({
     .filter((rg) => !isReleaseGroupDownloadedInLibrary(rg.id));
   const visibleCoverSourceKey = filtered.map((rg) => rg.id).join(",");
   const visibleCount = filtered.length;
-  const { pivot: popularityPivot } = getPopularityScale(releaseGroups);
+  const getReleaseMetric = (releaseGroup) => {
+    const ratingValue =
+      releaseGroup?.rating?.value != null &&
+      Number.isFinite(Number(releaseGroup.rating.value))
+        ? Number(releaseGroup.rating.value)
+        : null;
+    if (ratingValue != null) {
+      return { type: "rating", sortValue: ratingValue };
+    }
+    const fans = typeof releaseGroup?.fans === "number" ? releaseGroup.fans : 0;
+    return { type: "fans", sortValue: fans };
+  };
   const sortedReleaseGroups = [...filtered].sort((a, b) => {
-    const fansA = typeof a?.fans === "number" ? a.fans : 0;
-    const fansB = typeof b?.fans === "number" ? b.fans : 0;
+    const metricA = getReleaseMetric(a).sortValue;
+    const metricB = getReleaseMetric(b).sortValue;
     if (sortMode === "popularityAsc") {
-      const diff = fansA - fansB;
+      const diff = metricA - metricB;
       if (diff !== 0) return diff;
     } else if (sortMode === "popularityDesc") {
-      const diff = fansB - fansA;
+      const diff = metricB - metricA;
       if (diff !== 0) return diff;
     }
     const dateA = a["first-release-date"] || "";
@@ -643,33 +654,41 @@ export function ArtistDetailsReleaseGroups({
                             </span>
                           )}
                         {(() => {
+                          const ratingValue =
+                            releaseGroup?.rating?.value != null &&
+                            Number.isFinite(Number(releaseGroup.rating.value))
+                              ? Number(releaseGroup.rating.value)
+                              : null;
+                          const ratingCount =
+                            releaseGroup?.rating?.count != null &&
+                            Number.isFinite(Number(releaseGroup.rating.count))
+                              ? Number(releaseGroup.rating.count)
+                              : 0;
                           const fans =
-                            typeof releaseGroup.fans === "number"
+                            typeof releaseGroup?.fans === "number"
                               ? releaseGroup.fans
                               : 0;
-                          const segments = segmentsFromScale(
-                            fans,
-                            popularityPivot,
-                            10,
-                          );
+                          if (ratingValue == null && fans <= 0) return null;
                           return (
                             <span
-                              className="flex items-center gap-0.5 ml-1"
-                              title={`Popularity: ${segments}/10 · ${fans.toLocaleString()} listeners`}
+                              className="ml-1 inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/15 px-2 py-0.5"
+                              title={
+                                ratingValue != null
+                                  ? `Rating: ${ratingValue.toFixed(1)}${ratingCount > 0 ? ` (${ratingCount} votes)` : ""}`
+                                  : `Popularity fallback: ${fans.toLocaleString()} listeners`
+                              }
                             >
-                              {Array.from({ length: 10 }, (_, i) => {
-                                const n = i + 1;
-                                return (
-                                  <span
-                                    key={n}
-                                    className="w-1 h-3 rounded-sm flex-shrink-0"
-                                    style={{
-                                      backgroundColor:
-                                        n <= segments ? "#eab308" : "#4b5563",
-                                    }}
-                                  />
-                                );
-                              })}
+                              <Star className="h-3.5 w-3.5" style={{ color: "#eab308" }} />
+                              <span style={{ color: "#fff" }}>
+                                {ratingValue != null
+                                  ? ratingValue.toFixed(1)
+                                  : `${fans.toLocaleString()}`}
+                              </span>
+                              {ratingValue != null && ratingCount > 0 ? (
+                                <span style={{ color: "#c1c1c3" }}>
+                                  ({ratingCount})
+                                </span>
+                              ) : null}
                             </span>
                           );
                         })()}
@@ -926,6 +945,12 @@ export function ArtistDetailsReleaseGroups({
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-2 flex-shrink-0">
+                                  <span
+                                    className="text-xs w-10 text-right tabular-nums"
+                                    style={{ color: "#c1c1c3" }}
+                                  >
+                                    {durationLabel}
+                                  </span>
                                   {onAddTrackToPlaylist ? (
                                     <button
                                       type="button"
@@ -976,12 +1001,6 @@ export function ArtistDetailsReleaseGroups({
                                       )}
                                     </button>
                                   )}
-                                  <span
-                                    className="text-xs w-10 text-right tabular-nums"
-                                    style={{ color: "#c1c1c3" }}
-                                  >
-                                    {durationLabel}
-                                  </span>
                                   {track.hasFile ||
                                   status?.albumInfo?.statistics
                                     ?.percentOfTracks >= 100 ||
@@ -992,13 +1011,6 @@ export function ArtistDetailsReleaseGroups({
                                       style={{ color: "#c1c1c3" }}
                                     >
                                       <CheckCircle className="w-4 h-4 text-green-500" />
-                                    </span>
-                                  ) : status?.libraryId ? (
-                                    <span
-                                      className="text-xs w-12 text-right"
-                                      style={{ color: "#c1c1c3" }}
-                                    >
-                                      Missing
                                     </span>
                                   ) : (
                                     <span className="w-12" />

@@ -113,6 +113,7 @@ export const UUID_REGEX =
 export const MUSICBRAINZ_API = "https://musicbrainz.org/ws/2";
 export const AURRAL_MUSICBRAINZ_API = "https://mb.lkly.net/ws/2";
 export const OFFICIAL_COVER_ART_ARCHIVE_API = "https://coverartarchive.org";
+export const DEFAULT_METADATA_BASE_URL = "https://brainzmash.kell.ly";
 export const LASTFM_API = "https://ws.audioscrobbler.com/2.0/";
 export const LISTENBRAINZ_API = "https://api.listenbrainz.org";
 export const APP_NAME = "Aurral";
@@ -197,10 +198,11 @@ export const defaultData = {
         defaultMonitorOption: "none",
         searchOnAdd: false,
       },
-      musicbrainz: {
-        email: "",
-        provider: "aurralHosted",
-        customUrl: "",
+      metadata: {
+        provider: "brainzmash",
+        baseUrl: DEFAULT_METADATA_BASE_URL,
+        userAgentSuffix: "",
+        enableNarrowFallbacks: true,
       },
       general: { authUser: "", authPassword: "" },
       gotify: {

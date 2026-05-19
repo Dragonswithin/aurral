@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import {
   Loader,
@@ -17,8 +17,9 @@ import {
   MoreHorizontal,
   Volume2,
   VolumeX,
+  ChevronUp,
 } from "lucide-react";
-import { getCoverImage, getTagColor, formatLifeSpan, getArtistType } from "../utils";
+import { getCoverImage, getTagColor, formatLifeSpan } from "../utils";
 import AddToLibraryButton from "../../../components/AddToLibraryButton";
 import lidarrLogo from "../../../../images/logos/lidarr.svg?raw";
 import lastFmLogo from "../../../../images/logos/last-fm.svg?raw";
@@ -31,6 +32,57 @@ const toCurrentColorSvg = (svg) =>
     .replace(/fill="#fff"/gi, 'fill="currentColor"')
     .replace(/fill:#ffffff/gi, "fill:currentColor")
     .replace(/fill="#ffffff"/gi, 'fill="currentColor"');
+
+const normalizeExternalHref = (value) => {
+  const href = String(value || "").trim();
+  if (!href) return null;
+  try {
+    return new URL(href).toString();
+  } catch {
+    return null;
+  }
+};
+
+const hostnameLabel = (href) => {
+  try {
+    return new URL(href).hostname.replace(/^www\./, "");
+  } catch {
+    return href;
+  }
+};
+
+const buildRelationLinks = (artist) => {
+  const directLinks = Array.isArray(artist?.links)
+    ? artist.links
+    : [];
+  if (directLinks.length > 0) {
+    return directLinks
+      .map((link, index) => {
+        const href = normalizeExternalHref(link?.target || link?.url);
+        if (!href) return null;
+        return {
+          key: `brainzmash-link-${index}`,
+          label: link?.type || hostnameLabel(href),
+          href,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  return Array.isArray(artist?.relations)
+    ? artist.relations
+        .map((relation, index) => {
+          const href = normalizeExternalHref(relation?.url?.resource);
+          if (!href) return null;
+          return {
+            key: `relation-link-${index}`,
+            label: relation?.type || hostnameLabel(href),
+            href,
+          };
+        })
+        .filter(Boolean)
+    : [];
+};
 
 export function ArtistDetailsHero({
   artist,
@@ -77,6 +129,16 @@ export function ArtistDetailsHero({
   const lifeSpan = formatLifeSpan(artist["life-span"]);
   const [showHeroMenu, setShowHeroMenu] = useState(false);
   const [coverFailed, setCoverFailed] = useState(false);
+  const [showAllTags, setShowAllTags] = useState(false);
+  const [showAllSecondaryLinks, setShowAllSecondaryLinks] = useState(false);
+  const [collapsedTagCount, setCollapsedTagCount] = useState(8);
+  const [collapsedSecondaryLinkCount, setCollapsedSecondaryLinkCount] = useState(6);
+  const tagsRowRef = useRef(null);
+  const tagsMeasureRef = useRef(null);
+  const tagsToggleMeasureRef = useRef(null);
+  const secondaryLinksRowRef = useRef(null);
+  const secondaryLinksMeasureRef = useRef(null);
+  const secondaryLinksToggleMeasureRef = useRef(null);
   const lidarrArtistId =
     artist?.id ||
     libraryArtist?.foreignArtistId ||
@@ -97,15 +159,11 @@ export function ArtistDetailsHero({
   useEffect(() => {
     setCoverFailed(false);
   }, [coverImage]);
+  useEffect(() => {
+    setShowAllTags(false);
+    setShowAllSecondaryLinks(false);
+  }, [artist?.id]);
   const metadataItems = [
-    artist.type
-      ? {
-          key: "type",
-          icon: Music,
-          label: "Type",
-          value: getArtistType(artist.type),
-        }
-      : null,
     lifeSpan
       ? {
           key: "active",
@@ -131,58 +189,162 @@ export function ArtistDetailsHero({
         }
       : null,
   ].filter(Boolean);
-  const tags = [
-    ...(Array.isArray(artist.genres) ? artist.genres : []).map((genre, idx) => ({
-      key: `genre-${idx}`,
-      name: typeof genre === "string" ? genre : genre?.name,
-    })),
-    ...(Array.isArray(artist.tags) ? artist.tags : []).map((tag, idx) => ({
-      key: `tag-${idx}`,
-      name: typeof tag === "string" ? tag : tag?.name,
-    })),
-  ].filter((tag) => tag.name);
-  const externalLinks = [
-    lidarrArtistLink
-      ? {
-          key: "lidarr",
-          label: "Lidarr",
-          href: lidarrArtistLink,
-          logo: toCurrentColorSvg(lidarrLogo),
-          color: "#009252",
-        }
-      : null,
-    {
-      key: "lastfm",
-      label: "Last.fm",
-      href: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
-      logo: toCurrentColorSvg(lastFmLogo),
-      color: "#D1170D",
-    },
-    artist.id &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      artist.id
-    )
-      ? {
-          key: "musicbrainz",
-          label: "MusicBrainz",
-          href: `https://musicbrainz.org/artist/${artist.id}`,
-          logo: toCurrentColorSvg(musicBrainzLogo),
-          color: "#BA478F",
-        }
-      : null,
-    artist.id &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      artist.id
-    )
-      ? {
-          key: "listenbrainz",
-          label: "ListenBrainz",
-          href: `https://listenbrainz.org/artist/${encodeURIComponent(artist.id)}/`,
-          logo: toCurrentColorSvg(listenBrainzLogo),
-          color: "#353070",
-        }
-      : null,
-  ].filter(Boolean);
+  const tags = useMemo(
+    () =>
+      [
+        ...(Array.isArray(artist.genres) ? artist.genres : []).map((genre, idx) => ({
+          key: `genre-${idx}`,
+          name: typeof genre === "string" ? genre : genre?.name,
+        })),
+        ...(Array.isArray(artist.tags) ? artist.tags : []).map((tag, idx) => ({
+          key: `tag-${idx}`,
+          name: typeof tag === "string" ? tag : tag?.name,
+        })),
+      ].filter((tag) => tag.name),
+    [artist.genres, artist.tags],
+  );
+  const visibleTags = showAllTags ? tags : tags.slice(0, collapsedTagCount);
+  const primaryExternalLinks = useMemo(
+    () =>
+      [
+        lidarrArtistLink
+          ? {
+              key: "lidarr",
+              label: "Lidarr",
+              href: lidarrArtistLink,
+              logo: toCurrentColorSvg(lidarrLogo),
+              color: "#009252",
+            }
+          : null,
+        {
+          key: "lastfm",
+          label: "Last.fm",
+          href: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
+          logo: toCurrentColorSvg(lastFmLogo),
+          color: "#D1170D",
+        },
+        artist.id &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          artist.id
+        )
+          ? {
+              key: "musicbrainz",
+              label: "MusicBrainz",
+              href: `https://musicbrainz.org/artist/${artist.id}`,
+              logo: toCurrentColorSvg(musicBrainzLogo),
+              color: "#BA478F",
+            }
+          : null,
+        artist.id &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          artist.id
+        )
+          ? {
+              key: "listenbrainz",
+              label: "ListenBrainz",
+              href: `https://listenbrainz.org/artist/${encodeURIComponent(artist.id)}/`,
+              logo: toCurrentColorSvg(listenBrainzLogo),
+              color: "#353070",
+            }
+          : null,
+      ].filter(Boolean),
+    [artist.id, artist.name, lidarrArtistLink],
+  );
+  const secondaryExternalLinks = useMemo(
+    () =>
+      buildRelationLinks(artist).map((link) => ({
+        ...link,
+        color: "#a8acb8",
+      })),
+    [artist],
+  );
+  const { uniquePrimaryExternalLinks, uniqueSecondaryExternalLinks } = useMemo(() => {
+    const nextPrimaryExternalLinks = [];
+    const nextSecondaryExternalLinks = [];
+    const seenExternalHrefs = new Set();
+    for (const link of primaryExternalLinks) {
+      const href = normalizeExternalHref(link?.href);
+      if (!href || seenExternalHrefs.has(href)) continue;
+      seenExternalHrefs.add(href);
+      nextPrimaryExternalLinks.push({ ...link, href });
+    }
+    for (const link of secondaryExternalLinks) {
+      const href = normalizeExternalHref(link?.href);
+      if (!href || seenExternalHrefs.has(href)) continue;
+      seenExternalHrefs.add(href);
+      nextSecondaryExternalLinks.push({ ...link, href });
+    }
+    return {
+      uniquePrimaryExternalLinks: nextPrimaryExternalLinks,
+      uniqueSecondaryExternalLinks: nextSecondaryExternalLinks,
+    };
+  }, [primaryExternalLinks, secondaryExternalLinks]);
+  const visibleSecondaryLinks = showAllSecondaryLinks
+    ? uniqueSecondaryExternalLinks
+    : uniqueSecondaryExternalLinks.slice(0, collapsedSecondaryLinkCount);
+
+  useEffect(() => {
+    const GAP = 8;
+
+    const measureFitCount = ({
+      rowRef,
+      itemsRef,
+      toggleRef,
+      itemCount,
+      setCount,
+      fallbackCount,
+    }) => {
+      const row = rowRef.current;
+      const items = itemsRef.current?.children
+        ? Array.from(itemsRef.current.children)
+        : [];
+      const toggle = toggleRef.current;
+      if (!row || items.length === 0) {
+        setCount(fallbackCount);
+        return;
+      }
+      const rowWidth = row.clientWidth;
+      const toggleWidth = itemCount > 0 && toggle ? toggle.offsetWidth + GAP : 0;
+      const available = Math.max(0, rowWidth - toggleWidth);
+      let used = 0;
+      let count = 0;
+      for (const item of items) {
+        const width = item.offsetWidth;
+        const next = count === 0 ? width : used + GAP + width;
+        if (next > available) break;
+        used = next;
+        count += 1;
+      }
+      setCount(Math.max(1, count || fallbackCount));
+    };
+
+    const runMeasurements = () => {
+      measureFitCount({
+        rowRef: tagsRowRef,
+        itemsRef: tagsMeasureRef,
+        toggleRef: tagsToggleMeasureRef,
+        itemCount: tags.length,
+        setCount: setCollapsedTagCount,
+        fallbackCount: Math.min(8, Math.max(1, tags.length)),
+      });
+      measureFitCount({
+        rowRef: secondaryLinksRowRef,
+        itemsRef: secondaryLinksMeasureRef,
+        toggleRef: secondaryLinksToggleMeasureRef,
+        itemCount: uniqueSecondaryExternalLinks.length,
+        setCount: setCollapsedSecondaryLinkCount,
+        fallbackCount: Math.min(6, Math.max(1, uniqueSecondaryExternalLinks.length)),
+      });
+    };
+
+    runMeasurements();
+    const observer = new ResizeObserver(() => {
+      runMeasurements();
+    });
+    if (tagsRowRef.current) observer.observe(tagsRowRef.current);
+    if (secondaryLinksRowRef.current) observer.observe(secondaryLinksRowRef.current);
+    return () => observer.disconnect();
+  }, [tags, uniqueSecondaryExternalLinks, artist?.id]);
 
   const renderLibraryAction = () => {
     if (loadingLibrary) {
@@ -598,16 +760,6 @@ export function ArtistDetailsHero({
                         {artist.name}
                       </h1>
                     </div>
-                    {artist["sort-name"] && artist["sort-name"] !== artist.name && (
-                      <p className="mt-2 text-sm sm:text-base" style={{ color: "#c1c1c3" }}>
-                        {artist["sort-name"]}
-                      </p>
-                    )}
-                    {artist.disambiguation && (
-                      <p className="mt-3 max-w-2xl text-sm italic sm:text-base" style={{ color: "#d5d6db" }}>
-                        {artist.disambiguation}
-                      </p>
-                    )}
                   </div>
 
                   {renderHeroMenu()}
@@ -649,34 +801,88 @@ export function ArtistDetailsHero({
               </div>
             </div>
 
-            <div className="mt-5 flex gap-2 overflow-x-auto whitespace-nowrap pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible">
-              {tags.length > 0 ? (
-                tags.map((tag) => (
-                  <button
-                    key={tag.key}
-                    onClick={() =>
-                      onNavigate(`/search?q=${encodeURIComponent(`#${tag.name}`)}&type=tag`)
-                    }
-                    className="badge genre-tag-pill shrink-0 px-3 py-1.5 text-sm cursor-pointer"
-                    style={{
-                      backgroundColor: getTagColor(tag.name),
-                      color: "#fff",
-                    }}
-                    title={`View artists with tag: ${tag.name}`}
-                  >
-                    #{tag.name}
-                  </button>
-                ))
-              ) : (
-                <span className="text-sm" style={{ color: "#c1c1c3" }}>
-                  No tags
-                </span>
-              )}
+            <div className="mt-5 flex items-start gap-2">
+              <div className="absolute -left-[9999px] top-auto invisible pointer-events-none whitespace-nowrap">
+                <div ref={tagsMeasureRef} className="flex gap-2">
+                  {tags.map((tag) => (
+                    <span
+                      key={`measure-${tag.key}`}
+                      className="badge genre-tag-pill shrink-0 px-3 py-1.5 text-sm"
+                    >
+                      #{tag.name}
+                    </span>
+                  ))}
+                </div>
+                <button
+                  ref={tagsToggleMeasureRef}
+                  type="button"
+                  className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-sm"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </div>
+              <div
+                ref={tagsRowRef}
+                className={`min-w-0 flex-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+                  showAllTags
+                    ? "overflow-visible whitespace-normal"
+                    : "overflow-x-auto whitespace-nowrap"
+                }`}
+              >
+                <div className={`flex gap-2 ${showAllTags ? "flex-wrap" : ""}`}>
+                  {tags.length > 0 ? (
+                    visibleTags.map((tag) => (
+                      <button
+                        key={tag.key}
+                        onClick={() =>
+                          onNavigate(`/search?q=${encodeURIComponent(`#${tag.name}`)}&type=tag`)
+                        }
+                        className="badge genre-tag-pill shrink-0 px-3 py-1.5 text-sm cursor-pointer"
+                        style={{
+                          backgroundColor: getTagColor(tag.name),
+                          color: "#fff",
+                        }}
+                        title={`View artists with tag: ${tag.name}`}
+                      >
+                        #{tag.name}
+                      </button>
+                    ))
+                  ) : (
+                    <span className="text-sm" style={{ color: "#c1c1c3" }}>
+                      No tags
+                    </span>
+                  )}
+                </div>
+              </div>
+              {tags.length > visibleTags.length ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAllTags(true)}
+                  className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-sm transition-colors hover:bg-white/[0.08]"
+                  style={{ color: "#c1c1c3" }}
+                  aria-label="Show all tags"
+                  title="Show all tags"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              ) : null}
+              {showAllTags && tags.length > collapsedTagCount ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAllTags(false)}
+                  className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-sm transition-colors hover:bg-white/[0.08]"
+                  style={{ color: "#c1c1c3" }}
+                  aria-label="Collapse tags"
+                  title="Collapse tags"
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </button>
+              ) : null}
             </div>
 
-            {externalLinks.length > 0 && (
+            {uniquePrimaryExternalLinks.length > 0 && (
               <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-                {externalLinks.map((link) => (
+                {uniquePrimaryExternalLinks.map((link) => (
                   <a
                     key={link.key}
                     href={link.href}
@@ -685,15 +891,100 @@ export function ArtistDetailsHero({
                     className="inline-flex items-center gap-2 text-sm transition-opacity hover:opacity-100"
                     style={{ color: "#d5d6db", opacity: 0.92 }}
                   >
-                    <span
-                      className="flex h-4 w-4 flex-shrink-0 items-center justify-center [&_svg]:h-full [&_svg]:w-full"
-                      style={{ color: link.color }}
-                      aria-hidden="true"
-                      dangerouslySetInnerHTML={{ __html: link.logo }}
-                    />
+                    {link.logo ? (
+                      <span
+                        className="flex h-4 w-4 flex-shrink-0 items-center justify-center [&_svg]:h-full [&_svg]:w-full"
+                        style={{ color: link.color }}
+                        aria-hidden="true"
+                        dangerouslySetInnerHTML={{ __html: link.logo }}
+                      />
+                    ) : link.icon ? (
+                      <span
+                        className="flex h-4 w-4 flex-shrink-0 items-center justify-center"
+                        style={{ color: link.color }}
+                        aria-hidden="true"
+                      >
+                        <link.icon className="h-4 w-4" />
+                      </span>
+                    ) : null}
                     <span>{link.label}</span>
                   </a>
                 ))}
+              </div>
+            )}
+
+            {uniqueSecondaryExternalLinks.length > 0 && (
+              <div className="mt-2 flex items-start gap-2">
+                <div className="absolute -left-[9999px] top-auto invisible pointer-events-none whitespace-nowrap">
+                  <div ref={secondaryLinksMeasureRef} className="flex gap-x-3 gap-y-1.5">
+                    {uniqueSecondaryExternalLinks.map((link) => (
+                      <span
+                        key={`measure-${link.key}`}
+                        className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs"
+                      >
+                        {link.label}
+                      </span>
+                    ))}
+                  </div>
+                  <button
+                    ref={secondaryLinksToggleMeasureRef}
+                    type="button"
+                    className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-xs"
+                  >
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div
+                  ref={secondaryLinksRowRef}
+                  className={`min-w-0 flex-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+                    showAllSecondaryLinks
+                      ? "overflow-visible whitespace-normal"
+                      : "overflow-x-auto whitespace-nowrap"
+                  }`}
+                >
+                  <div
+                    className={`flex gap-x-3 gap-y-1.5 ${
+                      showAllSecondaryLinks ? "flex-wrap whitespace-normal" : "whitespace-nowrap"
+                    }`}
+                  >
+                    {visibleSecondaryLinks.map((link) => (
+                      <a
+                        key={link.key}
+                        href={link.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs transition-colors hover:bg-white/[0.08]"
+                        style={{ color: "#a8acb8", opacity: 0.9 }}
+                      >
+                        <span>{link.label}</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+                {uniqueSecondaryExternalLinks.length > visibleSecondaryLinks.length ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllSecondaryLinks(true)}
+                    className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-xs transition-colors hover:bg-white/[0.08]"
+                    style={{ color: "#a8acb8" }}
+                    aria-label="Show all links"
+                    title="Show all links"
+                  >
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+                {showAllSecondaryLinks && uniqueSecondaryExternalLinks.length > collapsedSecondaryLinkCount ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllSecondaryLinks(false)}
+                    className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-xs transition-colors hover:bg-white/[0.08]"
+                    style={{ color: "#a8acb8" }}
+                    aria-label="Collapse links"
+                    title="Collapse links"
+                  >
+                    <ChevronUp className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
               </div>
             )}
           </div>

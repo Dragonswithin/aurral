@@ -39,7 +39,8 @@ function MetadataProvidersPage() {
             Metadata Providers
           </h1>
           <p style={{ color: "#c1c1c3" }}>
-            Advanced controls for MusicBrainz and Cover Art Archive routing.
+            Configure the BrainzMash-native metadata backend used for local
+            testing.
           </p>
         </div>
 

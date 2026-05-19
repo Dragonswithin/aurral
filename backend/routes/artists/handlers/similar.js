@@ -2,7 +2,6 @@ import { UUID_REGEX } from "../../../config/constants.js";
 import {
   getLastfmApiKey,
   lastfmRequest,
-  lastfmGetArtistNameByMbid,
   musicbrainzGetArtistNameByMbid,
 } from "../../../services/apiClients.js";
 import { dbOps } from "../../../config/db-helpers.js";
@@ -36,7 +35,6 @@ export default function registerSimilar(router) {
       if (!data?.similarartists?.artist) {
         const fallbackArtistName =
           artistNameParam ||
-          (await lastfmGetArtistNameByMbid(resolvedMbid).catch(() => null)) ||
           (await musicbrainzGetArtistNameByMbid(resolvedMbid).catch(() => null)) ||
           "";
 

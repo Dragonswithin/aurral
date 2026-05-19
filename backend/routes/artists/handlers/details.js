@@ -2,18 +2,64 @@ import { UUID_REGEX } from "../../../config/constants.js";
 import {
   getLastfmApiKey,
   lastfmRequest,
-  lastfmGetArtistNameByMbid,
-  getArtistBio,
   musicbrainzGetArtistReleaseGroups,
-  enrichReleaseGroupsWithLastfm,
   musicbrainzGetArtistNameByMbid,
 } from "../../../services/apiClients.js";
 import { dbOps } from "../../../config/db-helpers.js";
 import { cacheMiddleware } from "../../../middleware/cache.js";
 import { requireAuth } from "../../../middleware/requirePermission.js";
 import { pendingArtistRequests } from "../utils.js";
+import { getArtistByMbid } from "../../../services/metadataProvider.js";
 
 export default function registerDetails(router) {
+  const toLegacyRelations = (metadataArtist) =>
+    Array.isArray(metadataArtist?.links)
+      ? metadataArtist.links
+          .filter((link) => link?.target)
+          .map((link) => ({
+            type: link.type || "external",
+            url: { resource: link.target },
+          }))
+      : [];
+
+  const getLastfmTags = async (mbid, artistName = "") => {
+    if (!getLastfmApiKey()) return [];
+    let data = await lastfmRequest("artist.getTopTags", { mbid }).catch(() => null);
+    if (!data?.toptags?.tag && artistName) {
+      data = await lastfmRequest("artist.getTopTags", { artist: artistName }).catch(
+        () => null,
+      );
+    }
+    const tags = data?.toptags?.tag
+      ? Array.isArray(data.toptags.tag)
+        ? data.toptags.tag
+        : [data.toptags.tag]
+      : [];
+    return tags
+      .map((tag) => ({
+        name: String(tag?.name || "").trim(),
+        count: Number(tag?.count || 0),
+      }))
+      .filter((tag) => tag.name);
+  };
+
+  const getArtistTagPayload = async (mbid, artistName = "", metadataArtist = null) => {
+    const lastfmTags = await getLastfmTags(mbid, artistName);
+    if (lastfmTags.length > 0) {
+      return {
+        tags: lastfmTags,
+        genres: lastfmTags.map((tag) => tag.name),
+      };
+    }
+    const fallbackGenres = Array.isArray(metadataArtist?.genres)
+      ? metadataArtist.genres.filter(Boolean)
+      : [];
+    return {
+      tags: fallbackGenres.map((genre) => ({ name: genre, count: 0 })),
+      genres: fallbackGenres,
+    };
+  };
+
   const parseSelectedReleaseTypes = (value) =>
     typeof value === "string" && value.trim()
       ? value
@@ -174,53 +220,44 @@ export default function registerDetails(router) {
       if (lidarrArtist) {
         const artistMbid =
           override?.musicbrainzId || lidarrArtist.foreignArtistId || mbid;
-        const [bio, tagsData] = coreOnly
-          ? [null, null]
-          : await Promise.all([
-              getArtistBio(lidarrArtist.artistName, artistMbid),
-              getLastfmApiKey()
-                ? lastfmRequest("artist.getTopTags", { mbid: artistMbid })
-                : null,
-            ]);
-        const tags = coreOnly
-          ? []
-          : tagsData?.toptags?.tag
-            ? (Array.isArray(tagsData.toptags.tag)
-                ? tagsData.toptags.tag
-                : [tagsData.toptags.tag]
-              ).map((t) => ({ name: t.name, count: t.count || 0 }))
-            : [];
+        const metadataArtist = coreOnly
+          ? null
+          : await getArtistByMbid(artistMbid).catch(() => null);
+        const releaseGroups = await musicbrainzGetArtistReleaseGroups(artistMbid, selectedReleaseTypes);
+        const tagPayload = coreOnly
+          ? { tags: [], genres: [] }
+          : await getArtistTagPayload(
+              artistMbid,
+              metadataArtist?.name || lidarrArtist.artistName,
+              metadataArtist,
+            );
         const payload = {
           id: artistMbid,
-          name: lidarrArtist.artistName,
-          "sort-name": lidarrArtist.artistName,
-          disambiguation: "",
+          name: metadataArtist?.name || lidarrArtist.artistName,
+          "sort-name":
+            metadataArtist?.sortName || metadataArtist?.name || lidarrArtist.artistName,
+          disambiguation: metadataArtist?.disambiguation || "",
           "type-id": null,
-          type: null,
+          type: metadataArtist?.type || null,
           country: null,
           "life-span": {
             begin: null,
             end: null,
             ended: false,
           },
-          tags,
-          genres: [],
-          "release-groups": lidarrAlbums.map((album) => ({
-            id: album.mbid,
-            title: album.albumName,
-            "first-release-date": album.releaseDate || null,
-            "primary-type": "Album",
-            "secondary-types": [],
-          })),
-          relations: [],
-          "release-group-count": lidarrAlbums.length,
-          "release-count": lidarrAlbums.length,
+          tags: tagPayload.tags,
+          genres: tagPayload.genres,
+          links: Array.isArray(metadataArtist?.links) ? metadataArtist.links : [],
+          "release-groups": releaseGroups,
+          relations: toLegacyRelations(metadataArtist),
+          "release-group-count": releaseGroups.length,
+          "release-count": releaseGroups.length,
           _lidarrData: {
             id: lidarrArtist.id,
             monitored: lidarrArtist.monitored,
             statistics: lidarrArtist.statistics,
           },
-          ...(bio ? { bio } : {}),
+          ...(metadataArtist?.overview ? { bio: metadataArtist.overview } : {}),
         };
 
         res.setHeader("Content-Type", "application/json");
@@ -229,53 +266,39 @@ export default function registerDetails(router) {
       }
 
       const fetchPromise = (async () => {
+        const metadataArtist = coreOnly
+          ? null
+          : await getArtistByMbid(resolvedMbid).catch(() => null);
         const name =
           (req.query.artistName || "").trim() ||
-          (getLastfmApiKey()
-            ? await lastfmGetArtistNameByMbid(resolvedMbid)
-            : null) ||
+          metadataArtist?.name ||
           (await musicbrainzGetArtistNameByMbid(resolvedMbid)) ||
           "Unknown Artist";
-        const tagsData =
-          !coreOnly && getLastfmApiKey()
-            ? await lastfmRequest("artist.getTopTags", { mbid: resolvedMbid })
-            : null;
-        const tags =
-          !coreOnly && tagsData?.toptags?.tag
-            ? (Array.isArray(tagsData.toptags.tag)
-                ? tagsData.toptags.tag
-                : [tagsData.toptags.tag]
-              ).map((t) => ({ name: t.name, count: t.count || 0 }))
-            : [];
+        const tagPayload = coreOnly
+          ? { tags: [], genres: [] }
+          : await getArtistTagPayload(resolvedMbid, name, metadataArtist);
         const releaseGroups =
           await musicbrainzGetArtistReleaseGroups(
             resolvedMbid,
             selectedReleaseTypes,
           );
-        if (!coreOnly && getLastfmApiKey()) {
-          await enrichReleaseGroupsWithLastfm(
-            releaseGroups,
-            name,
-            resolvedMbid,
-          );
-        }
-        const bio = coreOnly ? null : await getArtistBio(name, resolvedMbid);
         return {
           id: resolvedMbid,
           name,
-          "sort-name": name,
-          disambiguation: "",
+          "sort-name": metadataArtist?.sortName || name,
+          disambiguation: metadataArtist?.disambiguation || "",
           "type-id": null,
-          type: null,
+          type: metadataArtist?.type || null,
           country: null,
           "life-span": { begin: null, end: null, ended: false },
-          tags,
-          genres: [],
+          tags: tagPayload.tags,
+          genres: tagPayload.genres,
+          links: Array.isArray(metadataArtist?.links) ? metadataArtist.links : [],
           "release-groups": releaseGroups,
-          relations: [],
+          relations: toLegacyRelations(metadataArtist),
           "release-group-count": releaseGroups.length,
           "release-count": releaseGroups.length,
-          bio: bio || undefined,
+          bio: metadataArtist?.overview || undefined,
         };
       })();
 
@@ -298,6 +321,7 @@ export default function registerDetails(router) {
           "life-span": { begin: null, end: null, ended: false },
           tags: [],
           genres: [],
+          links: [],
           "release-groups": [],
           relations: [],
           "release-group-count": 0,

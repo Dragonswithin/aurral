@@ -1,6 +1,6 @@
 import express from "express";
 import { dbOps } from "../config/db-helpers.js";
-import { defaultData } from "../config/constants.js";
+import { DEFAULT_METADATA_BASE_URL, defaultData } from "../config/constants.js";
 import { noCache } from "../middleware/cache.js";
 import { requireAuth, requireAdmin } from "../middleware/requirePermission.js";
 import { validateExternalUrl } from "../middleware/urlValidator.js";
@@ -14,6 +14,20 @@ router.get("/", noCache, (req, res) => {
     const settings = dbOps.getSettings();
     if (settings?.integrations?.coverArtArchive) {
       delete settings.integrations.coverArtArchive;
+    }
+    if (settings?.integrations?.musicbrainz) {
+      delete settings.integrations.musicbrainz;
+    }
+    if (!settings?.integrations?.metadata) {
+      const legacyMusicbrainz = dbOps.getSettings()?.integrations?.musicbrainz || {};
+      settings.integrations.metadata = {
+        provider: "brainzmash",
+        baseUrl:
+          String(legacyMusicbrainz.customUrl || "").trim().replace(/\/ws\/2\/?$/, "") ||
+          DEFAULT_METADATA_BASE_URL,
+        userAgentSuffix: "",
+        enableNarrowFallbacks: true,
+      };
     }
     res.json(settings);
   } catch (error) {
@@ -43,50 +57,26 @@ router.post("/", async (req, res) => {
       }
     }
 
-    const musicbrainzProvider = integrations?.musicbrainz?.provider;
-    const validMusicbrainzProviders = new Set([
-      "aurralHosted",
-      "official",
-      "custom",
-    ]);
-    if (
-      musicbrainzProvider !== undefined &&
-      !validMusicbrainzProviders.has(musicbrainzProvider)
-    ) {
-      return res.status(400).json({
-        error:
-          "Invalid MusicBrainz provider. Expected aurralHosted, official, or custom.",
-      });
-    }
-
-    if (integrations?.musicbrainz) {
-      const nextMusicbrainz = {
-        ...(currentSettings.integrations?.musicbrainz || {}),
-        ...integrations.musicbrainz,
+    if (integrations?.metadata) {
+      const nextMetadata = {
+        ...(currentSettings.integrations?.metadata || {}),
+        ...integrations.metadata,
       };
-      const provider = validMusicbrainzProviders.has(nextMusicbrainz.provider)
-        ? nextMusicbrainz.provider
-        : "aurralHosted";
-      nextMusicbrainz.provider = provider;
-
-      if (provider === "custom") {
-        const customUrlValidation = validateExternalUrl(
-          nextMusicbrainz.customUrl || "",
-        );
-        if (!customUrlValidation.valid) {
-          return res.status(400).json({
-            error: `Invalid custom MusicBrainz URL: ${customUrlValidation.error}`,
-          });
-        }
-        nextMusicbrainz.customUrl = customUrlValidation.url;
-      } else {
-        nextMusicbrainz.customUrl =
-          typeof nextMusicbrainz.customUrl === "string"
-            ? nextMusicbrainz.customUrl.trim()
-            : "";
+      nextMetadata.provider = "brainzmash";
+      const baseUrlValidation = validateExternalUrl(nextMetadata.baseUrl || "");
+      if (!baseUrlValidation.valid) {
+        return res.status(400).json({
+          error: `Invalid metadata base URL: ${baseUrlValidation.error}`,
+        });
       }
-
-      integrations.musicbrainz = nextMusicbrainz;
+      nextMetadata.baseUrl = baseUrlValidation.url.replace(/\/+$/, "");
+      nextMetadata.userAgentSuffix =
+        typeof nextMetadata.userAgentSuffix === "string"
+          ? nextMetadata.userAgentSuffix.trim()
+          : "";
+      nextMetadata.enableNarrowFallbacks =
+        nextMetadata.enableNarrowFallbacks !== false;
+      integrations.metadata = nextMetadata;
     }
     if (integrations?.coverArtArchive) {
       delete integrations.coverArtArchive;
@@ -128,12 +118,12 @@ router.post("/", async (req, res) => {
               ...integrations.ticketmaster,
             }
           : mergedIntegrations.ticketmaster,
-        musicbrainz: integrations.musicbrainz
+        metadata: integrations.metadata
           ? {
-              ...(mergedIntegrations.musicbrainz || {}),
-              ...integrations.musicbrainz,
+              ...(mergedIntegrations.metadata || {}),
+              ...integrations.metadata,
             }
-          : mergedIntegrations.musicbrainz,
+          : mergedIntegrations.metadata,
         general: integrations.general
           ? {
               ...(mergedIntegrations.general || {}),
@@ -179,6 +169,9 @@ router.post("/", async (req, res) => {
 
     if (updatedSettings?.integrations?.coverArtArchive) {
       delete updatedSettings.integrations.coverArtArchive;
+    }
+    if (updatedSettings?.integrations?.musicbrainz) {
+      delete updatedSettings.integrations.musicbrainz;
     }
 
     dbOps.updateSettings(updatedSettings);

@@ -1,5 +1,6 @@
 import { libraryManager } from "../../../services/libraryManager.js";
 import { cacheMiddleware } from "../../../middleware/cache.js";
+import { getAlbumTracksByAlbumMbid } from "../../../services/metadataProvider.js";
 
 export default function registerTracks(router) {
   router.get("/tracks", cacheMiddleware(120), async (req, res) => {
@@ -27,52 +28,25 @@ export default function registerTracks(router) {
             addedAt: new Date().toISOString(),
           }));
         } else {
-          const { musicbrainzRequest } = await import(
-            "../../../services/apiClients.js"
-          );
           try {
-            const rgData = await musicbrainzRequest(
-              `/release-group/${releaseGroupMbid}`,
-              { inc: "releases" }
-            );
-
-            if (rgData.releases && rgData.releases.length > 0) {
-              const releaseId = rgData.releases[0].id;
-              const releaseData = await musicbrainzRequest(
-                `/release/${releaseId}`,
-                {
-                  inc: "recordings",
-                }
-              );
-
-              if (releaseData.media && releaseData.media.length > 0) {
-                tracks = [];
-                for (const medium of releaseData.media) {
-                  if (medium.tracks) {
-                    for (const track of medium.tracks) {
-                      const recording = track.recording;
-                      if (recording) {
-                        tracks.push({
-                          id: recording.id,
-                          mbid: recording.id,
-                          trackName: recording.title,
-                          trackNumber: track.position || 0,
-                          title: recording.title,
-                          path: null,
-                          hasFile: false,
-                          size: 0,
-                          quality: null,
-                          addedAt: new Date().toISOString(),
-                        });
-                      }
-                    }
-                  }
-                }
-              }
+            const metadataTracks = await getAlbumTracksByAlbumMbid(releaseGroupMbid);
+            if (metadataTracks.length > 0) {
+              tracks = metadataTracks.map((track) => ({
+                id: track.recordingId || track.id,
+                mbid: track.recordingId || track.id,
+                trackName: track.title,
+                trackNumber: track.trackPosition || track.trackNumber || 0,
+                title: track.title,
+                path: null,
+                hasFile: false,
+                size: 0,
+                quality: null,
+                addedAt: new Date().toISOString(),
+              }));
             }
           } catch (mbError) {
             console.warn(
-              `[Library] Failed to fetch tracks from MusicBrainz: ${mbError.message}`
+              `[Library] Failed to fetch tracks from metadata provider: ${mbError.message}`
             );
           }
         }

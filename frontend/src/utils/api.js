@@ -259,7 +259,7 @@ export const searchCatalog = async (
   {
     limit = 24,
     offset = 0,
-    tagScope = "recommended",
+    tagScope = "all",
     releaseTypes = [],
   } = {},
 ) => {

@@ -15,6 +15,7 @@ import { allReleaseTypes } from "../constants";
 import { normalizeSettings, checkForChanges } from "../utils";
 
 const DISCOVERY_MANUAL_REFRESH_KEY = "aurral.discovery.manualRefreshPending";
+const DEFAULT_METADATA_BASE_URL = "https://brainzmash.kell.ly";
 
 const defaultSettings = {
   rootFolderPath: "",
@@ -47,10 +48,11 @@ const defaultSettings = {
       defaultMonitorOption: "none",
       searchOnAdd: false,
     },
-    musicbrainz: {
-      email: "",
-      provider: "aurralHosted",
-      customUrl: "",
+    metadata: {
+      provider: "brainzmash",
+      baseUrl: DEFAULT_METADATA_BASE_URL,
+      userAgentSuffix: "",
+      enableNarrowFallbacks: true,
     },
     general: { authUser: "", authPassword: "" },
     gotify: {

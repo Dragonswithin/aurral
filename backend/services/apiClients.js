@@ -11,6 +11,16 @@ import {
   APP_NAME,
   APP_VERSION,
 } from "../config/constants.js";
+import {
+  getAlbumByMbid as getMetadataAlbumByMbid,
+  getArtistNameByMbid as getMetadataArtistNameByMbid,
+  getMetadataBaseUrl,
+  getMetadataProviderHealthSnapshot as getBrainzmashHealthSnapshot,
+  legacyMusicbrainzRequest,
+  listArtistAlbums as listMetadataArtistAlbums,
+  resolveAlbumByArtistAndTitle,
+  resolveArtistByName as resolveMetadataArtistByName,
+} from "./metadataProvider.js";
 
 const mbCache = new NodeCache({ stdTTL: 300, checkperiod: 60, maxKeys: 500 });
 const lastfmCache = new NodeCache({
@@ -276,14 +286,10 @@ const ensureMetadataProviderProbeLoop = () => {
   });
 };
 
-const getMusicbrainzProvider = () => {
-  const settings = dbOps.getSettings();
-  return settings.integrations?.musicbrainz?.provider || "aurralHosted";
-};
+const getMusicbrainzProvider = () => "brainzmash";
 
 export const getMusicbrainzApiBaseUrl = () => {
-  ensureMetadataProviderProbeLoop();
-  return getMetadataProviderSelection("musicbrainz").activeBaseUrl;
+  return getMetadataBaseUrl();
 };
 
 export const getMusicbrainzApiBaseUrls = () => {
@@ -299,28 +305,7 @@ export const getCoverArtArchiveApiBaseUrls = () => {
 };
 
 export const getMetadataProviderHealthSnapshot = () => {
-  const musicbrainzSelection = getMetadataProviderSelection("musicbrainz");
-
-  return {
-    musicbrainz: {
-      mode: musicbrainzSelection.mode,
-      configuredProvider: musicbrainzSelection.provider,
-      activeProvider: musicbrainzSelection.activeProvider,
-      activeBaseUrl: musicbrainzSelection.activeBaseUrl,
-      failoverActive:
-        musicbrainzSelection.mode === "auto"
-          ? metadataProviderHealth.musicbrainz.failoverActive
-          : false,
-      consecutiveFailures: metadataProviderHealth.musicbrainz.consecutiveFailures,
-      consecutiveSuccesses:
-        metadataProviderHealth.musicbrainz.consecutiveSuccesses,
-      lastCheckedAt: metadataProviderHealth.musicbrainz.lastCheckedAt,
-      lastSuccessAt: metadataProviderHealth.musicbrainz.lastSuccessAt,
-      lastFailureAt: metadataProviderHealth.musicbrainz.lastFailureAt,
-      lastFailureReason: metadataProviderHealth.musicbrainz.lastFailureReason,
-      lastTransitionAt: metadataProviderHealth.musicbrainz.lastTransitionAt,
-    },
-  };
+  return getBrainzmashHealthSnapshot();
 };
 
 export const __setMetadataProviderHealthStateForTests = (serviceKey, patch = {}) => {
@@ -332,7 +317,7 @@ export const __setMetadataProviderHealthStateForTests = (serviceKey, patch = {})
   );
 };
 
-ensureMetadataProviderProbeLoop();
+// Legacy MusicBrainz probing is intentionally disabled on the BrainzMash-native path.
 
 const requestMusicbrainz = async (
   baseUrl,
@@ -535,25 +520,8 @@ const musicbrainzRequestWithRetry = async (
   throw error;
 };
 
-export const musicbrainzRequest = async (endpoint, params = {}) => {
-  const cacheKey = getProviderRequestCacheKey("mb", endpoint, params);
-  const cached = mbCache.get(cacheKey);
-  if (cached) return cached;
-
-  const inflight = musicbrainzInflightRequests.get(cacheKey);
-  if (inflight) return inflight;
-
-  await configureMusicbrainzLimiter();
-  const requestPromise = mbLimiter.schedule(() =>
-    musicbrainzRequestWithRetry(endpoint, params),
-  );
-  musicbrainzInflightRequests.set(cacheKey, requestPromise);
-  try {
-    return await requestPromise;
-  } finally {
-    musicbrainzInflightRequests.delete(cacheKey);
-  }
-};
+export const musicbrainzRequest = async (endpoint, params = {}) =>
+  legacyMusicbrainzRequest(endpoint, params);
 
 const normalizeItunesArtworkUrl = (url) =>
   String(url || "")
@@ -562,160 +530,26 @@ const normalizeItunesArtworkUrl = (url) =>
     .replace(/\/\d+x\d+([a-z]+)(?=[/?#]|$)/i, "/600x600$1");
 
 export async function fetchItunesAlbumArt(artistName, albumName) {
-  const normalizedArtist = String(artistName || "").trim();
-  const normalizedAlbum = String(albumName || "").trim();
-  if (!normalizedArtist || !normalizedAlbum) return null;
-
-  const cacheKey = `${normalizedArtist.toLowerCase()}::${normalizedAlbum.toLowerCase()}`;
-  const cached = itunesAlbumArtCache.get(cacheKey);
-  if (cached !== undefined) {
-    return cached;
-  }
-
-  try {
-    const response = await itunesLimiter.schedule(() =>
-      axios.get("https://itunes.apple.com/search", {
-        params: {
-          term: `${normalizedArtist} ${normalizedAlbum}`,
-          media: "music",
-          entity: "album",
-          limit: 5,
-        },
-        timeout: 3000,
-      }),
-    );
-
-    const results = Array.isArray(response?.data?.results)
-      ? response.data.results
-      : [];
-
-    const normalizedAlbumTitle = normalizeTitle(normalizedAlbum);
-    const normalizedArtistTitle = normalizeTitle(normalizedArtist);
-    const exactMatch =
-      results.find((item) => {
-        const itemAlbum = normalizeTitle(item?.collectionName || "");
-        const itemArtist = normalizeTitle(item?.artistName || "");
-        return itemAlbum === normalizedAlbumTitle && itemArtist === normalizedArtistTitle;
-      }) || results[0];
-
-    const artworkUrl = normalizeItunesArtworkUrl(exactMatch?.artworkUrl100 || "");
-    const value = artworkUrl || null;
-    itunesAlbumArtCache.set(cacheKey, value);
-    return value;
-  } catch {
-    return null;
-  }
+  const _artist = artistName;
+  const _album = albumName;
+  return null;
 }
 
 export async function fetchCoverArtArchiveReleaseGroup(releaseGroupMbid) {
   if (!releaseGroupMbid) return null;
-  const baseUrl = getCoverArtArchiveApiBaseUrl();
-  const directUrl = `${baseUrl}/release-group/${releaseGroupMbid}/front`;
-  let sawTransientError = false;
-
-  const fetchReleaseFront = async (releaseMbid) => {
-    if (!releaseMbid) return null;
-    const releaseDirectUrl = `${baseUrl}/release/${releaseMbid}/front`;
-    try {
-      const response = await axios.head(releaseDirectUrl, {
-        timeout: 2000,
-        maxRedirects: 0,
-        validateStatus: (status) =>
-          status === 200 || status === 301 || status === 302 || status === 307,
-      });
-      if (response.status >= 200 && response.status < 400) {
-        return {
-          imageUrl: releaseDirectUrl,
-          types: ["Front"],
-        };
-      }
-    } catch (error) {
-      const status = error?.response?.status;
-      if (status === 404) return { imageUrl: null, notFound: true, types: [] };
-      if ([408, 425, 429, 500, 502, 503, 504].includes(status) || error?.code) {
-        sawTransientError = true;
-      }
-    }
-    return null;
-  };
-
   try {
-    const response = await axios.head(directUrl, {
-      timeout: 2000,
-      maxRedirects: 0,
-      validateStatus: (status) =>
-        status === 200 || status === 301 || status === 302 || status === 307,
-    });
-
-    if (response.status >= 200 && response.status < 400) {
+    const album = await getMetadataAlbumByMbid(releaseGroupMbid);
+    const image = Array.isArray(album?.images) ? album.images[0] : null;
+    if (image?.url) {
       return {
-        imageUrl: directUrl,
-        types: ["Front"],
+        imageUrl: image.url,
+        types: [image.kind || "Front"],
       };
     }
-  } catch (error) {
-    const status = error?.response?.status;
-    if (status === 404) {
-      return { imageUrl: null, types: [], notFound: true };
-    }
-    if ([408, 425, 429, 500, 502, 503, 504].includes(status) || error?.code) {
-      sawTransientError = true;
-    }
-  }
-
-  try {
-    const response = await axios.get(
-      `${baseUrl}/release-group/${releaseGroupMbid}`,
-      {
-        headers: { Accept: "application/json" },
-        timeout: 2000,
-      },
-    );
-    const images = Array.isArray(response?.data?.images)
-      ? response.data.images
-      : [];
-    if (!images.length) {
-      return { imageUrl: null, types: [], notFound: true };
-    }
-
-    const frontImage = images.find((img) => img.front) || images[0];
-    return {
-      imageUrl: directUrl,
-      types: frontImage?.types || ["Front"],
-    };
-  } catch (error) {
-    const status = error?.response?.status;
-    if (status === 404) {
-      return { imageUrl: null, types: [], notFound: true };
-    }
-    if ([408, 425, 429, 500, 502, 503, 504].includes(status) || error?.code) {
-      sawTransientError = true;
-    }
-  }
-
-  try {
-    const rgData = await musicbrainzRequest(`/release-group/${releaseGroupMbid}`, {
-      inc: "releases",
-    });
-    const releases = Array.isArray(rgData?.releases) ? rgData.releases : [];
-    for (const release of releases.slice(0, 8)) {
-      const cover = await fetchReleaseFront(release?.id);
-      if (cover?.imageUrl) {
-        return cover;
-      }
-    }
-  } catch (error) {
-    const status = error?.response?.status;
-    if ([408, 425, 429, 500, 502, 503, 504].includes(status) || error?.code) {
-      sawTransientError = true;
-    }
-  }
-
-  if (sawTransientError) {
+    return { imageUrl: null, types: [], notFound: true };
+  } catch {
     return { imageUrl: null, types: [], transientError: true };
   }
-
-  return { imageUrl: null, types: [], notFound: true };
 }
 
 export const lastfmRequest = lastfmLimiter.wrap(
@@ -1326,116 +1160,37 @@ export async function musicbrainzGetArtistReleaseGroups(
   mbid,
   selectedReleaseTypes = null,
 ) {
-  const normalizedSelection = normalizeArtistReleaseTypeSelection(
-    selectedReleaseTypes,
-  );
-  const shouldOptimizeQuery =
-    normalizedSelection.primaryTypes.length > 0 &&
-    (normalizedSelection.primaryTypes.length < PRIMARY_RELEASE_TYPES.length ||
-      normalizedSelection.secondaryTypes.length === 0);
-  const cacheKey = `full:${mbid}:${JSON.stringify(
-    normalizedSelection.primaryTypes,
-  )}:${JSON.stringify(normalizedSelection.secondaryTypes)}`;
+  const cacheKey = `full:${mbid}:${JSON.stringify(selectedReleaseTypes || [])}`;
   const cached = musicbrainzReleaseGroupsCache.get(cacheKey);
   if (cached) return cached;
   try {
-    const raw = [];
-    const limit = 100;
-    let offset = 0;
-    let totalCount = 0;
-
-    if (shouldOptimizeQuery) {
-      const query = buildArtistReleaseGroupQuery(
-        mbid,
-        normalizedSelection.primaryTypes,
-        normalizedSelection.secondaryTypes,
-      );
-      do {
-        const data = await musicbrainzRequest("/release-group", {
-          query,
-          limit,
-          offset,
-        });
-        totalCount = Number(data?.count || 0);
-        const batch = Array.isArray(data?.["release-groups"])
-          ? data["release-groups"]
-          : [];
-        raw.push(...batch);
-        offset += limit;
-      } while (offset < totalCount);
-    } else {
-      do {
-        const data = await musicbrainzRequest("/release-group", {
-          artist: mbid,
-          limit,
-          offset,
-        });
-        totalCount = data["release-group-count"] || 0;
-        const batch = data["release-groups"] || [];
-        raw.push(...batch);
-        offset += limit;
-      } while (offset < totalCount);
-    }
-
-    const filtered = raw
-      .filter(
-        (rg) =>
-          rg.id &&
-          ALLOWED_PRIMARY_TYPES.has((rg["primary-type"] || "").toLowerCase()),
-      )
-      .map((rg) => ({
-        id: rg.id,
-        title: rg.title || "",
-        "first-release-date": rg["first-release-date"] || null,
-        "primary-type":
-          rg["primary-type"] === "EP"
-            ? "EP"
-            : rg["primary-type"] === "Single"
-              ? "Single"
-              : "Album",
-        "secondary-types": Array.isArray(rg["secondary-types"])
-          ? rg["secondary-types"]
-          : [],
-      }))
-      .filter((rg) => {
-        if (!selectedReleaseTypes || !Array.isArray(selectedReleaseTypes)) {
-          return true;
-        }
-        const { primaryTypes, secondaryTypes } = normalizedSelection;
-        const primaryType = rg["primary-type"];
-        const rgSecondaryTypes = Array.isArray(rg["secondary-types"])
-          ? rg["secondary-types"]
-          : [];
-        if (primaryTypes.length > 0 && !primaryTypes.includes(primaryType)) {
-          return false;
-        }
-        if (secondaryTypes.length === 0 && rgSecondaryTypes.length > 0) {
-          return false;
-        }
-        if (secondaryTypes.length > 0 && rgSecondaryTypes.length > 0) {
-          const normalizedRgSecondaryTypes = [
-            ...new Set(
-              rgSecondaryTypes.map((secondaryType) =>
-                SECONDARY_RELEASE_TYPES.includes(secondaryType)
-                  ? secondaryType
-                  : "Other",
-              ),
-            ),
-          ];
-          return normalizedRgSecondaryTypes.every((secondaryType) =>
-            secondaryTypes.includes(secondaryType),
-          );
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        const dateA = a["first-release-date"] || "";
-        const dateB = b["first-release-date"] || "";
-        return dateB.localeCompare(dateA);
-      });
-    musicbrainzReleaseGroupsCache.set(cacheKey, filtered);
-    return filtered;
-  } catch (e) {
+    const items = await listMetadataArtistAlbums(mbid, {
+      releaseTypes: selectedReleaseTypes || [],
+      includeTrackCounts: true,
+    });
+    const mapped = items.map((item) => ({
+      id: item.id,
+      title: item.title || "",
+      "first-release-date": item.firstReleaseDate || null,
+      "primary-type": item.type || "Album",
+      "secondary-types": Array.isArray(item.secondaryTypes)
+        ? item.secondaryTypes
+        : [],
+      rating: item.rating || null,
+      "artist-credit": item.artistName
+        ? [
+            {
+              name: item.artistName,
+              artist: item.artistId
+                ? { id: item.artistId, name: item.artistName }
+                : { name: item.artistName },
+            },
+          ]
+        : [],
+    }));
+    musicbrainzReleaseGroupsCache.set(cacheKey, mapped);
+    return mapped;
+  } catch {
     return [];
   }
 }
@@ -1445,48 +1200,8 @@ export async function musicbrainzGetArtistReleaseGroupsPreview(mbid, limit = 50)
   const parsedLimit = Number.parseInt(limit, 10);
   const safeLimit =
     Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(100, parsedLimit) : 50;
-  const cacheKey = `preview:${mbid}:${safeLimit}`;
-  const cached = musicbrainzReleaseGroupsCache.get(cacheKey);
-  if (cached) return cached;
-  try {
-    const data = await musicbrainzRequest("/release-group", {
-      artist: mbid,
-      limit: safeLimit,
-      offset: 0,
-    });
-    const releaseGroups = Array.isArray(data?.["release-groups"])
-      ? data["release-groups"]
-      : [];
-    const result = releaseGroups
-      .filter(
-        (rg) =>
-          rg?.id &&
-          ALLOWED_PRIMARY_TYPES.has((rg["primary-type"] || "").toLowerCase()),
-      )
-      .map((rg) => ({
-        id: rg.id,
-        title: rg.title || "",
-        "first-release-date": rg["first-release-date"] || null,
-        "primary-type":
-          rg["primary-type"] === "EP"
-            ? "EP"
-            : rg["primary-type"] === "Single"
-              ? "Single"
-              : "Album",
-        "secondary-types": Array.isArray(rg["secondary-types"])
-          ? rg["secondary-types"]
-          : [],
-      }))
-      .sort((a, b) => {
-        const dateA = a["first-release-date"] || "";
-        const dateB = b["first-release-date"] || "";
-        return dateB.localeCompare(dateA);
-      });
-    musicbrainzReleaseGroupsCache.set(cacheKey, result);
-    return result;
-  } catch (e) {
-    return [];
-  }
+  const items = await musicbrainzGetArtistReleaseGroups(mbid);
+  return items.slice(0, safeLimit);
 }
 
 /**
@@ -1691,8 +1406,7 @@ export async function musicbrainzGetArtistNameByMbid(mbid) {
   const cached = musicbrainzArtistNameCache.get(mbid);
   if (cached !== undefined) return cached;
   try {
-    const data = await musicbrainzRequest(`/artist/${mbid}`);
-    const name = data?.name;
+    const name = await getMetadataArtistNameByMbid(mbid);
     const normalized =
       name && typeof name === "string" ? name.trim() : null;
     musicbrainzArtistNameCache.set(mbid, normalized);
@@ -1737,38 +1451,8 @@ export async function musicbrainzResolveArtistMbidByName(artistName) {
       return cached.mbid || null;
     }
   }
-  const queryName = rawName.replace(/"/g, '\\"');
   try {
-    const data = await musicbrainzRequest("/artist", {
-      query: `artist:"${queryName}"`,
-      limit: 5,
-    });
-    const artists = Array.isArray(data?.artists) ? data.artists : [];
-    const candidates = artists
-      .map((artist) => ({
-        id: artist.id,
-        name: artist.name || "",
-        type: artist.type || "",
-        disambiguation: artist.disambiguation || "",
-        score: parseInt(artist.score || 0),
-        normalized: String(artist.name || "").toLowerCase(),
-      }))
-      .filter((artist) => artist.id);
-    if (!candidates.length) return null;
-    candidates.sort((a, b) => {
-      const aExact = a.normalized === normalized ? 1 : 0;
-      const bExact = b.normalized === normalized ? 1 : 0;
-      if (aExact !== bExact) return bExact - aExact;
-      const aPerson = a.type.toLowerCase() === "person" ? 1 : 0;
-      const bPerson = b.type.toLowerCase() === "person" ? 1 : 0;
-      if (aPerson !== bPerson) return bPerson - aPerson;
-      const aDisambig = a.disambiguation ? 1 : 0;
-      const bDisambig = b.disambiguation ? 1 : 0;
-      if (aDisambig !== bDisambig) return bDisambig - aDisambig;
-      if (a.score !== b.score) return b.score - a.score;
-      return a.name.localeCompare(b.name);
-    });
-    const resolved = candidates[0]?.id || null;
+    const resolved = await resolveMetadataArtistByName(rawName);
     dbOps.setMusicbrainzArtistMbidCache(normalized, resolved);
     return resolved;
   } catch (e) {
@@ -1800,20 +1484,15 @@ export async function resolveDeezerAlbumToMbid(
     dbOps.getDeezerMbidCache(dzKey) || dbOps.getDeezerMbidCache(aaKey);
   if (cached) return cached;
 
-  const artist = String(artistName || "")
-    .trim()
-    .replace(/"/g, '\\"');
-  const album = String(albumName || "")
-    .trim()
-    .replace(/"/g, '\\"');
+  const artist = String(artistName || "").trim();
+  const album = String(albumName || "").trim();
   if (!artist || !album) return null;
 
   try {
-    const data = await musicbrainzRequest("/release-group", {
-      query: `artist:"${artist}" AND releasegroup:"${album}"`,
-      limit: 1,
+    const id = await resolveAlbumByArtistAndTitle({
+      artistName: artist,
+      albumTitle: album,
     });
-    const id = data?.["release-groups"]?.[0]?.id;
     if (!id) return null;
     dbOps.setDeezerMbidCache(dzKey, id);
     dbOps.setDeezerMbidCache(aaKey, id);
