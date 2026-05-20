@@ -51,6 +51,8 @@ const hostnameLabel = (href) => {
   }
 };
 
+const normalizeTagName = (value) => String(value || "").trim();
+
 const buildRelationLinks = (artist) => {
   const directLinks = Array.isArray(artist?.links)
     ? artist.links
@@ -190,17 +192,32 @@ export function ArtistDetailsHero({
       : null,
   ].filter(Boolean);
   const tags = useMemo(
-    () =>
-      [
-        ...(Array.isArray(artist.genres) ? artist.genres : []).map((genre, idx) => ({
-          key: `genre-${idx}`,
-          name: typeof genre === "string" ? genre : genre?.name,
-        })),
-        ...(Array.isArray(artist.tags) ? artist.tags : []).map((tag, idx) => ({
-          key: `tag-${idx}`,
-          name: typeof tag === "string" ? tag : tag?.name,
-        })),
-      ].filter((tag) => tag.name),
+    () => {
+      const dedupedTags = [];
+      const seenTagNames = new Set();
+      const allTags = [
+        ...(Array.isArray(artist.genres) ? artist.genres : []),
+        ...(Array.isArray(artist.tags) ? artist.tags : []),
+      ];
+
+      for (const item of allTags) {
+        const name = normalizeTagName(
+          typeof item === "string" ? item : item?.name,
+        );
+        if (!name) continue;
+
+        const normalizedName = name.toLowerCase();
+        if (seenTagNames.has(normalizedName)) continue;
+        seenTagNames.add(normalizedName);
+
+        dedupedTags.push({
+          key: `tag-${normalizedName}`,
+          name,
+        });
+      }
+
+      return dedupedTags;
+    },
     [artist.genres, artist.tags],
   );
   const visibleTags = showAllTags ? tags : tags.slice(0, collapsedTagCount);
