@@ -88,6 +88,21 @@ const initializeCacheIndex = () => {
   }
 };
 
+export const clearImageProxyCache = () => {
+  ensureCacheDir();
+
+  for (const file of fs.readdirSync(IMAGE_PROXY_DIR)) {
+    try {
+      fs.unlinkSync(path.join(IMAGE_PROXY_DIR, file));
+    } catch {}
+  }
+
+  cacheEntriesByKey.clear();
+  cacheKeysBySourceUrl.clear();
+  inflightRequests.clear();
+  cacheIndexInitialized = false;
+};
+
 const isPrivateHostname = (hostname) => {
   const normalized = String(hostname || "").trim().toLowerCase();
   if (!normalized) return true;

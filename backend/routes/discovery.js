@@ -22,7 +22,10 @@ import { libraryManager } from "../services/libraryManager.js";
 import { dbOps, userOps } from "../config/db-helpers.js";
 import { imagePrefetchService } from "../services/imagePrefetchService.js";
 import { hydrateArtistImages } from "../services/artistImageHydration.js";
-import { buildImageProxyUrl } from "../services/imageProxyService.js";
+import {
+  buildImageProxyUrl,
+  clearImageProxyCache,
+} from "../services/imageProxyService.js";
 import { defaultDiscoveryPreferences } from "../config/constants.js";
 import { requireAuth, requireAdmin } from "../middleware/requirePermission.js";
 import { getNearbyShows } from "../services/nearbyShowsService.js";
@@ -220,6 +223,7 @@ router.post("/refresh", requireAuth, requireAdmin, (req, res) => {
 
 router.post("/clear", requireAuth, requireAdmin, async (req, res) => {
   dbOps.clearImages();
+  clearImageProxyCache();
   clearApiCaches();
   res.json({ message: "Image cache cleared" });
 });
