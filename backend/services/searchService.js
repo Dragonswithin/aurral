@@ -378,10 +378,16 @@ export async function searchTags(
       };
     }
 
+    const discoveryCacheData = getDiscoveryCache();
     const fallbackResult = await searchFallbackGenreArtists({
       tag,
       limit: limitInt,
       offset: offsetInt,
+      precomputedGenrePools:
+        discoveryCacheData?.fallbackGenrePools &&
+        Object.keys(discoveryCacheData.fallbackGenrePools).length > 0
+          ? discoveryCacheData.fallbackGenrePools
+          : null,
     });
     if (fallbackResult) {
       return {
@@ -417,7 +423,7 @@ export async function searchTags(
       };
     }
 
-    const discoveryCache = getDiscoveryCache();
+    const discoveryCache = discoveryCacheData;
     const tagLower = normalizeSearchText(tag);
     const pool = [
       ...(Array.isArray(discoveryCache.recommendations)

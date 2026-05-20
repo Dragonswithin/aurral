@@ -460,6 +460,7 @@ const EMPTY_CACHE = {
   topTags: [],
   topGenres: [],
   fallbackGenres: [],
+  fallbackGenrePools: {},
   provider: DISCOVERY_PROVIDER_LASTFM,
   capabilities: getDiscoveryCapabilities(true),
   lastUpdated: null,
@@ -474,7 +475,8 @@ if (
   dbData.recommendations?.length > 0 ||
   dbData.globalTop?.length > 0 ||
   dbData.topGenres?.length > 0 ||
-  dbData.fallbackGenres?.length > 0
+  dbData.fallbackGenres?.length > 0 ||
+  Object.keys(dbData.fallbackGenrePools || {}).length > 0
 ) {
   discoveryCache = {
     recommendations: dbData.recommendations || [],
@@ -483,6 +485,7 @@ if (
     topTags: dbData.topTags || [],
     topGenres: dbData.topGenres || [],
     fallbackGenres: dbData.fallbackGenres || [],
+    fallbackGenrePools: dbData.fallbackGenrePools || {},
     provider: dbData.provider || DISCOVERY_PROVIDER_LASTFM,
     capabilities: getDiscoveryCapabilities(
       (dbData.provider || DISCOVERY_PROVIDER_LASTFM) === DISCOVERY_PROVIDER_LASTFM,
@@ -510,6 +513,7 @@ export const getDiscoveryCache = (listenHistoryProfile = null) => {
         topTags: userDbData.topTags?.length > 0 ? userDbData.topTags : discoveryCache.topTags || [],
         topGenres: userDbData.topGenres?.length > 0 ? userDbData.topGenres : discoveryCache.topGenres || [],
         fallbackGenres: discoveryCache.fallbackGenres || [],
+        fallbackGenrePools: discoveryCache.fallbackGenrePools || {},
         provider: discoveryCache.provider || DISCOVERY_PROVIDER_LASTFM,
         capabilities:
           discoveryCache.capabilities ||
@@ -535,7 +539,9 @@ export const getDiscoveryCache = (listenHistoryProfile = null) => {
       (!discoveryCache.topGenres || discoveryCache.topGenres.length === 0)) ||
     (dbData.fallbackGenres?.length > 0 &&
       (!discoveryCache.fallbackGenres ||
-        discoveryCache.fallbackGenres.length === 0))
+        discoveryCache.fallbackGenres.length === 0)) ||
+    (Object.keys(dbData.fallbackGenrePools || {}).length > 0 &&
+      Object.keys(discoveryCache.fallbackGenrePools || {}).length === 0)
   ) {
     Object.assign(discoveryCache, {
       recommendations:
@@ -545,6 +551,8 @@ export const getDiscoveryCache = (listenHistoryProfile = null) => {
       topTags: dbData.topTags || discoveryCache.topTags || [],
       topGenres: dbData.topGenres || discoveryCache.topGenres || [],
       fallbackGenres: dbData.fallbackGenres || discoveryCache.fallbackGenres || [],
+      fallbackGenrePools:
+        dbData.fallbackGenrePools || discoveryCache.fallbackGenrePools || {},
       provider: dbData.provider || discoveryCache.provider || DISCOVERY_PROVIDER_LASTFM,
       capabilities: getDiscoveryCapabilities(
         (dbData.provider || discoveryCache.provider || DISCOVERY_PROVIDER_LASTFM) ===
@@ -918,6 +926,11 @@ export const updateDiscoveryCache = async () => {
       const fallbackData = await buildListenbrainzFallbackDiscovery({
         existingArtistKeys: buildExistingArtistKeySet(allLibraryArtists),
         blocklist: getStoredBlocklist(),
+        onProgress: ({ phase, progress, progressMessage }) =>
+          emitDiscoveryProgress(phase, progressMessage, progress, {
+            provider: "listenbrainz-fallback",
+            capabilities: getDiscoveryCapabilities(false),
+          }),
       });
       discoveryCache.isUpdating = false;
       Object.assign(discoveryCache, fallbackData, {
@@ -1181,6 +1194,7 @@ export const updateDiscoveryCache = async () => {
       topGenres: discoveryCache.topGenres || [],
       globalTop: discoveryCache.globalTop || [],
       fallbackGenres: [],
+      fallbackGenrePools: {},
       lastUpdated: new Date().toISOString(),
     };
 

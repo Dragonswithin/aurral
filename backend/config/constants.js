@@ -142,6 +142,7 @@ export const defaultData = {
     topTags: [],
     topGenres: [],
     fallbackGenres: [],
+    fallbackGenrePools: {},
     provider: "lastfm",
     lastUpdated: null,
   },
