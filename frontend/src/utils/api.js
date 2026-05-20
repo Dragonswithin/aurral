@@ -259,7 +259,7 @@ export const searchCatalog = async (
   {
     limit = 24,
     offset = 0,
-    tagScope = "all",
+    tagScope = "merged",
     releaseTypes = [],
   } = {},
 ) => {
@@ -721,11 +721,11 @@ export const searchArtistsByTag = async (
   tag,
   limit = 24,
   offset = 0,
-  scope = "recommended",
+  scope = "merged",
 ) => {
   const params = { tag, limit, offset };
-  if (scope === "all") {
-    params.scope = "all";
+  if (scope !== "merged") {
+    params.scope = scope;
   }
   const response = await api.get("/discover/by-tag", {
     params,

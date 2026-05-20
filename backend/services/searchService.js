@@ -292,11 +292,136 @@ function normalizeTagArtistItem(artist, tag) {
   };
 }
 
+function getTagArtistKey(artist) {
+  const artistId = String(artist?.id || artist?.mbid || "").trim().toLowerCase();
+  if (artistId) return `id:${artistId}`;
+  const artistName = String(artist?.name || "").trim().toLowerCase();
+  return artistName ? `name:${artistName}` : null;
+}
+
+function matchesTagSearch(artist, normalizedTag) {
+  const tags = Array.isArray(artist?.tags) ? artist.tags : [];
+  const genres = Array.isArray(artist?.genres) ? artist.genres : [];
+  return [...tags, ...genres].some(
+    (entry) => normalizeSearchText(entry) === normalizedTag,
+  );
+}
+
+function dedupeTagArtists(artists) {
+  const seen = new Set();
+  const output = [];
+  for (const artist of Array.isArray(artists) ? artists : []) {
+    const key = getTagArtistKey(artist);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    output.push(artist);
+  }
+  return output;
+}
+
+function getTagSourceMap(artists) {
+  const sourceMap = new Map();
+  for (const artist of Array.isArray(artists) ? artists : []) {
+    const key = getTagArtistKey(artist);
+    if (!key || sourceMap.has(key)) continue;
+    sourceMap.set(key, artist?.tagResultSource || "all");
+  }
+  return sourceMap;
+}
+
+function normalizeLastfmTagArtist(artist, tag) {
+  let imageUrl = null;
+  if (Array.isArray(artist?.image)) {
+    const img =
+      artist.image.find((entry) => entry.size === "extralarge") ||
+      artist.image.find((entry) => entry.size === "large") ||
+      artist.image.slice(-1)[0];
+    if (
+      img?.["#text"] &&
+      !String(img["#text"]).includes("2a96cbd8b46e442fc41c2b86b821562f")
+    ) {
+      imageUrl = img["#text"];
+    }
+  }
+
+  return normalizeTagArtistItem(
+    {
+      type: "artist",
+      id: artist?.mbid || null,
+      name: artist?.name || "Unknown Artist",
+      sortName: artist?.name || "Unknown Artist",
+      image: buildImageProxyUrl(imageUrl) || imageUrl,
+      imageUrl: buildImageProxyUrl(imageUrl) || imageUrl,
+      artistType: null,
+      country: null,
+      area: null,
+      begin: null,
+      end: null,
+      disambiguation: null,
+      tags: [tag],
+      genres: [tag],
+      inLibrary: false,
+      score: 0,
+      tagResultSource: "all",
+    },
+    tag,
+  );
+}
+
+async function fetchMergedLastfmTagArtists(tag, limitInt, offsetInt, recommendedItems) {
+  const pageSize = 50;
+  const requiredCount = offsetInt + limitInt;
+  const supplementalItems = [];
+  const seen = new Set(recommendedItems.map((artist) => getTagArtistKey(artist)).filter(Boolean));
+  let page = 1;
+  let exhausted = false;
+
+  while (!exhausted && recommendedItems.length + supplementalItems.length < requiredCount) {
+    const data = await lastfmRequest("tag.getTopArtists", {
+      tag,
+      limit: pageSize,
+      page,
+    });
+    const artists = Array.isArray(data?.topartists?.artist)
+      ? data.topartists.artist
+      : data?.topartists?.artist
+        ? [data.topartists.artist]
+        : [];
+
+    if (artists.length === 0) {
+      exhausted = true;
+      break;
+    }
+
+    for (const artist of artists) {
+      const normalized = normalizeLastfmTagArtist(artist, tag);
+      const key = getTagArtistKey(normalized);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      supplementalItems.push(normalized);
+    }
+
+    const reportedTotal = Number.parseInt(data?.topartists?.["@attr"]?.total, 10);
+    const totalPages = Number.isFinite(reportedTotal)
+      ? Math.ceil(reportedTotal / pageSize)
+      : null;
+    exhausted =
+      artists.length < pageSize ||
+      (Number.isFinite(totalPages) && page >= totalPages);
+    page += 1;
+  }
+
+  return {
+    items: [...recommendedItems, ...supplementalItems],
+    exhausted,
+  };
+}
+
 export async function searchTags(
   query,
   limit = 24,
   offset = 0,
-  tagScope = "recommended",
+  tagScope = "merged",
 ) {
   const tag = String(query || "").trim().replace(/^#/, "");
   const limitInt = parsePositiveInt(limit, 24);
@@ -309,6 +434,33 @@ export async function searchTags(
       count: 0,
       offset: offsetInt,
       items: [],
+    };
+  }
+
+  const discoveryCache = getDiscoveryCache();
+  const tagLower = normalizeSearchText(tag);
+  const recommendedMatches = dedupeTagArtists(
+    (discoveryCache.recommendations || [])
+      .filter((artist) => matchesTagSearch(artist, tagLower))
+      .map((artist) =>
+        normalizeTagArtistItem(
+          {
+            ...artist,
+            tagResultSource: "recommended",
+          },
+          tag,
+        ),
+      ),
+  );
+
+  if (tagScope === "recommended") {
+    return {
+      scope: "tag",
+      query: tag,
+      count: recommendedMatches.length,
+      offset: offsetInt,
+      hasMore: offsetInt + limitInt < recommendedMatches.length,
+      items: recommendedMatches.slice(offsetInt, offsetInt + limitInt),
     };
   }
 
@@ -326,42 +478,7 @@ export async function searchTags(
           ? [data.topartists.artist]
           : [];
       const items = artists
-        .map((artist) => {
-          let imageUrl = null;
-          if (Array.isArray(artist?.image)) {
-            const img =
-              artist.image.find((entry) => entry.size === "extralarge") ||
-              artist.image.find((entry) => entry.size === "large") ||
-              artist.image.slice(-1)[0];
-            if (
-              img?.["#text"] &&
-              !String(img["#text"]).includes("2a96cbd8b46e442fc41c2b86b821562f")
-            ) {
-              imageUrl = img["#text"];
-            }
-          }
-          return normalizeTagArtistItem(
-            {
-              type: "artist",
-              id: artist?.mbid || null,
-              name: artist?.name || "Unknown Artist",
-              sortName: artist?.name || "Unknown Artist",
-              image: buildImageProxyUrl(imageUrl) || imageUrl,
-              imageUrl: buildImageProxyUrl(imageUrl) || imageUrl,
-              artistType: null,
-              country: null,
-              area: null,
-              begin: null,
-              end: null,
-              disambiguation: null,
-              tags: [tag],
-              genres: [tag],
-              inLibrary: false,
-              score: 0,
-            },
-            tag,
-          );
-        })
+        .map((artist) => normalizeLastfmTagArtist(artist, tag))
         .filter((artist) => artist.id);
 
       return {
@@ -370,63 +487,85 @@ export async function searchTags(
         count:
           Number.parseInt(data?.topartists?.["@attr"]?.total, 10) || items.length,
         offset: offsetInt,
+        hasMore:
+          offsetInt + items.length <
+          (Number.parseInt(data?.topartists?.["@attr"]?.total, 10) || items.length),
         items,
       };
     }
 
-    const discoveryCache = getDiscoveryCache();
-    const tagLower = normalizeSearchText(tag);
-    const pool = [
+    const sourceMap = getTagSourceMap(recommendedMatches);
+    const poolItems = dedupeTagArtists([
       ...(Array.isArray(discoveryCache.recommendations)
         ? discoveryCache.recommendations
         : []),
       ...(Array.isArray(discoveryCache.globalTop) ? discoveryCache.globalTop : []),
       ...(Array.isArray(discoveryCache.basedOn) ? discoveryCache.basedOn : []),
-    ];
-    const seen = new Set();
-    const matches = pool.filter((artist) => {
-      const artistId = String(artist?.id || artist?.mbid || "").trim().toLowerCase();
-      const artistName = String(artist?.name || "").trim().toLowerCase();
-      const key = artistId || artistName;
-      if (!key || seen.has(key)) return false;
-      const tags = Array.isArray(artist.tags) ? artist.tags : [];
-      const genres = Array.isArray(artist.genres) ? artist.genres : [];
-      const matched = [...tags, ...genres].some(
-        (entry) => normalizeSearchText(entry) === tagLower,
+    ])
+      .filter((artist) => matchesTagSearch(artist, tagLower))
+      .map((artist) =>
+        normalizeTagArtistItem(
+          {
+            ...artist,
+            tagResultSource: sourceMap.get(getTagArtistKey(artist)) || "all",
+          },
+          tag,
+        ),
       );
-      if (!matched) return false;
-      seen.add(key);
-      return true;
-    });
 
     return {
       scope: "tag",
       query: tag,
-      count: matches.length,
+      count: poolItems.length,
       offset: offsetInt,
-      items: matches
-        .slice(offsetInt, offsetInt + limitInt)
-        .map((artist) => normalizeTagArtistItem(artist, tag)),
+      hasMore: offsetInt + limitInt < poolItems.length,
+      items: poolItems.slice(offsetInt, offsetInt + limitInt),
     };
   }
 
-  const discoveryCache = getDiscoveryCache();
-  const tagLower = normalizeSearchText(tag);
-  const matches = (discoveryCache.recommendations || []).filter((artist) => {
-    const tags = Array.isArray(artist.tags) ? artist.tags : [];
-    const genres = Array.isArray(artist.genres) ? artist.genres : [];
-    return [...tags, ...genres].some(
-      (entry) => normalizeSearchText(entry) === tagLower,
+  if (getLastfmApiKey()) {
+    const merged = await fetchMergedLastfmTagArtists(
+      tag,
+      limitInt,
+      offsetInt,
+      recommendedMatches,
     );
-  });
+    const items = merged.items.slice(offsetInt, offsetInt + limitInt);
+    return {
+      scope: "tag",
+      query: tag,
+      count: merged.exhausted
+        ? merged.items.length
+        : offsetInt + items.length + (merged.items.length > offsetInt + items.length ? 1 : 0),
+      offset: offsetInt,
+      hasMore: !merged.exhausted || offsetInt + items.length < merged.items.length,
+      items,
+    };
+  }
+
+  const mergedItems = dedupeTagArtists([
+    ...recommendedMatches,
+    ...(Array.isArray(discoveryCache.globalTop) ? discoveryCache.globalTop : []),
+    ...(Array.isArray(discoveryCache.basedOn) ? discoveryCache.basedOn : []),
+  ])
+    .filter((artist) => matchesTagSearch(artist, tagLower))
+    .map((artist) =>
+      normalizeTagArtistItem(
+        {
+          ...artist,
+          tagResultSource:
+            artist.tagResultSource === "recommended" ? "recommended" : "all",
+        },
+        tag,
+      ),
+    );
 
   return {
     scope: "tag",
     query: tag,
-    count: matches.length,
+    count: mergedItems.length,
     offset: offsetInt,
-    items: matches
-      .slice(offsetInt, offsetInt + limitInt)
-      .map((artist) => normalizeTagArtistItem(artist, tag)),
+    hasMore: offsetInt + limitInt < mergedItems.length,
+    items: mergedItems.slice(offsetInt, offsetInt + limitInt),
   };
 }

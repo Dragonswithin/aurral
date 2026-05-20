@@ -15,7 +15,7 @@ router.get("/", noCache, async (req, res) => {
       scope = "artist",
       limit = 24,
       offset = 0,
-      tagScope = "all",
+      tagScope = "merged",
       releaseTypes = "",
     } = req.query;
 

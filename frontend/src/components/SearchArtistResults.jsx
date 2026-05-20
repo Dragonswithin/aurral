@@ -7,6 +7,7 @@ import {
   Library,
   Loader2,
   MoreVertical,
+  Star,
   ThumbsDown,
   ThumbsUp,
 } from "lucide-react";
@@ -235,6 +236,8 @@ function SearchArtistResults({
     <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
       {artists.map((artist, index) => {
         const artistId = getArtistId(artist);
+        const isRecommendedTagResult =
+          type === "tag" && artist.tagResultSource === "recommended";
         const artistTypeLabel = normalizeArtistType(artist);
         const lifeSpan = formatLifeSpan(artist);
         const area = normalizeArea(artist);
@@ -257,6 +260,10 @@ function SearchArtistResults({
         ]
           .filter(Boolean)
           .join(" • ");
+        const feedbackHandler =
+          type === "tag" && artist.tagResultSource !== "recommended"
+            ? undefined
+            : onArtistFeedback;
 
         return (
           <div
@@ -286,6 +293,23 @@ function SearchArtistResults({
                 showLoading={false}
                 enableBackendFallback={false}
               />
+              {isRecommendedTagResult && (
+                <div className="pointer-events-none absolute right-2 top-2">
+                  <div
+                    className="flex h-5 w-5 items-center justify-center rounded-full"
+                    style={{
+                      backgroundColor: "rgba(20, 19, 24, 0.72)",
+                      boxShadow: "0 3px 10px rgba(0, 0, 0, 0.22)",
+                      backdropFilter: "blur(6px)",
+                    }}
+                  >
+                    <Star
+                      className="h-3 w-3"
+                      style={{ color: "#f4c430", fill: "#f4c430" }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex min-w-0 items-start gap-2">
@@ -341,7 +365,7 @@ function SearchArtistResults({
                   canAddArtist={canAddArtist}
                   onAddToLibrary={onAddArtistToLibrary}
                   onAddToBlocklist={onAddArtistToBlocklist}
-                  onFeedback={onArtistFeedback}
+                  onFeedback={feedbackHandler}
                 />
               )}
             </div>
