@@ -211,7 +211,8 @@ export class WeeklyFlowPlaylistManager {
             : [pathCondition];
         const payload = {
           all,
-          sort: "random",
+          // Keep playlist order stable as tracks are added over time.
+          sort: "filepath",
           limit: 1000,
         };
         await fs.writeFile(nspPath, JSON.stringify(payload), "utf8");
