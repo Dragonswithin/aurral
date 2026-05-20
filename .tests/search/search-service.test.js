@@ -113,6 +113,8 @@ test("requestAlbumFromSearch resolves artist add settings and triggers search", 
   const originalResolveArtistAddOptions = libraryManager.resolveArtistAddOptions;
   const originalAddArtistWithResolvedOptions =
     libraryManager.addArtistWithResolvedOptions;
+  const originalWaitForAlbumByMbidForArtist =
+    libraryManager.waitForAlbumByMbidForArtist;
   const originalAddAlbum = libraryManager.addAlbum;
 
   lidarrClient.isConfigured = () => true;
@@ -135,6 +137,7 @@ test("requestAlbumFromSearch resolves artist add settings and triggers search", 
     artistName: "Various Artists",
     monitorOption: options.monitorOption,
   });
+  libraryManager.waitForAlbumByMbidForArtist = async () => null;
   libraryManager.addAlbum = async () => ({
     id: "42",
     artistId: "7",
@@ -176,6 +179,100 @@ test("requestAlbumFromSearch resolves artist add settings and triggers search", 
     libraryManager.resolveArtistAddOptions = originalResolveArtistAddOptions;
     libraryManager.addArtistWithResolvedOptions =
       originalAddArtistWithResolvedOptions;
+    libraryManager.waitForAlbumByMbidForArtist =
+      originalWaitForAlbumByMbidForArtist;
+    libraryManager.addAlbum = originalAddAlbum;
+  }
+});
+
+test("requestAlbumFromSearch waits for Lidarr to populate a new artist album", async () => {
+  const originalIsConfigured = lidarrClient.isConfigured;
+  const originalGetAlbumByMbid = lidarrClient.getAlbumByMbid;
+  const originalGetArtist = libraryManager.getArtist;
+  const originalResolveArtistAddOptions = libraryManager.resolveArtistAddOptions;
+  const originalAddArtistWithResolvedOptions =
+    libraryManager.addArtistWithResolvedOptions;
+  const originalWaitForAlbumByMbidForArtist =
+    libraryManager.waitForAlbumByMbidForArtist;
+  const originalAddAlbum = libraryManager.addAlbum;
+
+  let waitCall = null;
+
+  lidarrClient.isConfigured = () => true;
+  lidarrClient.getAlbumByMbid = async () => null;
+  libraryManager.getArtist = async () => null;
+  libraryManager.resolveArtistAddOptions = async () => ({
+    quality: "standard",
+    monitorOption: "none",
+    rootFolderPath: "/music/main",
+    qualityProfileId: 7,
+  });
+  libraryManager.addArtistWithResolvedOptions = async () => ({
+    id: "7",
+    mbid: "artist-mbid",
+    foreignArtistId: "artist-mbid",
+    artistName: "Boards of Canada",
+    monitorOption: "none",
+  });
+  libraryManager.waitForAlbumByMbidForArtist = async (albumMbid, artistId) => {
+    waitCall = { albumMbid, artistId };
+    return {
+      id: 42,
+      artistId: 7,
+      foreignAlbumId: "album-mbid",
+      title: "Geogaddi",
+    };
+  };
+  libraryManager.addAlbum = async (artistId, albumMbid, albumName, options) => {
+    assert.deepEqual(waitCall, {
+      albumMbid: "album-mbid",
+      artistId: "7",
+    });
+    assert.equal(artistId, "7");
+    assert.equal(albumMbid, "album-mbid");
+    assert.equal(albumName, "Geogaddi");
+    assert.equal(options.triggerSearch, true);
+    return {
+      id: "42",
+      artistId: "7",
+      mbid: "album-mbid",
+      foreignAlbumId: "album-mbid",
+      albumName: "Geogaddi",
+      monitored: true,
+      statistics: {
+        percentOfTracks: 0,
+        sizeOnDisk: 0,
+      },
+    };
+  };
+
+  try {
+    const result = await libraryManager.requestAlbumFromSearch({
+      albumMbid: "album-mbid",
+      albumName: "Geogaddi",
+      artistMbid: "artist-mbid",
+      artistName: "Boards of Canada",
+      triggerSearch: true,
+      user: {
+        role: "user",
+        permissions: { addAlbum: true, addArtist: true },
+      },
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.createdArtist, true);
+    assert.equal(result.createdAlbum, false);
+    assert.equal(result.triggeredSearch, true);
+    assert.equal(result.album.id, "42");
+  } finally {
+    lidarrClient.isConfigured = originalIsConfigured;
+    lidarrClient.getAlbumByMbid = originalGetAlbumByMbid;
+    libraryManager.getArtist = originalGetArtist;
+    libraryManager.resolveArtistAddOptions = originalResolveArtistAddOptions;
+    libraryManager.addArtistWithResolvedOptions =
+      originalAddArtistWithResolvedOptions;
+    libraryManager.waitForAlbumByMbidForArtist =
+      originalWaitForAlbumByMbidForArtist;
     libraryManager.addAlbum = originalAddAlbum;
   }
 });
@@ -255,5 +352,85 @@ test("addAlbum preserves artist monitoring state while monitoring only the reque
     lidarrClient.getAlbumByMbid = originalGetAlbumByMbid;
     lidarrClient.addAlbum = originalAddAlbum;
     lidarrClient.updateArtistMonitoring = originalUpdateArtistMonitoring;
+  }
+});
+
+test("addAlbum monitors and searches the requested album after Lidarr conflict lag", async () => {
+  const originalIsConfigured = lidarrClient.isConfigured;
+  const originalGetArtist = lidarrClient.getArtist;
+  const originalGetAlbumByMbid = lidarrClient.getAlbumByMbid;
+  const originalAddAlbum = lidarrClient.addAlbum;
+  const originalGetAlbum = lidarrClient.getAlbum;
+  const originalMonitorAlbum = lidarrClient.monitorAlbum;
+  const originalTriggerAlbumSearch = lidarrClient.triggerAlbumSearch;
+  const originalWaitForAlbumByMbidForArtist =
+    libraryManager.waitForAlbumByMbidForArtist;
+
+  let monitorCalls = 0;
+  let searchCalls = 0;
+
+  lidarrClient.isConfigured = () => true;
+  lidarrClient.getArtist = async () => ({
+    id: 7,
+    artistName: "Boards of Canada",
+    foreignArtistId: "artist-mbid",
+    monitored: false,
+    monitor: "none",
+  });
+  lidarrClient.getAlbumByMbid = async () => null;
+  lidarrClient.addAlbum = async () => {
+    throw new Error("AlbumExistsValidator: This album has already been added");
+  };
+  libraryManager.waitForAlbumByMbidForArtist = async () => ({
+    id: 42,
+    artistId: "7",
+    foreignAlbumId: "album-mbid",
+    title: "Geogaddi",
+    monitored: false,
+    statistics: {
+      percentOfTracks: 0,
+      sizeOnDisk: 0,
+    },
+  });
+  lidarrClient.monitorAlbum = async (albumId, monitored) => {
+    monitorCalls += 1;
+    assert.equal(albumId, 42);
+    assert.equal(monitored, true);
+  };
+  lidarrClient.triggerAlbumSearch = async (albumId) => {
+    searchCalls += 1;
+    assert.equal(albumId, 42);
+  };
+  lidarrClient.getAlbum = async () => ({
+    id: 42,
+    artistId: 7,
+    foreignAlbumId: "album-mbid",
+    title: "Geogaddi",
+    monitored: true,
+    statistics: {
+      percentOfTracks: 0,
+      sizeOnDisk: 0,
+    },
+  });
+
+  try {
+    const album = await libraryManager.addAlbum(7, "album-mbid", "Geogaddi", {
+      triggerSearch: true,
+    });
+
+    assert.equal(album.id, "42");
+    assert.equal(album.monitored, true);
+    assert.equal(monitorCalls, 1);
+    assert.equal(searchCalls, 1);
+  } finally {
+    lidarrClient.isConfigured = originalIsConfigured;
+    lidarrClient.getArtist = originalGetArtist;
+    lidarrClient.getAlbumByMbid = originalGetAlbumByMbid;
+    lidarrClient.addAlbum = originalAddAlbum;
+    lidarrClient.getAlbum = originalGetAlbum;
+    lidarrClient.monitorAlbum = originalMonitorAlbum;
+    lidarrClient.triggerAlbumSearch = originalTriggerAlbumSearch;
+    libraryManager.waitForAlbumByMbidForArtist =
+      originalWaitForAlbumByMbidForArtist;
   }
 });

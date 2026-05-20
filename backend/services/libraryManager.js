@@ -180,6 +180,38 @@ export class LibraryManager {
     return [];
   }
 
+  async waitForAlbumByMbidForArtist(
+    albumMbid,
+    artistId,
+    { attempts = 20, delayMs = 1500 } = {},
+  ) {
+    const lidarr = await getLidarrClient();
+    if (!lidarr || !lidarr.isConfigured()) {
+      return null;
+    }
+
+    const normalizedAlbumMbid = String(albumMbid || "").trim();
+    const normalizedArtistId = String(artistId || "").trim();
+    if (!normalizedAlbumMbid || !normalizedArtistId) {
+      return null;
+    }
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        const album = await lidarr.getAlbumByMbid(normalizedAlbumMbid);
+        if (album && String(album.artistId) === normalizedArtistId) {
+          return album;
+        }
+      } catch {}
+
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    return null;
+  }
+
   async applyArtistMonitoringDefaults(artist, albums = null) {
     if (
       !artist?.monitored ||
@@ -818,7 +850,9 @@ export class LibraryManager {
       const existing = await lidarr.getAlbumByMbid(releaseGroupMbid);
       const artistNumericId = parseInt(artistId, 10);
       const sameArtistExisting =
-        existing && existing.artistId === artistNumericId ? existing : null;
+        existing && String(existing.artistId) === String(artistNumericId)
+          ? existing
+          : null;
       if (sameArtistExisting) {
         const mappedExisting = await mapExistingAlbum(
           sameArtistExisting,
@@ -846,12 +880,18 @@ export class LibraryManager {
           break;
         } catch (error) {
           if (isAlbumAlreadyAddedError(error)) {
-            const existingAfterConflict = await lidarr
-              .getAlbumByMbid(releaseGroupMbid)
-              .catch(() => null);
+            const existingAfterConflict =
+              (await this.waitForAlbumByMbidForArtist(
+                releaseGroupMbid,
+                artistNumericId,
+                { attempts: 8, delayMs: 1500 },
+              )) ||
+              (await lidarr
+                .getAlbumByMbid(releaseGroupMbid)
+                .catch(() => null));
             const sameArtistAfterConflict =
               existingAfterConflict &&
-              existingAfterConflict.artistId === artistNumericId
+              String(existingAfterConflict.artistId) === String(artistNumericId)
                 ? existingAfterConflict
                 : null;
             if (sameArtistAfterConflict) {
@@ -953,7 +993,7 @@ export class LibraryManager {
       throw error;
     }
 
-    const existingAlbum = await lidarr.getAlbumByMbid(normalizedAlbumMbid);
+    let existingAlbum = await lidarr.getAlbumByMbid(normalizedAlbumMbid);
     if (
       existingAlbum &&
       existingAlbum.artistId != null &&
@@ -969,9 +1009,20 @@ export class LibraryManager {
     const settings = getSettings();
     const searchOnAdd = settings.integrations?.lidarr?.searchOnAdd ?? false;
     const shouldTriggerSearch = triggerSearch === true || searchOnAdd;
-    const album = await this.addAlbum(artist.id, normalizedAlbumMbid, normalizedAlbumName, {
-      triggerSearch: shouldTriggerSearch,
-    });
+    if (!existingAlbum && createdArtist) {
+      existingAlbum = await this.waitForAlbumByMbidForArtist(
+        normalizedAlbumMbid,
+        artist.id,
+      );
+    }
+    const album = await this.addAlbum(
+      artist.id,
+      normalizedAlbumMbid,
+      normalizedAlbumName,
+      {
+        triggerSearch: shouldTriggerSearch,
+      },
+    );
 
     if (album?.error) {
       const error = new Error(album.error);
