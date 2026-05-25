@@ -382,8 +382,9 @@ function Onboarding() {
               </h2>
             </div>
             <p className="text-sm mb-4" style={{ color: "#c1c1c3" }}>
-              Recommended for discovery and recommendations based on your
-              scrobbles. Leave blank to skip and add later in settings.
+              Recommended for personalized discovery, related artists, full tag
+              search, and flows. If you skip it, Discover will use ListenBrainz
+              trending artists and default genre shelves.
             </p>
             <div className="space-y-3">
               <input

@@ -21,7 +21,7 @@ export default function registerSimilar(router) {
       const artistNameParam = String(req.query.artistName || "").trim();
 
       if (!getLastfmApiKey()) {
-        return res.json({ artists: [] });
+        return res.json({ artists: [], provider: "none", requiresLastfm: true });
       }
 
       const limitInt = Math.min(Math.max(parseInt(limit, 10) || 7, 1), 20);

@@ -9,6 +9,7 @@ import {
   FileMusic,
   Loader,
   Music,
+  X,
   Star,
 } from "lucide-react";
 import {
@@ -25,6 +26,7 @@ import {
   searchCatalog,
   updateBlocklist,
 } from "../utils/api";
+import PillToggle from "../components/PillToggle";
 import SearchAlbumResults from "../components/SearchAlbumResults";
 import SearchArtistResults from "../components/SearchArtistResults";
 import { useAuth } from "../contexts/AuthContext";
@@ -33,6 +35,7 @@ import { useReleaseTypeFilter } from "./ArtistDetails/hooks/useReleaseTypeFilter
 
 const PAGE_SIZE = 20;
 const DEFAULT_ALBUM_SORT = "relevance";
+const LASTFM_TAG_BANNER_KEY = "aurral:lastfm-tag-results-banner-dismissed";
 const ALBUM_SORT_OPTIONS = [
   { value: "relevance", label: "Relevance" },
   { value: "dateDesc", label: "Newest" },
@@ -134,6 +137,7 @@ function SearchResultsPage() {
   const [blockedArtists, setBlockedArtists] = useState([]);
   const [pendingAlbumIds, setPendingAlbumIds] = useState({});
   const [showReleaseTypeDropdown, setShowReleaseTypeDropdown] = useState(false);
+  const [dismissedTagBanner, setDismissedTagBanner] = useState(false);
   const sentinelRef = useRef(null);
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
@@ -155,7 +159,12 @@ function SearchResultsPage() {
   }, [type, trimmedQuery]);
   const isTagSearch = normalizedType === "tag";
   const isAlbumSearch = normalizedType === "album";
+  const tagScope = searchParams.get("scope") || "all";
+  const effectiveTagScope =
+    isTagSearch && lastfmConfigured === false ? "all" : tagScope;
   const albumSort = searchParams.get("sort") || DEFAULT_ALBUM_SORT;
+  const showAllTagResults = isTagSearch && effectiveTagScope === "all";
+  const showTagBanner = isTagSearch && lastfmConfigured === false && !dismissedTagBanner;
   const supportsDiscoveryFeedback =
     normalizedType === "recommended" || isTagSearch;
   const canAddArtist = hasPermission("addArtist");
@@ -172,6 +181,15 @@ function SearchResultsPage() {
         (typeName) => !selectedReleaseTypes.includes(typeName),
       ).length,
     [allReleaseTypes, selectedReleaseTypes],
+  );
+
+  const updateTagScope = useCallback(
+    (nextScope) => {
+      const params = new URLSearchParams(searchParams);
+      params.set("scope", nextScope === "all" ? "all" : "recommended");
+      setSearchParams(params);
+    },
+    [searchParams, setSearchParams],
   );
 
   const updateAlbumSort = useCallback(
@@ -198,6 +216,15 @@ function SearchResultsPage() {
     };
     fetchHealth();
   }, []);
+
+  useEffect(() => {
+    if (!isTagSearch) return;
+    try {
+      setDismissedTagBanner(localStorage.getItem(LASTFM_TAG_BANNER_KEY) === "1");
+    } catch {
+      setDismissedTagBanner(false);
+    }
+  }, [isTagSearch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -275,6 +302,7 @@ function SearchResultsPage() {
         const data = await searchCatalog(searchQuery, normalizedType, {
           limit: PAGE_SIZE,
           offset: 0,
+          tagScope: effectiveTagScope,
           releaseTypes: isAlbumSearch ? selectedReleaseTypes : [],
         });
         const nextResults = isAlbumSearch
@@ -316,6 +344,7 @@ function SearchResultsPage() {
   }, [
     trimmedQuery,
     normalizedType,
+    effectiveTagScope,
     isAlbumSearch,
     isTagSearch,
     selectedReleaseTypes,
@@ -560,6 +589,7 @@ function SearchResultsPage() {
       const data = await searchCatalog(searchQuery, normalizedType, {
         limit: PAGE_SIZE,
         offset: results.length,
+        tagScope: effectiveTagScope,
         releaseTypes: isAlbumSearch ? selectedReleaseTypes : [],
       });
       const newItems = data.items || [];
@@ -596,6 +626,7 @@ function SearchResultsPage() {
     results,
     searchTotalCount,
     selectedReleaseTypes,
+    effectiveTagScope,
     trimmedQuery,
     visibleCount,
   ]);
@@ -812,6 +843,40 @@ function SearchResultsPage() {
   return (
     <div className="animate-fade-in">
       <div className="mb-6">
+        {showTagBanner && (
+          <div
+            className="mb-4 flex items-start justify-between gap-4 border border-white/10 px-4 py-3"
+            style={{ backgroundColor: "#191820" }}
+          >
+            <p className="text-sm" style={{ color: "#c1c1c3" }}>
+              Tag results are limited to the hydrated discovery cache. Add a free
+              Last.fm API key in Settings for broader top-artist matches.
+            </p>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => navigate("/settings")}
+              >
+                Open Settings
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 items-center justify-center border border-white/10 text-[#c1c1c3] transition-colors hover:bg-white/5"
+                style={{ backgroundColor: "#15141a" }}
+                aria-label="Dismiss Last.fm reminder"
+                onClick={() => {
+                  setDismissedTagBanner(true);
+                  try {
+                    localStorage.setItem(LASTFM_TAG_BANNER_KEY, "1");
+                  } catch {}
+                }}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-4">
           <h1 className="text-2xl font-bold" style={{ color: "#fff" }}>
             {normalizedType === "recommended"
@@ -829,26 +894,29 @@ function SearchResultsPage() {
                       : "Search Results"}
           </h1>
 
-        </div>
-
-        {isTagSearch && lastfmConfigured === false && (
-          <div className="mt-4 bg-yellow-500/20 p-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <p className="text-sm text-yellow-300">
-                Tag results are currently limited to the hydrated discovery
-                cache. Add a Last.fm API key to pull broader top-artist matches
-                for this tag.
-              </p>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => navigate("/settings")}
+          {isTagSearch && lastfmConfigured !== false && (
+            <div className="ml-auto inline-flex items-center gap-3">
+              <span
+                className="text-sm"
+                style={{ color: showAllTagResults ? "#8a8a8f" : "#fff" }}
               >
-                Open Settings
-              </button>
+                Recommended
+              </span>
+              <PillToggle
+                checked={showAllTagResults}
+                onChange={(event) =>
+                  updateTagScope(event.target.checked ? "all" : "recommended")
+                }
+              />
+              <span
+                className="text-sm"
+                style={{ color: showAllTagResults ? "#fff" : "#8a8a8f" }}
+              >
+                All
+              </span>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {normalizedType === "recommended" && (
           <p style={{ color: "#c1c1c3" }}>
@@ -864,14 +932,18 @@ function SearchResultsPage() {
             className="flex flex-wrap items-center gap-x-3 gap-y-2"
             style={{ color: "#c1c1c3" }}
           >
-            <p>{`Artists for tag "${trimmedQuery.replace(/^#/, "")}"`}</p>
-            <div className="ml-auto flex items-center gap-1.5 text-sm">
-              <Star
-                className="h-3.5 w-3.5"
-                style={{ color: "#f4c430", fill: "#f4c430" }}
-              />
-              <span>= recommended</span>
-            </div>
+            <p>
+              {`${lastfmConfigured === false || showAllTagResults ? "Top artists" : "Recommended artists"} for tag "${trimmedQuery.replace(/^#/, "")}"`}
+            </p>
+            {lastfmConfigured !== false && showAllTagResults && (
+              <div className="ml-auto flex items-center gap-1.5 text-sm">
+                <Star
+                  className="h-3.5 w-3.5"
+                  style={{ color: "#f4c430", fill: "#f4c430" }}
+                />
+                <span>= recommended</span>
+              </div>
+            )}
           </div>
         )}
         {isAlbumSearch && trimmedQuery && (

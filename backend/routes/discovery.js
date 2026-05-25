@@ -34,6 +34,14 @@ import {
   getListenHistoryProfile,
   hasListenHistoryProfile,
 } from "../services/listeningHistory.js";
+import {
+  DISCOVERY_PROVIDER_LASTFM,
+  DISCOVERY_PROVIDER_LISTENBRAINZ_FALLBACK,
+  buildListenbrainzFallbackDiscovery,
+  getDiscoveryCapabilities,
+  getFallbackTagNames,
+  searchFallbackGenreArtists,
+} from "../services/listenbrainzDiscoveryFallback.js";
 
 const router = express.Router();
 
@@ -48,6 +56,23 @@ let discoveryPreferences = { ...defaultDiscoveryPreferences };
 
 const getDiscoveryStaleMs = () =>
   getDiscoveryAutoRefreshHours() * 60 * 60 * 1000;
+
+const buildArtistKeySet = (artists) => {
+  const set = new Set();
+  for (const artist of Array.isArray(artists) ? artists : []) {
+    [
+      artist?.id,
+      artist?.mbid,
+      artist?.foreignArtistId,
+      artist?.name,
+      artist?.artistName,
+    ].forEach((value) => {
+      const key = String(value || "").trim().toLowerCase();
+      if (key) set.add(key);
+    });
+  }
+  return set;
+};
 
 const normalizeTextList = (value) => {
   if (!Array.isArray(value)) return [];
@@ -235,6 +260,8 @@ router.post("/clear-discovery", requireAuth, requireAdmin, async (req, res) => {
     basedOn: [],
     topTags: [],
     topGenres: [],
+    fallbackGenres: [],
+    provider: DISCOVERY_PROVIDER_LASTFM,
     lastUpdated: null,
   });
   const discoveryCache = getDiscoveryCache();
@@ -244,6 +271,9 @@ router.post("/clear-discovery", requireAuth, requireAdmin, async (req, res) => {
     basedOn: [],
     topTags: [],
     topGenres: [],
+    fallbackGenres: [],
+    provider: DISCOVERY_PROVIDER_LASTFM,
+    capabilities: getDiscoveryCapabilities(true),
     lastUpdated: null,
     isUpdating: false,
   });
@@ -256,53 +286,11 @@ router.post("/clear-discovery", requireAuth, requireAdmin, async (req, res) => {
 router.get("/", requireAuth, async (req, res) => {
   const hasLastfmKey = !!getLastfmApiKey();
   const libraryArtists = await libraryManager.getAllArtists();
-  const hasArtists = libraryArtists.length > 0;
 
   const reqUser = userOps.getUserById(req.user.id);
   const listenHistoryProfile = getListenHistoryProfile(reqUser || {});
   const userCacheNamespace = getListenHistoryCacheNamespace(listenHistoryProfile);
-
-  if (!hasLastfmKey && !hasArtists) {
-    const dbData = dbOps.getDiscoveryCache();
-    if (
-      dbData.recommendations?.length > 0 ||
-      dbData.globalTop?.length > 0 ||
-      dbData.topGenres?.length > 0 ||
-      dbData.basedOn?.length > 0
-    ) {
-      dbOps.updateDiscoveryCache({
-        recommendations: [],
-        globalTop: [],
-        basedOn: [],
-        topTags: [],
-        topGenres: [],
-        lastUpdated: null,
-      });
-    }
-
-    const discoveryCache = getDiscoveryCache();
-    Object.assign(discoveryCache, {
-      recommendations: [],
-      globalTop: [],
-      basedOn: [],
-      topTags: [],
-      topGenres: [],
-      lastUpdated: null,
-      isUpdating: false,
-    });
-
-    res.set("Cache-Control", "private, max-age=300");
-    return res.json({
-      recommendations: [],
-      globalTop: [],
-      basedOn: [],
-      topTags: [],
-      topGenres: [],
-      lastUpdated: null,
-      isUpdating: false,
-      configured: false,
-    });
-  }
+  const effectiveCacheNamespace = hasLastfmKey ? userCacheNamespace : null;
 
   if (hasListenHistoryProfile(listenHistoryProfile) && hasLastfmKey) {
     const staleness = getUserDiscoveryCacheStaleness(userCacheNamespace);
@@ -316,17 +304,27 @@ router.get("/", requireAuth, async (req, res) => {
     }
   }
 
-  const discoveryCache = getDiscoveryCache(userCacheNamespace);
+  let discoveryCache = getDiscoveryCache(effectiveCacheNamespace);
 
   const hasData =
     discoveryCache.recommendations?.length > 0 ||
     discoveryCache.globalTop?.length > 0 ||
-    discoveryCache.topGenres?.length > 0;
+    discoveryCache.topGenres?.length > 0 ||
+    discoveryCache.fallbackGenres?.length > 0;
   const hasCompletedRefresh = !!discoveryCache.lastUpdated;
 
   let isUpdating = discoveryCache.isUpdating || false;
 
-  if (!hasData && !hasCompletedRefresh && !isUpdating) {
+  if (!hasLastfmKey && (!hasData || discoveryCache.provider !== DISCOVERY_PROVIDER_LISTENBRAINZ_FALLBACK)) {
+    const fallbackData = await buildListenbrainzFallbackDiscovery({
+      existingArtistKeys: buildArtistKeySet(libraryArtists),
+      blocklist: getStoredBlocklist(),
+    });
+    dbOps.updateDiscoveryCache(fallbackData);
+    Object.assign(getDiscoveryCache(), fallbackData, { isUpdating: false });
+    discoveryCache = getDiscoveryCache(effectiveCacheNamespace);
+    isUpdating = false;
+  } else if (!hasData && !hasCompletedRefresh && !isUpdating) {
     lastDiscoveryRevalidateAt = Date.now();
     updateDiscoveryCache().catch((err) => {
       console.error("[Discover] Lazy discovery refresh failed:", err.message);
@@ -334,8 +332,21 @@ router.get("/", requireAuth, async (req, res) => {
     isUpdating = true;
   }
 
-  let { recommendations, globalTop, basedOn, topTags, topGenres, lastUpdated } =
-    discoveryCache;
+  let {
+    recommendations,
+    globalTop,
+    basedOn,
+    topTags,
+    topGenres,
+    fallbackGenres = [],
+    lastUpdated,
+    provider,
+    capabilities,
+  } = discoveryCache;
+  provider = hasLastfmKey
+    ? DISCOVERY_PROVIDER_LASTFM
+    : provider || DISCOVERY_PROVIDER_LISTENBRAINZ_FALLBACK;
+  capabilities = capabilities || getDiscoveryCapabilities(hasLastfmKey);
   const feedback = getDiscoveryFeedback(req.user?.id || "global");
   const discoveryMode = getDiscoveryMode();
 
@@ -418,10 +429,13 @@ router.get("/", requireAuth, async (req, res) => {
     basedOn,
     topTags,
     topGenres,
+    fallbackGenres,
     lastUpdated,
     isUpdating,
     stale: isStale,
     configured: true,
+    provider,
+    capabilities,
     discoveryMode,
   });
 });
@@ -477,6 +491,7 @@ router.get("/tags", async (req, res) => {
     if (tagNames.length === 0) {
       const discoveryCache = getDiscoveryCache();
       const cached = [
+        ...(!getLastfmApiKey() ? getFallbackTagNames() : []),
         ...(discoveryCache.topTags || []),
         ...(discoveryCache.topGenres || []),
       ]
@@ -592,6 +607,66 @@ router.get("/by-tag", async (req, res) => {
         } catch (err) {
           console.error("Last.fm tag search failed:", err.message);
         }
+      } else {
+        const fallbackResult = await searchFallbackGenreArtists({
+          tag,
+          limit: limitInt,
+          offset: offsetInt,
+          existingArtistKeys: includeLibraryFlag
+            ? new Set()
+            : buildArtistKeySet(await libraryManager.getAllArtists()),
+          blocklist,
+        });
+        if (fallbackResult) {
+          return res.json({
+            recommendations: fallbackResult.artists,
+            tag,
+            total: fallbackResult.total,
+            offset: offsetInt,
+            provider: DISCOVERY_PROVIDER_LISTENBRAINZ_FALLBACK,
+            fallbackLimited: true,
+          });
+        }
+
+        const discoveryCache = getDiscoveryCache();
+        const tagLower = String(tag).trim().toLowerCase();
+        const pool = [
+          ...(discoveryCache.recommendations || []),
+          ...(discoveryCache.globalTop || []),
+          ...(discoveryCache.fallbackGenres || []).flatMap((section) =>
+            Array.isArray(section?.artists) ? section.artists : [],
+          ),
+        ];
+        const seen = new Set();
+        const matches = pool.filter((artist) => {
+          const key = String(
+            artist?.id || artist?.mbid || artist?.name || "",
+          ).trim().toLowerCase();
+          if (!key || seen.has(key)) return false;
+          const artistTags = [
+            ...(Array.isArray(artist?.tags) ? artist.tags : []),
+            ...(Array.isArray(artist?.genres) ? artist.genres : []),
+          ];
+          const matched = artistTags.some(
+            (entry) => String(entry || "").trim().toLowerCase() === tagLower,
+          );
+          if (!matched) return false;
+          seen.add(key);
+          return true;
+        });
+        recommendations = applyBlocklistToArtistCollection(
+          matches,
+          blocklist,
+        ).slice(offsetInt, offsetInt + limitInt);
+        return res.json({
+          recommendations,
+          tag,
+          total: matches.length,
+          offset: offsetInt,
+          provider: DISCOVERY_PROVIDER_LISTENBRAINZ_FALLBACK,
+          fallbackLimited: true,
+          message: "Tag search is limited without Last.fm",
+        });
       }
     } else {
       const discoveryCache = getDiscoveryCache();
@@ -691,9 +766,9 @@ router.get("/nearby-shows", requireAuth, async (req, res) => {
       : undefined;
     const libraryArtists = await libraryManager.getAllArtists();
     const reqUser = userOps.getUserById(req.user.id);
-    const userCacheNamespace = getListenHistoryCacheNamespace(
-      getListenHistoryProfile(reqUser || {}),
-    );
+    const userCacheNamespace = getLastfmApiKey()
+      ? getListenHistoryCacheNamespace(getListenHistoryProfile(reqUser || {}))
+      : null;
     const discoveryCache = getDiscoveryCache(userCacheNamespace);
     const feedback = getDiscoveryFeedback(req.user?.id || "global");
     const blocklist = getStoredBlocklist();

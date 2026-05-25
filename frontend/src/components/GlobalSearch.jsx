@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { ChevronDown, Loader2, Search } from "lucide-react";
-import { getTagSuggestions, searchArtists } from "../utils/api";
+import {
+  getBootstrapStatus,
+  getTagSuggestions,
+  searchArtists,
+} from "../utils/api";
 
 const AUTOCOMPLETE_DEBOUNCE_MS = 250;
 const AUTOCOMPLETE_LIMIT = 6;
@@ -32,6 +36,7 @@ function isEditableTarget(target) {
 function GlobalSearch() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchScope, setSearchScope] = useState("artist");
+  const [lastfmConfigured, setLastfmConfigured] = useState(true);
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [suggestionMode, setSuggestionMode] = useState(null);
@@ -49,9 +54,39 @@ function GlobalSearch() {
     setSuggestionIndex(-1);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadBootstrapStatus = async () => {
+      try {
+        const bootstrap = await getBootstrapStatus();
+        if (!cancelled) {
+          setLastfmConfigured(!!bootstrap.lastfmConfigured);
+        }
+      } catch {
+        if (!cancelled) {
+          setLastfmConfigured(true);
+        }
+      }
+    };
+    loadBootstrapStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const availableScopes = lastfmConfigured
+    ? SEARCH_SCOPES
+    : SEARCH_SCOPES.filter((scope) => scope.value !== "tag");
+
   const selectedScope =
-    SEARCH_SCOPES.find((scope) => scope.value === searchScope) ||
-    SEARCH_SCOPES[0];
+    availableScopes.find((scope) => scope.value === searchScope) ||
+    availableScopes[0];
+
+  useEffect(() => {
+    if (!lastfmConfigured && searchScope === "tag") {
+      setSearchScope("artist");
+    }
+  }, [lastfmConfigured, searchScope]);
 
   useEffect(() => {
     setSearchQuery("");
@@ -81,7 +116,7 @@ function GlobalSearch() {
 
   useEffect(() => {
     const trimmed = searchQuery.trim();
-    const isTagShortcut = trimmed.startsWith("#");
+    const isTagShortcut = lastfmConfigured && trimmed.startsWith("#");
     const effectiveScope = isTagShortcut ? "tag" : searchScope;
     const tagPart = isTagShortcut ? trimmed.slice(1).trim() : trimmed;
     const shouldAutocomplete =
@@ -150,7 +185,7 @@ function GlobalSearch() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [searchQuery, searchScope, closeAutocomplete]);
+  }, [searchQuery, searchScope, closeAutocomplete, lastfmConfigured]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -280,7 +315,7 @@ function GlobalSearch() {
               }}
             >
               <ul className="py-1">
-                {SEARCH_SCOPES.map((scope) => {
+                {availableScopes.map((scope) => {
                   const selected = scope.value === searchScope;
                   return (
                     <li key={scope.value}>

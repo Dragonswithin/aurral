@@ -4,6 +4,7 @@ import { flowPlaylistConfig } from "./weeklyFlowPlaylistConfig.js";
 import { weeklyFlowOperationQueue } from "./weeklyFlowOperationQueue.js";
 import { soulseekClient } from "./simpleSoulseekClient.js";
 import { userOps } from "../config/db-helpers.js";
+import { getFlowCapabilities } from "./listenbrainzDiscoveryFallback.js";
 
 function formatNextRunMessage(flows) {
   const nextRunAt = (Array.isArray(flows) ? flows : [])
@@ -193,6 +194,7 @@ export function getWeeklyFlowStatusSnapshot({
     jobs,
     flows: flowsWithOwners,
     sharedPlaylists: sharedPlaylistsWithOwners,
+    capabilities: getFlowCapabilities(),
     retryCyclePausedByPlaylist,
     retryCycleScheduledByPlaylist,
     operationQueue,

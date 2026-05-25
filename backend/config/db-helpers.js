@@ -539,6 +539,14 @@ export const dbOps = {
     const topGenres = dbHelpers.parseJSON(
       getDiscoveryCacheStmt.get(`${prefix}topGenres`)?.value
     );
+    const fallbackGenres = dbHelpers.parseJSON(
+      getDiscoveryCacheStmt.get(`${prefix}fallbackGenres`)?.value
+    );
+    const fallbackGenrePools = dbHelpers.parseJSON(
+      getDiscoveryCacheStmt.get(`${prefix}fallbackGenrePools`)?.value
+    );
+    const provider =
+      getDiscoveryCacheStmt.get(`${prefix}provider`)?.value || null;
     const lastUpdated = cacheNamespace
       ? getDiscoveryCacheStmt.get(`${prefix}lastUpdated`)?.value || null
       : getDiscoveryCacheLastUpdatedStmt.get()?.last_updated;
@@ -549,6 +557,12 @@ export const dbOps = {
       basedOn: basedOn || [],
       topTags: topTags || [],
       topGenres: topGenres || [],
+      fallbackGenres: fallbackGenres || [],
+      fallbackGenrePools:
+        fallbackGenrePools && typeof fallbackGenrePools === "object"
+          ? fallbackGenrePools
+          : {},
+      provider,
       lastUpdated,
     };
   },
@@ -591,6 +605,23 @@ export const dbOps = {
           dbHelpers.stringifyJSON(discovery.topGenres),
           now
         );
+      }
+      if (discovery.fallbackGenres) {
+        upsertDiscoveryCacheStmt.run(
+          `${prefix}fallbackGenres`,
+          dbHelpers.stringifyJSON(discovery.fallbackGenres),
+          now
+        );
+      }
+      if (discovery.fallbackGenrePools) {
+        upsertDiscoveryCacheStmt.run(
+          `${prefix}fallbackGenrePools`,
+          dbHelpers.stringifyJSON(discovery.fallbackGenrePools),
+          now
+        );
+      }
+      if (discovery.provider) {
+        upsertDiscoveryCacheStmt.run(`${prefix}provider`, discovery.provider, now);
       }
       if (cacheNamespace) {
         upsertDiscoveryCacheStmt.run(
