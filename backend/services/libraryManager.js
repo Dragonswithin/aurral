@@ -55,6 +55,10 @@ function removeCachedArtistByMbid(mbid) {
   );
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function getLidarrClient() {
   if (!lidarrClient) {
     try {
@@ -583,6 +587,47 @@ export class LibraryManager {
     return updated?.error ? artist : updated;
   }
 
+  async ensureRequestedAlbumMonitoring(artistId, albumId, options = {}) {
+    const normalizedArtistId = String(artistId || "").trim();
+    const normalizedAlbumId = String(albumId || "").trim();
+    if (!normalizedArtistId || !normalizedAlbumId) {
+      return { artist: null, album: null };
+    }
+
+    let artist = await this.getArtistById(normalizedArtistId);
+    if (artist?.monitored === false) {
+      artist = await this.ensureArtistMonitored(artist, options.monitorOption);
+    }
+
+    let album = await this.getAlbumById(normalizedAlbumId);
+    if (album?.monitored === false) {
+      album = await this.updateAlbum(normalizedAlbumId, { monitored: true });
+    }
+
+    return { artist, album };
+  }
+
+  scheduleRequestedAlbumMonitoringRepair(artistId, albumId, options = {}) {
+    const normalizedArtistId = String(artistId || "").trim();
+    const normalizedAlbumId = String(albumId || "").trim();
+    if (!normalizedArtistId || !normalizedAlbumId) return;
+
+    for (const delayMs of [1000, 3000, 8000, 15000]) {
+      const timeout = setTimeout(() => {
+        this.ensureRequestedAlbumMonitoring(
+          normalizedArtistId,
+          normalizedAlbumId,
+          options,
+        ).catch((error) => {
+          console.error(
+            `[LibraryManager] Failed to stabilize requested album monitoring: ${error.message}`,
+          );
+        });
+      }, delayMs);
+      timeout.unref?.();
+    }
+  }
+
   async getAllArtists() {
     try {
       const lidarr = await getLidarrClient();
@@ -835,7 +880,6 @@ export class LibraryManager {
           msg.includes("foreignalbumid")
         );
       };
-      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const settings = getSettings();
       const searchOnAdd = settings.integrations?.lidarr?.searchOnAdd ?? false;
       const shouldTriggerSearch =
@@ -848,6 +892,11 @@ export class LibraryManager {
         }
         if (shouldTriggerSearch) {
           await lidarr.triggerAlbumSearch(existingAlbum.id);
+          await this.ensureRequestedAlbumMonitoring(artistId, existingAlbum.id);
+          this.scheduleRequestedAlbumMonitoringRepair(
+            artistId,
+            existingAlbum.id,
+          );
         }
         const refreshedExisting = await lidarr
           .getAlbum(existingAlbum.id)
@@ -947,6 +996,13 @@ export class LibraryManager {
       }
       if (!lidarrAlbum) {
         return { error: "Failed to add album to Lidarr" };
+      }
+      if (shouldTriggerSearch) {
+        await this.ensureRequestedAlbumMonitoring(artistId, lidarrAlbum.id);
+        this.scheduleRequestedAlbumMonitoringRepair(artistId, lidarrAlbum.id);
+        lidarrAlbum = await lidarr
+          .getAlbum(lidarrAlbum.id)
+          .catch(() => lidarrAlbum);
       }
       const updatedArtist = await lidarr.getArtist(artistId);
       return this.mapLidarrAlbum(lidarrAlbum, updatedArtist);
