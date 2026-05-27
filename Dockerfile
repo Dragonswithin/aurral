@@ -1,19 +1,21 @@
 FROM node:25-alpine AS builder
 
-WORKDIR /app/frontend
+WORKDIR /app
 
-COPY frontend/package*.json ./
-RUN npm ci
+COPY package*.json ./
+COPY backend/package*.json ./backend/
+COPY frontend/package*.json ./frontend/
+RUN npm ci --workspace frontend --include-workspace-root=false
 
-COPY frontend/ ./
-COPY lib/ ../lib/
+COPY frontend/ ./frontend/
+COPY lib/ ./lib/
 ARG APP_VERSION=unknown
 ARG GITHUB_REPO=lklynet/aurral
 ARG RELEASE_CHANNEL=stable
 ENV VITE_APP_VERSION=$APP_VERSION
 ENV VITE_GITHUB_REPO=$GITHUB_REPO
 ENV VITE_RELEASE_CHANNEL=$RELEASE_CHANNEL
-RUN npm run build
+RUN npm run build --workspace frontend
 
 FROM node:25-alpine
 ARG APP_VERSION=unknown
@@ -27,15 +29,14 @@ RUN apk add --no-cache su-exec fontconfig ttf-dejavu && \
     mkdir -p /app/backend/data && \
     chown -R nodejs:nodejs /app
 
-COPY backend/package*.json ./backend/
-RUN apk add --no-cache python3 make g++ && cd backend && npm ci --omit=dev
-
 COPY package*.json ./
-RUN npm ci --omit=dev --ignore-scripts
+COPY backend/package*.json ./backend/
+COPY frontend/package*.json ./frontend/
+RUN apk add --no-cache python3 make g++ && \
+    npm ci --workspace backend --omit=dev --include-workspace-root=false
 
 COPY backend/ ./backend/
 COPY lib/ ./lib/
-COPY server.js loadEnv.js ./
 COPY --from=builder /app/frontend/dist ./frontend/dist
 COPY backend/docker-entrypoint.sh /usr/local/bin/
 
@@ -45,4 +46,4 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
 EXPOSE 3001
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["node", "server.js"]
+CMD ["node", "backend/server.js"]

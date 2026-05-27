@@ -114,7 +114,7 @@ export async function startServerProcess({
     Number.isInteger(port) && port > 0
       ? port
       : 4100 + Math.floor(Math.random() * 1000);
-  const child = spawn("node", ["server.js"], {
+  const child = spawn("node", ["backend/server.js"], {
     cwd: repoRoot,
     env: {
       ...process.env,

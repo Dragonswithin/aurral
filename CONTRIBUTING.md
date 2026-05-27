@@ -75,7 +75,7 @@ Typical local checks:
 ```bash
 npm test
 npm run build
-cd frontend && npm run lint
+npm run lint --workspace frontend
 ```
 
 CI behavior:

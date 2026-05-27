@@ -2,19 +2,21 @@
   "name": "aurral",
   "version": "1.76.0",
   "description": "Aurral artist request manager",
-  "main": "server.js",
+  "private": true,
   "type": "module",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
   "scripts": {
-    "build": "cd frontend && npm run build",
-    "start": "node server.js",
+    "build": "npm run build --workspace frontend",
+    "start": "node backend/server.js",
     "test": "node --test --test-concurrency=1 $(find .tests -name '*.test.js' -print)",
     "dev": "concurrently --kill-others-on-fail \"npm run dev:backend\" \"npm run wait-and-dev:frontend\"",
-    "wait-and-dev:frontend": "wait-on -t 15000 http://localhost:3001/api/health && cd frontend && npm run dev",
-    "dev:backend": "nodemon server.js",
-    "dev:frontend": "cd frontend && npm run dev",
-    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
-    "install:frontend": "cd frontend && npm install",
-    "auth:reset-admin-password": "node backend/scripts/resetAdminPassword.js",
+    "wait-and-dev:frontend": "wait-on -t 15000 http://localhost:3001/api/health && npm run dev --workspace frontend",
+    "dev:backend": "nodemon backend/server.js",
+    "dev:frontend": "npm run dev --workspace frontend",
+    "auth:reset-admin-password": "npm run auth:reset-admin-password --workspace backend",
     "docker:build": "docker build -t aurral .",
     "docker:run": "docker run -p 3001:3001 -v $(pwd)/backend/data:/app/backend/data aurral"
   },
@@ -26,19 +28,6 @@
   ],
   "author": "",
   "license": "MIT",
-  "dependencies": {
-    "axios": "^1.16.1",
-    "better-sqlite3": "^12.10.0",
-    "bottleneck": "^2.19.5",
-    "cors": "^2.8.5",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "express-basic-auth": "^1.2.1",
-    "express-rate-limit": "^8.5.2",
-    "helmet": "^8.2.0",
-    "sharp": "^0.34.5",
-    "ws": "^8.21.0"
-  },
   "devDependencies": {
     "concurrently": "^9.1.2",
     "nodemon": "^3.1.14",
@@ -47,7 +36,7 @@
   "nodemonConfig": {
     "watch": [
       "backend",
-      "server.js"
+      "backend/server.js"
     ],
     "ext": "js,json",
     "ignore": [

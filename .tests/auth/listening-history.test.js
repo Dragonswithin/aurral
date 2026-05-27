@@ -17,7 +17,7 @@ const [{ db }, { userOps }, listeningHistoryModule, bcryptModule] =
     importFromRepo("backend/config/db-sqlite.js"),
     importFromRepo("backend/config/db-helpers.js"),
     importFromRepo("backend/services/listeningHistory.js"),
-    importFromRepo("backend/node_modules/bcrypt/bcrypt.js"),
+    import("bcrypt"),
   ]);
 
 const bcrypt = bcryptModule.default;
