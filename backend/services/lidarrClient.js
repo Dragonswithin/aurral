@@ -927,9 +927,16 @@ export class LidarrClient {
       },
     };
 
+    const ensureArtistMonitored = async (artist) => {
+      if (!artist?.id || artist.monitored === true) {
+        return artist;
+      }
+      return this.updateArtistMonitoring(artist.id, monitoring.option);
+    };
+
     try {
       const result = await this.request("/artist", "POST", lidarrArtist);
-      return result;
+      return ensureArtistMonitored(result);
     } catch (error) {
       if (requestedMonitorOption !== "all") {
         throw error;
@@ -942,7 +949,8 @@ export class LidarrClient {
           monitor: "existing",
         },
       };
-      return this.request("/artist", "POST", fallbackArtist);
+      const result = await this.request("/artist", "POST", fallbackArtist);
+      return ensureArtistMonitored(result);
     }
   }
 
@@ -1051,17 +1059,29 @@ export class LidarrClient {
       throw new Error(`Artist with ID ${artistId} not found in Lidarr`);
     }
 
+    const effectiveArtist =
+      artist.monitored === true
+        ? artist
+        : await this.updateArtistMonitoring(
+            artistId,
+            artist.monitor || artist.addOptions?.monitor || "none",
+          );
+
     const lidarrAlbum = {
       title: albumName,
       foreignAlbumId: albumMbid,
       artistId: artistId,
-      artist: artist,
+      artist: effectiveArtist,
       monitored: options.monitored !== false,
       anyReleaseOk: true,
       images: [],
     };
 
-    const result = await this.request("/album", "POST", lidarrAlbum);
+    let result = await this.request("/album", "POST", lidarrAlbum);
+
+    if (options.monitored !== false && result?.id && result.monitored !== true) {
+      result = await this.monitorAlbum(result.id, true);
+    }
 
     if (options.triggerSearch === true) {
       await this.triggerAlbumSearch(result.id);
@@ -1163,7 +1183,11 @@ export class LidarrClient {
       params.append("deleteFiles", "true");
     }
     const query = params.toString() ? `?${params.toString()}` : "";
-    return this.request(`/artist/${artistId}${query}`, "DELETE");
+    const result = await this.request(`/artist/${artistId}${query}`, "DELETE");
+    this._artistListCache = null;
+    this._invalidateArtistIndexes();
+    this._albumCache.clear();
+    return result;
   }
 
   async deleteAlbum(albumId, deleteFiles = false) {

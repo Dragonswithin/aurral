@@ -62,6 +62,7 @@ async function startFakeLidarr() {
     postedArtists: [],
     updatedArtists: [],
     updatedAlbums: [],
+    forceUnmonitoredArtistOnPost: false,
     nextArtistId: 100,
   };
 
@@ -131,7 +132,9 @@ async function startFakeLidarr() {
         foreignArtistId: payload.foreignArtistId,
         path: `${payload.rootFolderPath}/${payload.artistName}`,
         added: new Date().toISOString(),
-        monitored: payload.monitored,
+        monitored: state.forceUnmonitoredArtistOnPost
+          ? false
+          : payload.monitored,
         monitor: payload.monitor,
         monitorNewItems: payload.monitorNewItems,
         addOptions: payload.addOptions,
@@ -211,6 +214,7 @@ async function startFakeLidarr() {
       state.postedArtists = [];
       state.updatedArtists = [];
       state.updatedAlbums = [];
+      state.forceUnmonitoredArtistOnPost = false;
       state.nextArtistId = 100;
     },
     async stop() {
@@ -510,6 +514,29 @@ test("POST /library/artists preserves artist-only none monitoring defaults", asy
   assert.equal(posted.addOptions.monitor, "none");
 });
 
+test("POST /library/artists repairs Lidarr artist checkbox when none add returns unmonitored", async () => {
+  fakeLidarr.state.forceUnmonitoredArtistOnPost = true;
+
+  const mbid = "56565656-5656-5656-5656-565656565656";
+  const { response, payload } = await apiFetch("/api/library/artists", {
+    method: "POST",
+    body: JSON.stringify({
+      foreignArtistId: mbid,
+      artistName: "Repaired None Monitor Artist",
+    }),
+  });
+
+  assert.equal(response.status, 202, JSON.stringify(payload));
+
+  const posted = await waitForPostedArtist(mbid);
+  assert.equal(posted.monitored, true);
+  assert.equal(fakeLidarr.state.updatedArtists.length, 1);
+  assert.equal(fakeLidarr.state.updatedArtists[0].monitored, true);
+  assert.equal(fakeLidarr.state.updatedArtists[0].monitor, "none");
+  assert.equal(fakeLidarr.state.updatedArtists[0].monitorNewItems, "none");
+  assert.equal(fakeLidarr.state.updatedArtists[0].addOptions.monitor, "none");
+});
+
 test("POST /library/artists supports existing albums monitor option", async () => {
   const mbid = "66666666-6666-6666-6666-666666666666";
   const { response, payload } = await apiFetch("/api/library/artists", {
@@ -635,7 +662,7 @@ test("PUT /library/artists/:mbid updates artist monitoring to existing albums", 
   assert.equal(payload.monitorOption, "existing");
 });
 
-test("POST /library/downloads/album monitors only the requested album", async () => {
+test("POST /library/downloads/album checks artist and monitors only the requested album", async () => {
   const artist = {
     id: 700,
     artistName: "Pick And Choose Artist",
@@ -681,14 +708,17 @@ test("POST /library/downloads/album monitors only the requested album", async ()
   });
 
   assert.equal(response.status, 200, JSON.stringify(payload));
-  assert.equal(fakeLidarr.state.updatedArtists.length, 0);
+  assert.equal(fakeLidarr.state.updatedArtists.length, 1);
+  assert.equal(fakeLidarr.state.updatedArtists[0].monitored, true);
+  assert.equal(fakeLidarr.state.updatedArtists[0].monitor, "none");
+  assert.equal(fakeLidarr.state.updatedArtists[0].monitorNewItems, "none");
   assert.equal(fakeLidarr.state.updatedAlbums.length, 1);
   assert.equal(fakeLidarr.state.updatedAlbums[0].monitored, true);
 
   const storedArtist = fakeLidarr.state.artists.find(
     (entry) => entry.id === artist.id,
   );
-  assert.equal(storedArtist.monitored, false);
+  assert.equal(storedArtist.monitored, true);
   assert.equal(storedArtist.monitor, "none");
   assert.equal(storedArtist.monitorNewItems, "none");
 });
