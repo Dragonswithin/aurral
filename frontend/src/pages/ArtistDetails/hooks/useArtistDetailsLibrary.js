@@ -260,7 +260,7 @@ export function useArtistDetailsLibrary({
   ) => {
     if (!lookupArtist) return null;
     const lookupMbid = lookupArtist.mbid || lookupArtist.foreignArtistId;
-    let fullArtist = null;
+    let fullArtist;
     try {
       fullArtist = await getLibraryArtist(lookupMbid);
     } catch {
