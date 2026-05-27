@@ -16,7 +16,7 @@ const [{ db }, { userOps }, sessionHelpers, bcryptModule] = await Promise.all([
   importFromRepo("backend/config/db-sqlite.js"),
   importFromRepo("backend/config/db-helpers.js"),
   importFromRepo("backend/config/session-helpers.js"),
-  importFromRepo("backend/node_modules/bcrypt/bcrypt.js"),
+  import("bcrypt"),
 ]);
 
 const bcrypt = bcryptModule.default;
