@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import LogoutButton from "./LogoutButton";
+import { getBootstrapStatus } from "../utils/api";
 
 function Sidebar({ isOpen, onClose, appVersion, mode, onSetMode }) {
   const location = useLocation();
@@ -31,6 +32,7 @@ function Sidebar({ isOpen, onClose, appVersion, mode, onSetMode }) {
       ? window.matchMedia("(min-width: 768px)").matches
       : true
   );
+  const [ticketmasterConfigured, setTicketmasterConfigured] = useState(true);
 
   const prevModeRef = useRef(mode);
   useEffect(() => {
@@ -53,6 +55,26 @@ function Sidebar({ isOpen, onClose, appVersion, mode, onSetMode }) {
     return () => mediaQuery.removeListener(onChange);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadBootstrapStatus = async () => {
+      try {
+        const bootstrap = await getBootstrapStatus();
+        if (!cancelled) {
+          setTicketmasterConfigured(!!bootstrap.ticketmasterConfigured);
+        }
+      } catch {
+        if (!cancelled) {
+          setTicketmasterConfigured(true);
+        }
+      }
+    };
+    loadBootstrapStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const isActive = useCallback(
     (path) => {
       if (path === "/discover" && location.pathname === "/") return true;
@@ -65,7 +87,9 @@ function Sidebar({ isOpen, onClose, appVersion, mode, onSetMode }) {
     const items = [
       { path: "/discover", label: "Discover", icon: Sparkles },
       { path: "/library", label: "Library", icon: Library },
-      { path: "/shows", label: "Shows", icon: Ticket },
+      ...(ticketmasterConfigured
+        ? [{ path: "/shows", label: "Shows", icon: Ticket }]
+        : []),
       {
         path: "/flow",
         label: "Flow",
@@ -86,7 +110,7 @@ function Sidebar({ isOpen, onClose, appVersion, mode, onSetMode }) {
         user?.role === "admin" ||
         !!user?.permissions?.[item.permission]
     );
-  }, [user]);
+  }, [ticketmasterConfigured, user]);
 
   useEffect(() => {
     const updateBubblePosition = () => {

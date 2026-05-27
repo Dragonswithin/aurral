@@ -107,6 +107,21 @@ export const clearImageProxyCache = () => {
   cacheIndexInitialized = false;
 };
 
+export const getImageProxyCacheSizeBytes = () => {
+  ensureCacheDir();
+
+  let total = 0;
+  for (const file of fs.readdirSync(IMAGE_PROXY_DIR)) {
+    try {
+      const stat = fs.statSync(path.join(IMAGE_PROXY_DIR, file));
+      if (stat.isFile()) {
+        total += stat.size;
+      }
+    } catch {}
+  }
+  return total;
+};
+
 const isPrivateHostname = (hostname) => {
   const normalized = String(hostname || "").trim().toLowerCase();
   if (!normalized) return true;

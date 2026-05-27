@@ -138,6 +138,7 @@ export function MixSlider({
   normalizeMixPercent,
   trackCounts = {},
   trailingControl = null,
+  disabledSources = {},
 }) {
   const normalized = normalizeMixPercent(mix);
   const activeKeys = getEnabledSourceKeys(normalized);
@@ -222,19 +223,22 @@ export function MixSlider({
           {SOURCE_MIX_OPTIONS.map((option) => {
             const isActive = normalized[option.key] > 0;
             const isOnlyActive = isActive && activeKeys.length === 1;
+            const disabledReason = disabledSources?.[option.key];
+            const isDisabled = Boolean(disabledReason) || isOnlyActive;
             return (
               <button
                 key={option.key}
                 type="button"
                 onClick={() =>
+                  !disabledReason &&
                   onChange(toggleSourceInMix(normalized, option.key, normalizeMixPercent))
                 }
-                disabled={isOnlyActive}
+                disabled={isDisabled}
                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
                   isActive
                     ? "text-[#141414]"
                     : "border-white/10 bg-white/[0.035] text-[#9f9fa7] hover:bg-white/[0.07]"
-                } ${isOnlyActive ? "cursor-not-allowed opacity-75" : ""}`}
+                } ${isDisabled ? "cursor-not-allowed opacity-50" : ""}`}
                 style={
                   isActive
                     ? {
@@ -244,10 +248,11 @@ export function MixSlider({
                     : undefined
                 }
                 aria-pressed={isActive}
+                title={disabledReason || undefined}
               >
                 <span>{option.label}</span>
                 <span className={isActive ? "text-black/65" : "text-[#76767d]"}>
-                  {isActive ? "On" : "Off"}
+                  {disabledReason ? "Needs Last.fm" : isActive ? "On" : "Off"}
                 </span>
               </button>
             );
@@ -445,6 +450,7 @@ export function FlowFormFields({
   onDraftChange,
   onClearError,
   normalizeMixPercent,
+  disabledSources = {},
 }) {
   const updateDraft = (updater) => {
     onDraftChange((prev) => updater(prev));
@@ -597,6 +603,7 @@ export function FlowFormFields({
           <MixSlider
             mix={draft.mix}
             trackCounts={mixScaled}
+            disabledSources={disabledSources}
             trailingControl={
               <button
                 type="button"
@@ -612,6 +619,12 @@ export function FlowFormFields({
                     : "border-white/10 bg-white/[0.035] text-[#9f9fa7] hover:bg-white/[0.07]"
                 }`}
                 aria-pressed={draft.deepDive === true}
+                disabled={Object.keys(disabledSources || {}).length > 0}
+                title={
+                  Object.keys(disabledSources || {}).length > 0
+                    ? "Last.fm API key required"
+                    : undefined
+                }
               >
                 <span>Deep Dive</span>
                 <span className={draft.deepDive === true ? "text-black/65" : "text-[#76767d]"}>
@@ -627,6 +640,11 @@ export function FlowFormFields({
             }
             normalizeMixPercent={normalizeMixPercent}
           />
+          {Object.keys(disabledSources || {}).length > 0 ? (
+            <p className="text-xs text-amber-300">
+              Flow generation requires Last.fm for source selection in this version.
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -1458,12 +1476,19 @@ export function FlowCard({
   onDraftChange,
   onClearError,
   normalizeMixPercent,
+  disabledSources = {},
 }) {
   const { focusValidationError } = getFocusDraftValidation(
     simpleDraft,
     normalizeMixPercent,
   );
-  const saveDisabled = !hasChanges || Boolean(focusValidationError);
+  const sourceValidationError = SOURCE_MIX_OPTIONS.find(
+    (option) =>
+      Number(normalizeMixPercent(simpleDraft?.mix)?.[option.key] || 0) > 0 &&
+      disabledSources?.[option.key],
+  )?.key;
+  const saveDisabled =
+    !hasChanges || Boolean(focusValidationError) || Boolean(sourceValidationError);
   const showSavedState = !hasChanges;
   const processed = Number(stats?.done || 0);
   const total = Number(stats?.total || 0);
@@ -1847,6 +1872,7 @@ export function FlowCard({
               onDraftChange={onDraftChange}
               onClearError={onClearError}
               normalizeMixPercent={normalizeMixPercent}
+              disabledSources={disabledSources}
             />
             <div className="flex flex-wrap items-center justify-end gap-2">
               <button onClick={onCancel} className="btn btn-secondary btn-sm">
@@ -2352,19 +2378,25 @@ export function FlowTracksPanel({
   );
 }
 
-export function FlowEmptyState({ onCreate, creating }) {
+export function FlowEmptyState({ onCreate, creating, canCreate = true }) {
   return (
     <div className="p-4 bg-card rounded-lg border border-white/5 text-sm text-[#c1c1c3]">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <span>No flows yet. Start with your first flow.</span>
-        <button
-          onClick={onCreate}
-          className="btn btn-primary btn-sm flex items-center gap-2"
-          disabled={creating}
-        >
-          <FilePlus2 className="w-4 h-4" />
-          {creating ? "Creating..." : "Create First Flow"}
-        </button>
+        <span>
+          {canCreate
+            ? "No flows yet. Start with your first flow."
+            : "Flows require a Last.fm API key for generated source selection."}
+        </span>
+        {canCreate ? (
+          <button
+            onClick={onCreate}
+            className="btn btn-primary btn-sm flex items-center gap-2"
+            disabled={creating}
+          >
+            <FilePlus2 className="w-4 h-4" />
+            {creating ? "Creating..." : "Create First Flow"}
+          </button>
+        ) : null}
       </div>
     </div>
   );

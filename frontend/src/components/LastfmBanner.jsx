@@ -62,8 +62,9 @@ const LastfmBanner = () => {
             Personalize your discovery
           </p>
           <p className="text-xs text-[#c1c1c3]">
-            Connect your Last.fm or ListenBrainz account for personalized
-            results based on your own listening history.
+            Discover can use ListenBrainz fallback trends without setup.
+            Connect Last.fm for personalized recommendations, related artists,
+            full tag search, and flows.
           </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">

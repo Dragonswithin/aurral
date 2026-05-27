@@ -15,6 +15,11 @@ import {
   getListenHistoryProfile,
 } from "./listeningHistory.js";
 import {
+  DISCOVERY_PROVIDER_LASTFM,
+  buildListenbrainzFallbackDiscovery,
+  getDiscoveryCapabilities,
+} from "./listenbrainzDiscoveryFallback.js";
+import {
   addRecommendationCandidate,
   buildDiscoverySeedList,
   buildExistingArtistKeySet,
@@ -454,6 +459,10 @@ const EMPTY_CACHE = {
   basedOn: [],
   topTags: [],
   topGenres: [],
+  fallbackGenres: [],
+  fallbackGenrePools: {},
+  provider: DISCOVERY_PROVIDER_LASTFM,
+  capabilities: getDiscoveryCapabilities(true),
   lastUpdated: null,
   isUpdating: false,
 };
@@ -465,7 +474,9 @@ if (
   dbData.lastUpdated ||
   dbData.recommendations?.length > 0 ||
   dbData.globalTop?.length > 0 ||
-  dbData.topGenres?.length > 0
+  dbData.topGenres?.length > 0 ||
+  dbData.fallbackGenres?.length > 0 ||
+  Object.keys(dbData.fallbackGenrePools || {}).length > 0
 ) {
   discoveryCache = {
     recommendations: dbData.recommendations || [],
@@ -473,6 +484,12 @@ if (
     basedOn: dbData.basedOn || [],
     topTags: dbData.topTags || [],
     topGenres: dbData.topGenres || [],
+    fallbackGenres: dbData.fallbackGenres || [],
+    fallbackGenrePools: dbData.fallbackGenrePools || {},
+    provider: dbData.provider || DISCOVERY_PROVIDER_LASTFM,
+    capabilities: getDiscoveryCapabilities(
+      (dbData.provider || DISCOVERY_PROVIDER_LASTFM) === DISCOVERY_PROVIDER_LASTFM,
+    ),
     lastUpdated: dbData.lastUpdated || null,
     isUpdating: false,
   };
@@ -495,6 +512,15 @@ export const getDiscoveryCache = (listenHistoryProfile = null) => {
         basedOn: userDbData.basedOn || [],
         topTags: userDbData.topTags?.length > 0 ? userDbData.topTags : discoveryCache.topTags || [],
         topGenres: userDbData.topGenres?.length > 0 ? userDbData.topGenres : discoveryCache.topGenres || [],
+        fallbackGenres: discoveryCache.fallbackGenres || [],
+        fallbackGenrePools: discoveryCache.fallbackGenrePools || {},
+        provider: discoveryCache.provider || DISCOVERY_PROVIDER_LASTFM,
+        capabilities:
+          discoveryCache.capabilities ||
+          getDiscoveryCapabilities(
+            (discoveryCache.provider || DISCOVERY_PROVIDER_LASTFM) ===
+              DISCOVERY_PROVIDER_LASTFM,
+          ),
         lastUpdated: userDbData.lastUpdated || discoveryCache.lastUpdated || null,
         isUpdating: discoveryCache.isUpdating,
       };
@@ -510,7 +536,12 @@ export const getDiscoveryCache = (listenHistoryProfile = null) => {
     (dbData.globalTop?.length > 0 &&
       (!discoveryCache.globalTop || discoveryCache.globalTop.length === 0)) ||
     (dbData.topGenres?.length > 0 &&
-      (!discoveryCache.topGenres || discoveryCache.topGenres.length === 0))
+      (!discoveryCache.topGenres || discoveryCache.topGenres.length === 0)) ||
+    (dbData.fallbackGenres?.length > 0 &&
+      (!discoveryCache.fallbackGenres ||
+        discoveryCache.fallbackGenres.length === 0)) ||
+    (Object.keys(dbData.fallbackGenrePools || {}).length > 0 &&
+      Object.keys(discoveryCache.fallbackGenrePools || {}).length === 0)
   ) {
     Object.assign(discoveryCache, {
       recommendations:
@@ -519,6 +550,14 @@ export const getDiscoveryCache = (listenHistoryProfile = null) => {
       basedOn: dbData.basedOn || discoveryCache.basedOn || [],
       topTags: dbData.topTags || discoveryCache.topTags || [],
       topGenres: dbData.topGenres || discoveryCache.topGenres || [],
+      fallbackGenres: dbData.fallbackGenres || discoveryCache.fallbackGenres || [],
+      fallbackGenrePools:
+        dbData.fallbackGenrePools || discoveryCache.fallbackGenrePools || {},
+      provider: dbData.provider || discoveryCache.provider || DISCOVERY_PROVIDER_LASTFM,
+      capabilities: getDiscoveryCapabilities(
+        (dbData.provider || discoveryCache.provider || DISCOVERY_PROVIDER_LASTFM) ===
+          DISCOVERY_PROVIDER_LASTFM,
+      ),
       lastUpdated: dbData.lastUpdated || discoveryCache.lastUpdated || null,
     });
   }
@@ -871,35 +910,37 @@ export const updateDiscoveryCache = async () => {
     const hasLastfmKey = !!getLastfmApiKey();
     const lastfmHealth = createLastfmHealth();
 
-    if (allLibraryArtists.length === 0 && !hasLastfmKey) {
+    if (!hasLastfmKey) {
       console.log(
-        "No artists in library and no Last.fm key. Skipping discovery and clearing cache.",
+        "No Last.fm API key configured. Building ListenBrainz fallback discovery.",
       );
-      discoveryCache.recommendations = [];
-      discoveryCache.globalTop = [];
-      discoveryCache.basedOn = [];
-      discoveryCache.topTags = [];
-      discoveryCache.topGenres = [];
-      discoveryCache.lastUpdated = null;
-      discoveryCache.isUpdating = false;
-
-      dbOps.updateDiscoveryCache({
-        recommendations: [],
-        globalTop: [],
-        basedOn: [],
-        topTags: [],
-        topGenres: [],
-        lastUpdated: null,
+      emitDiscoveryProgress(
+        "fetching_trending",
+        "Fetching ListenBrainz trending artists",
+        45,
+        {
+          provider: "listenbrainz-fallback",
+          capabilities: getDiscoveryCapabilities(false),
+        },
+      );
+      const fallbackData = await buildListenbrainzFallbackDiscovery({
+        existingArtistKeys: buildExistingArtistKeySet(allLibraryArtists),
+        blocklist: getStoredBlocklist(),
+        onProgress: ({ phase, progress, progressMessage }) =>
+          emitDiscoveryProgress(phase, progressMessage, progress, {
+            provider: "listenbrainz-fallback",
+            capabilities: getDiscoveryCapabilities(false),
+          }),
       });
-      websocketService.emitDiscoveryUpdate({
-        recommendations: [],
-        globalTop: [],
-        basedOn: [],
-        topTags: [],
-        topGenres: [],
-        lastUpdated: null,
+      discoveryCache.isUpdating = false;
+      Object.assign(discoveryCache, fallbackData, {
         isUpdating: false,
-        configured: false,
+      });
+      dbOps.updateDiscoveryCache(fallbackData);
+      websocketService.emitDiscoveryUpdate({
+        ...fallbackData,
+        isUpdating: false,
+        configured: true,
         phase: "completed",
         progress: 100,
         progressMessage: "Discovery refresh completed",
@@ -1140,6 +1181,8 @@ export const updateDiscoveryCache = async () => {
     );
 
     const discoveryData = {
+      provider: DISCOVERY_PROVIDER_LASTFM,
+      capabilities: getDiscoveryCapabilities(true),
       recommendations: recommendationsArray,
       basedOn: recSample.map((a) => ({
         name: a.artistName,
@@ -1150,6 +1193,8 @@ export const updateDiscoveryCache = async () => {
       topTags: discoveryCache.topTags || [],
       topGenres: discoveryCache.topGenres || [],
       globalTop: discoveryCache.globalTop || [],
+      fallbackGenres: [],
+      fallbackGenrePools: {},
       lastUpdated: new Date().toISOString(),
     };
 
@@ -1200,6 +1245,9 @@ export const updateDiscoveryCache = async () => {
       basedOn: discoveryData.basedOn,
       topTags: applyBlocklistToTagList(discoveryData.topTags, blocklist),
       topGenres: applyBlocklistToTagList(discoveryData.topGenres, blocklist),
+      fallbackGenres: discoveryData.fallbackGenres || [],
+      provider: discoveryData.provider,
+      capabilities: discoveryData.capabilities,
       lastUpdated: discoveryData.lastUpdated,
       isUpdating: false,
       configured: true,

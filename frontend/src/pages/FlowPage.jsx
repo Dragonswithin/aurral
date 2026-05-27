@@ -315,6 +315,16 @@ const buildFlowFromForm = (draft) => {
   };
 };
 
+const getUnavailableFlowSourceMessage = (draft, disabledSources = {}) => {
+  const mix = normalizeMixPercent(draft?.mix);
+  for (const [source, reason] of Object.entries(disabledSources || {})) {
+    if (Number(mix?.[source] || 0) > 0 && reason) {
+      return reason;
+    }
+  }
+  return "";
+};
+
 const normalizeDraftForCompare = (draft) => {
   const normalizeList = (value) =>
     parseListInput(value)
@@ -639,6 +649,9 @@ function FlowPage() {
   const importInputRef = useRef(null);
   const { user } = useAuth();
   const { showSuccess, showError } = useToast();
+  const disabledFlowSources = status?.capabilities?.unavailableSources || {};
+  const canCreateGeneratedFlow =
+    Object.keys(disabledFlowSources).length === 0;
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -866,6 +879,13 @@ function FlowPage() {
     });
     try {
       const draft = simpleDrafts[flow.id] || flowToForm(flow);
+      const sourceError = getUnavailableFlowSourceMessage(
+        draft,
+        disabledFlowSources,
+      );
+      if (sourceError) {
+        throw new Error(sourceError);
+      }
       const payload = buildFlowFromForm(draft);
       const response = await updateFlow(flow.id, payload);
       const updatedFlow = response?.flow || {
@@ -900,6 +920,13 @@ function FlowPage() {
     });
     try {
       const currentDraft = simpleDrafts[flow.id] ?? flowToForm(flow);
+      const sourceError = getUnavailableFlowSourceMessage(
+        currentDraft,
+        disabledFlowSources,
+      );
+      if (sourceError) {
+        throw new Error(sourceError);
+      }
       const nextName = String(currentDraft?.name ?? flow.name ?? "").trim();
       const payload = buildFlowFromForm({
         ...flowToForm(flow),
@@ -932,6 +959,10 @@ function FlowPage() {
 
   const handleCreateInline = async () => {
     if (creating) return;
+    if (!canCreateGeneratedFlow) {
+      showError("Flows require a Last.fm API key in this version");
+      return;
+    }
     setCreating(true);
     try {
       const uniqueName = getNextFlowName(status?.flows, NEW_FLOW_TEMPLATE.name);
@@ -1801,17 +1832,19 @@ function FlowPage() {
             </span>
             <span className="sm:hidden">Playlist</span>
           </button>
-          <button
-            type="button"
-            onClick={handleCreateInline}
-            className="btn btn-primary btn-sm px-3 sm:px-4"
-            disabled={creating}
-          >
-            <span className="hidden sm:inline">
-              {creating ? "Creating..." : "New Flow"}
-            </span>
-            <span className="sm:hidden">Flow</span>
-          </button>
+          {canCreateGeneratedFlow ? (
+            <button
+              type="button"
+              onClick={handleCreateInline}
+              className="btn btn-primary btn-sm px-3 sm:px-4"
+              disabled={creating}
+            >
+              <span className="hidden sm:inline">
+                {creating ? "Creating..." : "New Flow"}
+              </span>
+              <span className="sm:hidden">Flow</span>
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -1881,7 +1914,11 @@ function FlowPage() {
         )}
 
         {effectiveFlowList.length === 0 && (
-          <FlowEmptyState onCreate={handleCreateInline} creating={creating} />
+          <FlowEmptyState
+            onCreate={handleCreateInline}
+            creating={creating}
+            canCreate={canCreateGeneratedFlow}
+          />
         )}
         {effectiveFlowList.map((flow) => {
           const stats = getPlaylistStats(flow.id);
@@ -1972,6 +2009,7 @@ function FlowPage() {
                 }
               }}
               normalizeMixPercent={normalizeMixPercent}
+              disabledSources={disabledFlowSources}
             />
           );
         })}

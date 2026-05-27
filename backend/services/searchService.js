@@ -7,6 +7,10 @@ import {
   searchAlbums as providerSearchAlbums,
   searchArtists as providerSearchArtists,
 } from "./metadataProvider.js";
+import {
+  DISCOVERY_PROVIDER_LISTENBRAINZ_FALLBACK,
+  searchFallbackGenreArtists,
+} from "./listenbrainzDiscoveryFallback.js";
 
 const PRIMARY_RELEASE_TYPES = new Set(["Album", "EP", "Single"]);
 const SECONDARY_RELEASE_TYPES = new Set([
@@ -494,6 +498,53 @@ export async function searchTags(
       };
     }
 
+    const discoveryCacheData = getDiscoveryCache();
+    const fallbackResult = await searchFallbackGenreArtists({
+      tag,
+      limit: limitInt,
+      offset: offsetInt,
+      precomputedGenrePools:
+        discoveryCacheData?.fallbackGenrePools &&
+        Object.keys(discoveryCacheData.fallbackGenrePools).length > 0
+          ? discoveryCacheData.fallbackGenrePools
+          : null,
+    });
+    if (fallbackResult) {
+      return {
+        scope: "tag",
+        query: tag,
+        count: fallbackResult.total,
+        offset: offsetInt,
+        provider: DISCOVERY_PROVIDER_LISTENBRAINZ_FALLBACK,
+        fallbackLimited: true,
+        hasMore: offsetInt + fallbackResult.artists.length < fallbackResult.total,
+        items: fallbackResult.artists.map((artist) =>
+          normalizeTagArtistItem(
+            {
+              type: "artist",
+              id: artist.id || artist.mbid || null,
+              name: artist.name || "Unknown Artist",
+              sortName: artist.sortName || artist.name || "Unknown Artist",
+              image: artist.image || artist.imageUrl || null,
+              imageUrl: artist.image || artist.imageUrl || null,
+              artistType: null,
+              country: null,
+              area: null,
+              begin: null,
+              end: null,
+              disambiguation: null,
+              tags: artist.tags || [tag],
+              genres: artist.genres || [tag],
+              inLibrary: false,
+              score: 0,
+            },
+            tag,
+          ),
+        ),
+      };
+    }
+
+    const discoveryCache = discoveryCacheData;
     const sourceMap = getTagSourceMap(recommendedMatches);
     const poolItems = dedupeTagArtists([
       ...(Array.isArray(discoveryCache.recommendations)
@@ -501,6 +552,11 @@ export async function searchTags(
         : []),
       ...(Array.isArray(discoveryCache.globalTop) ? discoveryCache.globalTop : []),
       ...(Array.isArray(discoveryCache.basedOn) ? discoveryCache.basedOn : []),
+      ...(Array.isArray(discoveryCache.fallbackGenres)
+        ? discoveryCache.fallbackGenres.flatMap((section) =>
+            Array.isArray(section?.artists) ? section.artists : [],
+          )
+        : []),
     ])
       .filter((artist) => matchesTagSearch(artist, tagLower))
       .map((artist) =>
@@ -518,6 +574,9 @@ export async function searchTags(
       query: tag,
       count: poolItems.length,
       offset: offsetInt,
+      provider: DISCOVERY_PROVIDER_LISTENBRAINZ_FALLBACK,
+      fallbackLimited: true,
+      message: "Tag search is limited without Last.fm",
       hasMore: offsetInt + limitInt < poolItems.length,
       items: poolItems.slice(offsetInt, offsetInt + limitInt),
     };

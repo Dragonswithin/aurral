@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { RefreshCw, Trash2, Compass, Pencil, ChevronDown } from "lucide-react";
+import {
+  RefreshCw,
+  Trash2,
+  Compass,
+  Pencil,
+  ChevronDown,
+  X,
+} from "lucide-react";
 import FlipSaveButton from "../../../components/FlipSaveButton";
 
 const AUTO_REFRESH_OPTIONS = [
@@ -13,6 +20,30 @@ const DISCOVERY_MODE_OPTIONS = [
   { value: "balanced", label: "Balanced" },
   { value: "deeper", label: "Deeper" },
 ];
+
+const LASTFM_DISCOVER_BANNER_KEY = "aurral:lastfm-discover-settings-banner";
+
+const readLastfmDiscoverBannerDismissed = () => {
+  try {
+    return localStorage.getItem(LASTFM_DISCOVER_BANNER_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+
+const formatBytes = (value) => {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let size = bytes / 1024;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size >= 10 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`;
+};
 
 export function SettingsDiscoverTab({
   settings,
@@ -28,10 +59,21 @@ export function SettingsDiscoverTab({
   handleClearCache,
 }) {
   const [discoverEditing, setDiscoverEditing] = useState(false);
+  const [lastfmBannerDismissed, setLastfmBannerDismissed] = useState(
+    readLastfmDiscoverBannerDismissed,
+  );
   const autoRefreshHours =
     settings.integrations?.lastfm?.discoveryAutoRefreshHours || 168;
   const discoveryMode =
     settings.integrations?.lastfm?.discoveryMode || "balanced";
+  const discoveryProvider =
+    health?.discovery?.provider === "listenbrainz-fallback"
+      ? "ListenBrainz fallback"
+      : "Last.fm";
+  const isListenBrainzFallback =
+    health?.discovery?.provider === "listenbrainz-fallback";
+  const showLastfmDiscoverBanner =
+    isListenBrainzFallback && !lastfmBannerDismissed;
 
   return (
     <div className="card animate-fade-in">
@@ -55,6 +97,44 @@ export function SettingsDiscoverTab({
         className="space-y-6"
         autoComplete="off"
       >
+        {showLastfmDiscoverBanner && (
+          <div
+            className="flex items-start justify-between gap-4 rounded-lg p-4"
+            style={{
+              backgroundColor: "#211f27",
+              border: "1px solid #34313c",
+            }}
+          >
+            <div className="space-y-1">
+              <p
+                className="text-sm font-semibold uppercase tracking-wide"
+                style={{ color: "#fff" }}
+              >
+                Optional Last.fm upgrade
+              </p>
+              <p className="text-sm" style={{ color: "#c1c1c3" }}>
+                Add a free Last.fm API key in Integrations to unlock personalized
+                recommendations, similar artists, tag and genre search, and custom
+                weekly flows.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="shrink-0 rounded p-2 transition-colors hover:bg-white/10"
+              style={{ color: "#c1c1c3" }}
+              onClick={() => {
+                setLastfmBannerDismissed(true);
+                try {
+                  localStorage.setItem(LASTFM_DISCOVER_BANNER_KEY, "1");
+                } catch {}
+              }}
+              aria-label="Dismiss Last.fm upgrade reminder"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
         <div
           className="p-6 rounded-lg space-y-4"
           style={{
@@ -121,50 +201,58 @@ export function SettingsDiscoverTab({
                 <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#b9bac1]" />
               </div>
             </div>
-            <div>
-              <label
-                className="block text-sm font-medium mb-1"
-                style={{ color: "#fff" }}
-              >
-                Discovery mode
-              </label>
-              <div className="relative">
-                <select
-                  className="input h-11 w-full appearance-none pr-14 text-sm text-white"
-                  value={discoveryMode}
-                  onChange={(e) =>
-                    updateSettings({
-                      ...settings,
-                      integrations: {
-                        ...settings.integrations,
-                        lastfm: {
-                          ...(settings.integrations?.lastfm || {}),
-                          discoveryMode: e.target.value,
-                        },
-                      },
-                    })
-                  }
+            {!isListenBrainzFallback && (
+              <div>
+                <label
+                  className="block text-sm font-medium mb-1"
+                  style={{ color: "#fff" }}
                 >
-                  {DISCOVERY_MODE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#b9bac1]" />
+                  Discovery mode
+                </label>
+                <div className="relative">
+                  <select
+                    className="input h-11 w-full appearance-none pr-14 text-sm text-white"
+                    value={discoveryMode}
+                    onChange={(e) =>
+                      updateSettings({
+                        ...settings,
+                        integrations: {
+                          ...settings.integrations,
+                          lastfm: {
+                            ...(settings.integrations?.lastfm || {}),
+                            discoveryMode: e.target.value,
+                          },
+                        },
+                      })
+                    }
+                  >
+                    {DISCOVERY_MODE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#b9bac1]" />
+                </div>
+                <div
+                  className="mt-3 space-y-1 text-xs"
+                  style={{ color: "#c1c1c3" }}
+                >
+                  <p>
+                    <span style={{ color: "#fff" }}>Safer:</span> favors more
+                    obvious, high-confidence recommendations.
+                  </p>
+                  <p>
+                    <span style={{ color: "#fff" }}>Balanced:</span> mixes
+                    familiar artists with some exploration.
+                  </p>
+                  <p>
+                    <span style={{ color: "#fff" }}>Deeper:</span> pushes
+                    further beyond the most obvious similar artists.
+                  </p>
+                </div>
               </div>
-              <div className="mt-3 space-y-1 text-xs" style={{ color: "#c1c1c3" }}>
-                <p>
-                  <span style={{ color: "#fff" }}>Safer:</span> favors more obvious, high-confidence recommendations.
-                </p>
-                <p>
-                  <span style={{ color: "#fff" }}>Balanced:</span> mixes familiar artists with some exploration.
-                </p>
-                <p>
-                  <span style={{ color: "#fff" }}>Deeper:</span> pushes further beyond the most obvious similar artists.
-                </p>
-              </div>
-            </div>
+            )}
           </fieldset>
         </div>
 
@@ -185,6 +273,10 @@ export function SettingsDiscoverTab({
             <div className="space-y-3 min-w-0">
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <div>
+                  <dt style={{ color: "#c1c1c3" }}>Provider</dt>
+                  <dd style={{ color: "#fff" }}>{discoveryProvider}</dd>
+                </div>
+                <div>
                   <dt style={{ color: "#c1c1c3" }}>Last updated</dt>
                   <dd style={{ color: "#fff" }}>
                     {health?.discovery?.lastUpdated
@@ -195,15 +287,9 @@ export function SettingsDiscoverTab({
                   </dd>
                 </div>
                 <div>
-                  <dt style={{ color: "#c1c1c3" }}>Recommendations</dt>
+                  <dt style={{ color: "#c1c1c3" }}>Image cache size</dt>
                   <dd style={{ color: "#fff" }}>
-                    {health?.discovery?.recommendationsCount ?? "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt style={{ color: "#c1c1c3" }}>Global trending</dt>
-                  <dd style={{ color: "#fff" }}>
-                    {health?.discovery?.globalTopCount ?? "—"}
+                    {formatBytes(health?.discovery?.cachedImagesSizeBytes)}
                   </dd>
                 </div>
                 <div>

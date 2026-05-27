@@ -21,6 +21,7 @@ import {
   requireAdmin,
   requirePermission,
 } from "../middleware/requirePermission.js";
+import { getLastfmApiKey } from "../services/apiClients.js";
 
 const router = express.Router();
 const FLOW_WORKER_RETRY_CYCLE_OPTIONS_MINUTES = [15, 30, 60, 360, 720, 1440];
@@ -91,6 +92,18 @@ const normalizeFlowMixForValidation = (mix, recipe) => {
   };
 };
 
+const getUnavailableFlowSourceError = (mix) => {
+  if (getLastfmApiKey()) return null;
+  const normalizedMix = normalizeFlowMixForValidation(mix);
+  if (normalizedMix.discover > 0) return "Discover flow source requires Last.fm";
+  if (normalizedMix.trending > 0) return "Trending flow source requires Last.fm";
+  if (normalizedMix.focus > 0) return "Focus flow source requires Last.fm";
+  if (normalizedMix.mix > 0) {
+    return "Library flow source requires Last.fm in this version";
+  }
+  return null;
+};
+
 const validateFlowPayload = ({
   name,
   mix,
@@ -112,6 +125,8 @@ const validateFlowPayload = ({
   if (totalWeight <= 0) {
     return "at least one source must be enabled";
   }
+  const unavailableError = getUnavailableFlowSourceError(normalizedMix);
+  if (unavailableError) return unavailableError;
   const normalizedTags = normalizeFlowStringArray(tags);
   const normalizedRelated = normalizeFlowStringArray(relatedArtists);
   if (normalizedMix.focus > 0 && normalizedTags.length === 0 && normalizedRelated.length === 0) {
@@ -598,6 +613,13 @@ router.post("/start/:flowId", async (req, res) => {
         error: "Soulseek credentials not configured",
       });
     }
+    const unavailableError = getUnavailableFlowSourceError(flow.mix);
+    if (unavailableError) {
+      return res.status(400).json({
+        error: unavailableError,
+        message: unavailableError,
+      });
+    }
 
     const mutationVersion = (flowEnableMutationVersion.get(flowId) || 0) + 1;
     flowEnableMutationVersion.set(flowId, mutationVersion);
@@ -870,6 +892,13 @@ router.put("/flows/:flowId/enabled", async (req, res) => {
     if (enabled) {
       const mutationVersion = (flowEnableMutationVersion.get(flowId) || 0) + 1;
       flowEnableMutationVersion.set(flowId, mutationVersion);
+      const unavailableError = getUnavailableFlowSourceError(flow.mix);
+      if (unavailableError) {
+        return res.status(400).json({
+          error: unavailableError,
+          message: unavailableError,
+        });
+      }
       if (!soulseekClient.isConfigured()) {
         return res.status(400).json({
           error: "Soulseek credentials not configured",

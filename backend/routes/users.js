@@ -49,15 +49,28 @@ const DEFAULT_DISCOVER_LAYOUT = [
   { id: "topTags", enabled: true },
 ];
 
+const FALLBACK_GENRE_SECTION_PREFIX = "fallbackGenre:";
+
 const normalizeDiscoverLayout = (value) => {
   if (!Array.isArray(value)) return null;
   const defaultsById = new Map(
     DEFAULT_DISCOVER_LAYOUT.map((item) => [item.id, item]),
   );
+  const seenDynamicIds = new Set();
   const normalized = [];
   for (const item of value) {
     const id = String(item?.id || "").trim();
-    if (!id || !defaultsById.has(id)) continue;
+    if (!id) continue;
+    if (id.startsWith(FALLBACK_GENRE_SECTION_PREFIX)) {
+      if (seenDynamicIds.has(id)) continue;
+      seenDynamicIds.add(id);
+      normalized.push({
+        id,
+        enabled: typeof item?.enabled === "boolean" ? item.enabled : true,
+      });
+      continue;
+    }
+    if (!defaultsById.has(id)) continue;
     normalized.push({
       id,
       enabled:
