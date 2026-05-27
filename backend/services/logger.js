@@ -1,4 +1,5 @@
 import { dbOps } from '../config/db-helpers.js';
+import { isVerboseConsoleEnabled } from '../loadEnv.js';
 
 const LOG_LEVELS = {
   DEBUG: 0,
@@ -17,7 +18,7 @@ const LOG_LEVEL_NAMES = {
 
 class Logger {
   constructor() {
-    this.level = LOG_LEVELS.INFO;
+    this.level = isVerboseConsoleEnabled() ? LOG_LEVELS.DEBUG : LOG_LEVELS.INFO;
     this.persistToDb = true;
     this.maxDbEntries = 1000;
     this.categories = new Map();
