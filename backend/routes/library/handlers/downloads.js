@@ -524,6 +524,7 @@ export default function registerDownloads(router) {
         }
 
         try {
+          artist = await libraryManager.ensureArtistMonitored(artist);
           if (!album.monitored) {
             await libraryManager.updateAlbum(albumId, { monitored: true });
           }

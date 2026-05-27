@@ -46,6 +46,15 @@ function upsertCachedArtist(mappedArtist) {
   _cachedArtists.unshift(mappedArtist);
 }
 
+function removeCachedArtistByMbid(mbid) {
+  if (!mbid || !Array.isArray(_cachedArtists) || _cachedArtists.length === 0) {
+    return;
+  }
+  _cachedArtists = _cachedArtists.filter(
+    (artist) => artist?.mbid !== mbid && artist?.foreignArtistId !== mbid,
+  );
+}
+
 async function getLidarrClient() {
   if (!lidarrClient) {
     try {
@@ -552,6 +561,28 @@ export class LibraryManager {
     }
   }
 
+  async ensureArtistMonitored(artist, monitorOption = null) {
+    if (!artist || artist.monitored !== false) {
+      return artist;
+    }
+
+    const mbid = artist.mbid || artist.foreignArtistId;
+    if (!mbid) {
+      return artist;
+    }
+
+    const nextMonitorOption =
+      monitorOption ||
+      artist.monitorOption ||
+      artist.addOptions?.monitor ||
+      "none";
+    const updated = await this.updateArtist(mbid, {
+      monitored: true,
+      monitorOption: nextMonitorOption,
+    });
+    return updated?.error ? artist : updated;
+  }
+
   async getAllArtists() {
     try {
       const lidarr = await getLidarrClient();
@@ -769,6 +800,7 @@ export class LibraryManager {
       if (!lidarrArtist)
         return { success: false, error: "Artist not found in Lidarr" };
       await lidarr.deleteArtist(lidarrArtist.id, deleteFiles);
+      removeCachedArtistByMbid(mbid);
       console.log(
         `[LibraryManager] Deleted artist "${lidarrArtist.artistName}" from Lidarr`,
       );
@@ -845,6 +877,12 @@ export class LibraryManager {
         }
       }
       if (!lidarrArtist) return { error: "Artist not found in Lidarr" };
+      if (lidarrArtist.monitored === false) {
+        lidarrArtist = await lidarr.updateArtistMonitoring(
+          artistId,
+          lidarrArtist.monitor || lidarrArtist.addOptions?.monitor || "none",
+        );
+      }
       const existing = await lidarr.getAlbumByMbid(releaseGroupMbid);
       const artistNumericId = parseInt(artistId, 10);
       const sameArtistExisting =
@@ -990,6 +1028,8 @@ export class LibraryManager {
       error.statusCode = 503;
       throw error;
     }
+
+    artist = await this.ensureArtistMonitored(artist);
 
     let existingAlbum = await lidarr.getAlbumByMbid(normalizedAlbumMbid);
     if (
