@@ -46,7 +46,7 @@ function normalizeMonitorOption(value) {
 
 function getArtistMonitoringPayload(
   monitorOption,
-  { forceArtistMonitored = false } = {},
+  { forceArtistMonitored = true } = {},
 ) {
   const option = normalizeMonitorOption(monitorOption);
   const monitored = forceArtistMonitored || option !== "none";
@@ -887,7 +887,6 @@ export class LidarrClient {
       albumOnly && requestedMonitorOption === "none"
         ? "missing"
         : requestedMonitorOption,
-      { forceArtistMonitored: albumOnly },
     );
     const searchOnAdd = settings.integrations?.lidarr?.searchOnAdd ?? false;
 

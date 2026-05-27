@@ -257,7 +257,7 @@ async function saveLidarrSettings({
   apiKey = "fake-key",
   rootFolderPath = "/music/main",
   qualityProfileId = 7,
-  defaultMonitorOption,
+  defaultMonitorOption = "none",
 } = {}) {
   const { response, payload } = await apiFetch("/api/settings", {
     method: "POST",
@@ -268,7 +268,7 @@ async function saveLidarrSettings({
           url: fakeLidarr.url,
           apiKey,
           qualityProfileId,
-          ...(defaultMonitorOption ? { defaultMonitorOption } : {}),
+          defaultMonitorOption,
         },
       },
     }),
@@ -489,7 +489,7 @@ test("POST /library/artists falls back to global defaults when the user has no s
   assert.equal(posted.qualityProfileId, 7);
 });
 
-test("POST /library/artists preserves none monitoring defaults", async () => {
+test("POST /library/artists preserves artist-only none monitoring defaults", async () => {
   await saveLidarrSettings({ defaultMonitorOption: "none" });
 
   const mbid = "55555555-5555-5555-5555-555555555555";
@@ -504,7 +504,7 @@ test("POST /library/artists preserves none monitoring defaults", async () => {
   assert.equal(response.status, 202, JSON.stringify(payload));
 
   const posted = await waitForPostedArtist(mbid);
-  assert.equal(posted.monitored, false);
+  assert.equal(posted.monitored, true);
   assert.equal(posted.monitor, "none");
   assert.equal(posted.monitorNewItems, "none");
   assert.equal(posted.addOptions.monitor, "none");
@@ -553,6 +553,7 @@ test("POST /library/artists uses existing albums monitor from global defaults", 
 
 test("POST /library/artists only future-facing modes monitor new albums", async () => {
   const cases = [
+    ["none", "none", "none"],
     ["missing", "missing", "none"],
     ["latest", "latest", "none"],
     ["first", "first", "none"],
