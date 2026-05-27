@@ -1700,7 +1700,7 @@ function FlowPage() {
         err.message ||
         "Failed to update static playlist tracklist";
       showError(message);
-      throw new Error(message);
+      throw new Error(message, { cause: err });
     } finally {
       setApplyingSharedPlaylistId(null);
     }
