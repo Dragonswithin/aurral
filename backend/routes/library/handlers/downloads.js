@@ -524,18 +524,6 @@ export default function registerDownloads(router) {
         }
 
         try {
-          if (!artist.monitored || artist.monitorOption === "none") {
-            const artistMbidToUpdate = artist.mbid || artist.foreignArtistId;
-            if (artistMbidToUpdate) {
-              try {
-                await libraryManager.updateArtist(artistMbidToUpdate, {
-                  monitored: true,
-                  monitorOption: "missing",
-                });
-                artist = await libraryManager.getArtist(artistMbidToUpdate);
-              } catch {}
-            }
-          }
           if (!album.monitored) {
             await libraryManager.updateAlbum(albumId, { monitored: true });
           }
