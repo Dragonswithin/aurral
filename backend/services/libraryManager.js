@@ -292,8 +292,8 @@ export class LibraryManager {
     });
 
     switch (artist.monitorOption) {
-      case "all":
       case "existing":
+      case "all":
         albumsToMonitor.push(...eligibleAlbums.filter((album) => !album.monitored));
         break;
       case "latest":
@@ -686,8 +686,7 @@ export class LibraryManager {
     const artistPath = lidarrArtist.path ?? null;
     const monitorOption =
       lidarrArtist.monitor || lidarrArtist.addOptions?.monitor || "none";
-    const normalizedMonitorOption =
-      monitorOption === "existing" ? "all" : monitorOption;
+    const normalizedMonitorOption = monitorOption || "none";
     return {
       id: lidarrArtist.id?.toString() || lidarrArtist.foreignArtistId,
       mbid: lidarrArtist.foreignArtistId,
@@ -725,8 +724,7 @@ export class LibraryManager {
       ) {
         const monitorOption =
           updates.monitorOption || lidarrArtist.monitor || "none";
-        const normalizedMonitorOption =
-          monitorOption === "existing" ? "all" : monitorOption;
+        const normalizedMonitorOption = monitorOption || "none";
         await lidarr.updateArtistMonitoring(lidarrArtist.id, monitorOption);
         console.log(
           `[LibraryManager] Updated Lidarr monitoring for "${lidarrArtist.artistName}" to "${monitorOption}"`,

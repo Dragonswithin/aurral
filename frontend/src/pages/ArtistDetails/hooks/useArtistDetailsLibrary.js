@@ -231,6 +231,7 @@ export function useArtistDetailsLibrary({
       setShowRemoveDropdown(false);
       const monitorLabels = {
         none: "None (Artist Only)",
+        existing: "Existing Albums",
         all: "All Albums",
         future: "Future Albums",
         missing: "Missing Albums",

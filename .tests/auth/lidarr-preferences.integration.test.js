@@ -58,7 +58,10 @@ async function startFakeLidarr() {
     tags: DEFAULT_TAGS.map((tag) => ({ ...tag })),
     metadataProfiles: [{ id: 1, name: "Standard" }],
     artists: [],
+    albums: [],
     postedArtists: [],
+    updatedArtists: [],
+    updatedAlbums: [],
     nextArtistId: 100,
   };
 
@@ -95,6 +98,27 @@ async function startFakeLidarr() {
       }
       return json(res, 200, artist);
     }
+    if (
+      req.method === "PUT" &&
+      url.pathname.startsWith("/api/v1/artist/") &&
+      url.pathname !== "/api/v1/artist/"
+    ) {
+      const artistId = url.pathname.split("/").pop();
+      const payload = await readJsonBody(req);
+      state.updatedArtists.push(payload);
+      const artistIndex = state.artists.findIndex(
+        (entry) => String(entry.id) === artistId,
+      );
+      if (artistIndex === -1) {
+        return json(res, 404, { message: "Artist not found" });
+      }
+      state.artists[artistIndex] = {
+        ...state.artists[artistIndex],
+        ...payload,
+        id: state.artists[artistIndex].id,
+      };
+      return json(res, 200, state.artists[artistIndex]);
+    }
     if (req.method === "POST" && url.pathname === "/api/v1/artist") {
       const payload = await readJsonBody(req);
       state.postedArtists.push(payload);
@@ -121,6 +145,46 @@ async function startFakeLidarr() {
       state.artists.push(artist);
       return json(res, 201, artist);
     }
+    if (req.method === "GET" && url.pathname === "/api/v1/album") {
+      const artistId = url.searchParams.get("artistId");
+      const albums = artistId
+        ? state.albums.filter((album) => String(album.artistId) === artistId)
+        : state.albums;
+      return json(res, 200, albums);
+    }
+    if (
+      req.method === "GET" &&
+      url.pathname.startsWith("/api/v1/album/") &&
+      url.pathname !== "/api/v1/album/"
+    ) {
+      const albumId = url.pathname.split("/").pop();
+      const album = state.albums.find((entry) => String(entry.id) === albumId);
+      if (!album) {
+        return json(res, 404, { message: "Album not found" });
+      }
+      return json(res, 200, album);
+    }
+    if (
+      req.method === "PUT" &&
+      url.pathname.startsWith("/api/v1/album/") &&
+      url.pathname !== "/api/v1/album/"
+    ) {
+      const albumId = url.pathname.split("/").pop();
+      const payload = await readJsonBody(req);
+      state.updatedAlbums.push(payload);
+      const albumIndex = state.albums.findIndex(
+        (entry) => String(entry.id) === albumId,
+      );
+      if (albumIndex === -1) {
+        return json(res, 404, { message: "Album not found" });
+      }
+      state.albums[albumIndex] = {
+        ...state.albums[albumIndex],
+        ...payload,
+        id: state.albums[albumIndex].id,
+      };
+      return json(res, 200, state.albums[albumIndex]);
+    }
 
     return json(res, 404, { message: "Not found" });
   });
@@ -143,7 +207,10 @@ async function startFakeLidarr() {
       state.tags = DEFAULT_TAGS.map((tag) => ({ ...tag }));
       state.metadataProfiles = [{ id: 1, name: "Standard" }];
       state.artists = [];
+      state.albums = [];
       state.postedArtists = [];
+      state.updatedArtists = [];
+      state.updatedAlbums = [];
       state.nextArtistId = 100;
     },
     async stop() {
@@ -186,7 +253,12 @@ async function loginAsAdmin() {
   return payload.token;
 }
 
-async function saveLidarrSettings({ apiKey = "fake-key", rootFolderPath = "/music/main", qualityProfileId = 7 } = {}) {
+async function saveLidarrSettings({
+  apiKey = "fake-key",
+  rootFolderPath = "/music/main",
+  qualityProfileId = 7,
+  defaultMonitorOption,
+} = {}) {
   const { response, payload } = await apiFetch("/api/settings", {
     method: "POST",
     body: JSON.stringify({
@@ -196,6 +268,7 @@ async function saveLidarrSettings({ apiKey = "fake-key", rootFolderPath = "/musi
           url: fakeLidarr.url,
           apiKey,
           qualityProfileId,
+          ...(defaultMonitorOption ? { defaultMonitorOption } : {}),
         },
       },
     }),
@@ -414,6 +487,209 @@ test("POST /library/artists falls back to global defaults when the user has no s
   const posted = await waitForPostedArtist(mbid);
   assert.equal(posted.rootFolderPath, "/music/main");
   assert.equal(posted.qualityProfileId, 7);
+});
+
+test("POST /library/artists preserves none monitoring defaults", async () => {
+  await saveLidarrSettings({ defaultMonitorOption: "none" });
+
+  const mbid = "55555555-5555-5555-5555-555555555555";
+  const { response, payload } = await apiFetch("/api/library/artists", {
+    method: "POST",
+    body: JSON.stringify({
+      foreignArtistId: mbid,
+      artistName: "None Monitor Artist",
+    }),
+  });
+
+  assert.equal(response.status, 202, JSON.stringify(payload));
+
+  const posted = await waitForPostedArtist(mbid);
+  assert.equal(posted.monitored, false);
+  assert.equal(posted.monitor, "none");
+  assert.equal(posted.monitorNewItems, "none");
+  assert.equal(posted.addOptions.monitor, "none");
+});
+
+test("POST /library/artists supports existing albums monitor option", async () => {
+  const mbid = "66666666-6666-6666-6666-666666666666";
+  const { response, payload } = await apiFetch("/api/library/artists", {
+    method: "POST",
+    body: JSON.stringify({
+      foreignArtistId: mbid,
+      artistName: "Existing Monitor Artist",
+      monitorOption: "existing",
+    }),
+  });
+
+  assert.equal(response.status, 202, JSON.stringify(payload));
+
+  const posted = await waitForPostedArtist(mbid);
+  assert.equal(posted.monitored, true);
+  assert.equal(posted.monitor, "existing");
+  assert.equal(posted.monitorNewItems, "none");
+  assert.equal(posted.addOptions.monitor, "existing");
+});
+
+test("POST /library/artists uses existing albums monitor from global defaults", async () => {
+  await saveLidarrSettings({ defaultMonitorOption: "existing" });
+
+  const mbid = "77777777-7777-7777-7777-777777777777";
+  const { response, payload } = await apiFetch("/api/library/artists", {
+    method: "POST",
+    body: JSON.stringify({
+      foreignArtistId: mbid,
+      artistName: "Default Existing Monitor Artist",
+    }),
+  });
+
+  assert.equal(response.status, 202, JSON.stringify(payload));
+
+  const posted = await waitForPostedArtist(mbid);
+  assert.equal(posted.monitored, true);
+  assert.equal(posted.monitor, "existing");
+  assert.equal(posted.monitorNewItems, "none");
+  assert.equal(posted.addOptions.monitor, "existing");
+});
+
+test("POST /library/artists only future-facing modes monitor new albums", async () => {
+  const cases = [
+    ["missing", "missing", "none"],
+    ["latest", "latest", "none"],
+    ["first", "first", "none"],
+    ["existing", "existing", "none"],
+    ["future", "future", "all"],
+    ["all", "all", "all"],
+  ];
+
+  for (const [
+    index,
+    [monitorOption, expectedMonitor, expectedMonitorNewItems],
+  ] of cases.entries()) {
+    const mbid = `88888888-8888-8888-8888-${String(index + 1).padStart(
+      12,
+      "0",
+    )}`;
+    const { response, payload } = await apiFetch("/api/library/artists", {
+      method: "POST",
+      body: JSON.stringify({
+        foreignArtistId: mbid,
+        artistName: `${monitorOption} Monitor Artist`,
+        monitorOption,
+      }),
+    });
+
+    assert.equal(response.status, 202, JSON.stringify(payload));
+
+    const posted = await waitForPostedArtist(mbid);
+    assert.equal(posted.monitored, true);
+    assert.equal(posted.monitor, expectedMonitor);
+    assert.equal(posted.monitorNewItems, expectedMonitorNewItems);
+    assert.equal(posted.addOptions.monitor, expectedMonitor);
+  }
+});
+
+test("PUT /library/artists/:mbid updates artist monitoring to existing albums", async () => {
+  const mbid = "99999999-9999-9999-9999-999999999999";
+  const addResult = await apiFetch("/api/library/artists", {
+    method: "POST",
+    body: JSON.stringify({
+      foreignArtistId: mbid,
+      artistName: "Updated Existing Monitor Artist",
+    }),
+  });
+  assert.equal(addResult.response.status, 202, JSON.stringify(addResult.payload));
+
+  await waitForPostedArtist(mbid);
+  const artist = fakeLidarr.state.artists.find(
+    (entry) => entry.foreignArtistId === mbid,
+  );
+  assert.ok(artist);
+  fakeLidarr.state.albums.push({
+    id: 900,
+    artistId: artist.id,
+    title: "Already Monitored",
+    foreignAlbumId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    monitored: true,
+    statistics: {
+      trackCount: 1,
+      sizeOnDisk: 0,
+      percentOfTracks: 0,
+    },
+  });
+
+  const { response, payload } = await apiFetch(`/api/library/artists/${mbid}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      monitored: true,
+      monitorOption: "existing",
+    }),
+  });
+
+  assert.equal(response.status, 200, JSON.stringify(payload));
+  const updated = fakeLidarr.state.updatedArtists.at(-1);
+  assert.equal(updated.monitored, true);
+  assert.equal(updated.monitor, "existing");
+  assert.equal(updated.monitorNewItems, "none");
+  assert.equal(updated.addOptions.monitor, "existing");
+  assert.equal(payload.monitorOption, "existing");
+});
+
+test("POST /library/downloads/album monitors only the requested album", async () => {
+  const artist = {
+    id: 700,
+    artistName: "Pick And Choose Artist",
+    foreignArtistId: "abababab-abab-abab-abab-abababababab",
+    path: "/music/main/Pick And Choose Artist",
+    added: new Date().toISOString(),
+    monitored: false,
+    monitor: "none",
+    monitorNewItems: "none",
+    addOptions: {
+      monitor: "none",
+    },
+    qualityProfile: DEFAULT_QUALITY_PROFILES[0],
+    statistics: {
+      albumCount: 1,
+      trackCount: 0,
+      sizeOnDisk: 0,
+    },
+  };
+  const album = {
+    id: 701,
+    artistId: artist.id,
+    title: "Selected Album",
+    foreignAlbumId: "bcbcbcbc-bcbc-bcbc-bcbc-bcbcbcbcbcbc",
+    monitored: false,
+    statistics: {
+      trackCount: 10,
+      sizeOnDisk: 0,
+      percentOfTracks: 0,
+    },
+  };
+  fakeLidarr.state.artists.push(artist);
+  fakeLidarr.state.albums.push(album);
+
+  const { response, payload } = await apiFetch("/api/library/downloads/album", {
+    method: "POST",
+    body: JSON.stringify({
+      artistId: String(artist.id),
+      albumId: String(album.id),
+      artistMbid: artist.foreignArtistId,
+      artistName: artist.artistName,
+    }),
+  });
+
+  assert.equal(response.status, 200, JSON.stringify(payload));
+  assert.equal(fakeLidarr.state.updatedArtists.length, 0);
+  assert.equal(fakeLidarr.state.updatedAlbums.length, 1);
+  assert.equal(fakeLidarr.state.updatedAlbums[0].monitored, true);
+
+  const storedArtist = fakeLidarr.state.artists.find(
+    (entry) => entry.id === artist.id,
+  );
+  assert.equal(storedArtist.monitored, false);
+  assert.equal(storedArtist.monitor, "none");
+  assert.equal(storedArtist.monitorNewItems, "none");
 });
 
 test("POST /library/artists returns 409 when saved defaults are stale", async () => {
