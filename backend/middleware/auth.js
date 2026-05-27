@@ -145,7 +145,12 @@ function buildIpv4Subnet(address, netmask, interfaceName) {
 }
 
 function getIpv4SubnetCandidates() {
-  const interfaces = os.networkInterfaces();
+  let interfaces;
+  try {
+    interfaces = os.networkInterfaces();
+  } catch {
+    return [];
+  }
   const candidates = [];
   for (const [name, details] of Object.entries(interfaces)) {
     for (const detail of details || []) {
