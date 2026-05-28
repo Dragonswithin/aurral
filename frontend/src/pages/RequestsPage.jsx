@@ -125,6 +125,9 @@ function RequestsPage() {
 
   useEffect(() => {
     fetchRequests();
+    const initialRefreshTimeout = setTimeout(() => {
+      fetchRequests({ silent: true });
+    }, 2500);
 
     const handleFocus = () => {
       fetchRequests({ silent: true });
@@ -142,6 +145,7 @@ function RequestsPage() {
     document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
+      clearTimeout(initialRefreshTimeout);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
@@ -432,18 +436,39 @@ function RequestsPage() {
             return (
               <div
                 key={request.id || request.mbid}
-                className="card group relative overflow-hidden p-3 transition-all hover:shadow-md"
+                className="card group relative overflow-hidden p-3 pr-12 transition-all hover:shadow-md"
               >
-                {request.inQueue && request.albumId && (
-                  <button
-                    onClick={() => handleStopDownload(request)}
-                    className="absolute top-1.5 right-1.5 p-1.5 hover:text-red-400 hover:bg-red-500/20 transition-all z-10 rounded"
-                    style={{ color: "#fff" }}
-                    title="Stop download"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
+                <div className="absolute right-1.5 top-1.5 z-10 flex items-center gap-1">
+                  {isFailed && request.albumId && (
+                    <button
+                      type="button"
+                      onClick={() => handleReSearchRequest(request)}
+                      className="rounded p-1.5 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      style={{ color: "#fff" }}
+                      title="Re-search"
+                      aria-label="Re-search"
+                      disabled={isReSearching}
+                    >
+                      {isReSearching ? (
+                        <Loader className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  )}
+                  {request.inQueue && request.albumId && (
+                    <button
+                      type="button"
+                      onClick={() => handleStopDownload(request)}
+                      className="rounded p-1.5 transition-all hover:bg-red-500/20 hover:text-red-400"
+                      style={{ color: "#fff" }}
+                      title="Stop download"
+                      aria-label="Stop download"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
 
                 <div className="grid min-w-0 grid-cols-[84px,minmax(0,1fr)] gap-3 sm:flex sm:flex-row sm:items-center">
                   <div
@@ -532,22 +557,6 @@ function RequestsPage() {
 
                     <div className="mt-3 flex items-center gap-2 sm:mt-0 sm:ml-auto sm:flex-shrink-0">
                       {getStatusBadge(request)}
-                      {isFailed && request.albumId && (
-                        <button
-                          type="button"
-                          onClick={() => handleReSearchRequest(request)}
-                          className="rounded p-1.5 transition-colors hover:bg-white/10"
-                          title="Re-search"
-                          aria-label="Re-search"
-                          disabled={isReSearching}
-                        >
-                          {isReSearching ? (
-                            <Loader className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <RefreshCw className="h-3.5 w-3.5" />
-                          )}
-                        </button>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -557,44 +566,6 @@ function RequestsPage() {
         </div>
       )}
 
-      <div className="mt-8 p-4" style={{ backgroundColor: "#211f27" }}>
-        <h4
-          className="font-bold mb-2 text-sm flex items-center"
-          style={{ color: "#fff" }}
-        >
-          Request Status Guide
-        </h4>
-        <div className="grid sm:grid-cols-4 gap-3 text-xs">
-          <div className="flex gap-2" style={{ color: "#c1c1c3" }}>
-            <div className="w-2 h-2 bg-yellow-500 mt-1.5 shrink-0"></div>
-            <p>
-              <strong>Requested:</strong> Album is in queue or has been
-              requested but not yet imported.
-            </p>
-          </div>
-          <div className="flex gap-2" style={{ color: "#c1c1c3" }}>
-            <div className="w-2 h-2 bg-gray-600 mt-1.5 shrink-0"></div>
-            <p>
-              <strong>Processing:</strong> Album is downloading, importing, or
-              searching. Check Lidarr for details.
-            </p>
-          </div>
-          <div className="flex gap-2" style={{ color: "#c1c1c3" }}>
-            <div className="w-2 h-2 bg-red-500 mt-1.5 shrink-0"></div>
-            <p>
-              <strong>Failed:</strong> Album search or import failed. You can
-              re-search from the artist page.
-            </p>
-          </div>
-          <div className="flex gap-2" style={{ color: "#c1c1c3" }}>
-            <div className="w-2 h-2 bg-green-500 mt-1.5 shrink-0"></div>
-            <p>
-              <strong>Available:</strong> Album has been successfully imported
-              and is available on disk.
-            </p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
