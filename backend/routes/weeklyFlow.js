@@ -14,6 +14,11 @@ import {
 } from "../services/weeklyFlowPlaylistConfig.js";
 import { weeklyFlowOperationQueue } from "../services/weeklyFlowOperationQueue.js";
 import { getWeeklyFlowStatusSnapshot } from "../services/weeklyFlowStatusSnapshot.js";
+import {
+  createPlaylistFileEntry,
+  normalizeExistingFileMode,
+  reuseTrackForPlaylist,
+} from "../services/weeklyFlowFileReuse.js";
 import { noCache } from "../middleware/cache.js";
 import { hasPermission, verifyTokenAuth } from "../middleware/auth.js";
 import {
@@ -25,6 +30,7 @@ import { getLastfmApiKey } from "../services/apiClients.js";
 
 const router = express.Router();
 const FLOW_WORKER_RETRY_CYCLE_OPTIONS_MINUTES = [15, 30, 60, 360, 720, 1440];
+const EXISTING_FILE_MODE_OPTIONS = ["download", "hardlink", "copy"];
 const AUDIO_CONTENT_TYPES = {
   ".mp3": "audio/mpeg",
   ".m4a": "audio/mp4",
@@ -233,75 +239,24 @@ const getPlaylistLibraryRoot = (playlistType) =>
     String(playlistType || "").trim(),
   );
 
-const buildReusableJobsByIdentity = (jobs) => {
-  const reusableJobsByIdentity = new Map();
-  for (const job of Array.isArray(jobs) ? jobs : []) {
-    if (job?.status !== "done" || typeof job?.finalPath !== "string") continue;
-    const identity = buildTrackIdentity(job);
-    const current = reusableJobsByIdentity.get(identity) || [];
-    current.push(job);
-    reusableJobsByIdentity.set(identity, current);
-  }
-  for (const [identity, jobsForIdentity] of reusableJobsByIdentity.entries()) {
-    reusableJobsByIdentity.set(identity, sortJobsForTrackReuse(jobsForIdentity));
-  }
-  return reusableJobsByIdentity;
-};
-
-const buildUniqueReuseTargetPath = async (sourceJob, targetPlaylistId) => {
-  const safeSourcePath = path.resolve(sourceJob.finalPath);
-  const sourceRoot = getPlaylistLibraryRoot(sourceJob.playlistType);
-  if (!isPathInsideRoot(safeSourcePath, sourceRoot)) {
-    throw new Error(`Track path is outside the playlist library: ${sourceJob.finalPath}`);
-  }
-  const sourceStat = await fsp.stat(safeSourcePath);
-  if (!sourceStat.isFile()) {
-    throw new Error(`Track file is missing: ${sourceJob.finalPath}`);
-  }
-
-  const relativePath = path.relative(sourceRoot, safeSourcePath);
-  const targetRoot = getPlaylistLibraryRoot(targetPlaylistId);
-  let targetPath = path.resolve(targetRoot, relativePath);
-  if (!isPathInsideRoot(targetPath, targetRoot)) {
-    throw new Error(`Target path is outside the playlist library: ${targetPath}`);
-  }
-
-  const parsed = path.parse(targetPath);
-  let suffix = 1;
-  while (true) {
-    try {
-      await fsp.access(targetPath);
-      targetPath = path.resolve(
-        parsed.dir,
-        `${parsed.name}-${suffix}${parsed.ext}`,
-      );
-      suffix += 1;
-    } catch {
-      break;
+const reuseTracksForPlaylist = async (tracks, playlistId) => {
+  const settings = weeklyFlowWorker.getWorkerSettings();
+  const existingFileMode = normalizeExistingFileMode(settings.existingFileMode);
+  const reusedJobIds = [];
+  const tracksToQueue = [];
+  for (const track of Array.isArray(tracks) ? tracks : []) {
+    const reuse = await reuseTrackForPlaylist(track, playlistId, {
+      existingFileMode,
+      weeklyFlowRoot: weeklyFlowWorker.weeklyFlowRoot,
+      targetPlaylistType: playlistId,
+    });
+    if (reuse.reused) {
+      reusedJobIds.push(reuse.jobId);
+    } else {
+      tracksToQueue.push(track);
     }
   }
-
-  await fsp.mkdir(path.dirname(targetPath), { recursive: true });
-  return { safeSourcePath, targetPath };
-};
-
-const reuseCompletedTrackForPlaylist = async (track, targetPlaylistId, sourceJob) => {
-  const { safeSourcePath, targetPath } = await buildUniqueReuseTargetPath(
-    sourceJob,
-    targetPlaylistId,
-  );
-  await fsp.copyFile(safeSourcePath, targetPath);
-  const jobId = downloadTracker.addJob(track, targetPlaylistId);
-  if (!jobId) {
-    await fsp.rm(targetPath, { force: true });
-    return null;
-  }
-  downloadTracker.setDone(
-    jobId,
-    targetPath,
-    sourceJob.albumName || track.albumName || null,
-  );
-  return jobId;
+  return { reusedJobIds, tracksToQueue };
 };
 
 router.get("/stream/:jobId", noCache, async (req, res) => {
@@ -998,6 +953,11 @@ router.post("/flows/:flowId/static-playlist", async (req, res) => {
       "aurral-weekly-flow",
       playlist.id,
     );
+    const existingFileMode = normalizeExistingFileMode(
+      weeklyFlowWorker.getWorkerSettings().existingFileMode,
+    );
+    const staticPlaylistLinkMode =
+      existingFileMode === "download" ? "hardlink" : existingFileMode;
     for (const job of uniqueCompletedJobs) {
       const safeSourcePath = path.resolve(job.finalPath);
       if (!isPathInsideRoot(safeSourcePath, sourceRoot)) {
@@ -1012,7 +972,14 @@ router.post("/flows/:flowId/static-playlist", async (req, res) => {
       const relativePath = path.relative(sourceRoot, safeSourcePath);
       const targetPath = path.join(targetRoot, relativePath);
       await fsp.mkdir(path.dirname(targetPath), { recursive: true });
-      await fsp.copyFile(safeSourcePath, targetPath);
+      const linked = await createPlaylistFileEntry(
+        safeSourcePath,
+        targetPath,
+        staticPlaylistLinkMode,
+      );
+      if (!linked.linked) {
+        await fsp.copyFile(safeSourcePath, targetPath);
+      }
 
       const jobId = downloadTracker.addJob(
         {
@@ -1095,12 +1062,20 @@ router.post("/shared-playlists", async (req, res) => {
     });
 
     let tracksQueued = 0;
+    let reusedJobIds = [];
+    let jobIds = [];
     if (normalizedTracks.length > 0) {
-      tracksQueued = downloadTracker.addJobs(normalizedTracks, playlist.id).length;
+      const reused = await reuseTracksForPlaylist(normalizedTracks, playlist.id);
+      reusedJobIds = reused.reusedJobIds;
+      jobIds = downloadTracker.addJobs(reused.tracksToQueue, playlist.id);
+      tracksQueued = jobIds.length;
     }
 
     playlistManager.updateConfig(false);
     await playlistManager.ensureSmartPlaylists();
+    if (reusedJobIds.length > 0) {
+      await playlistManager.scanLibrary();
+    }
     if (tracksQueued > 0) {
       if (!weeklyFlowWorker.running) {
         await weeklyFlowWorker.start();
@@ -1113,6 +1088,8 @@ router.post("/shared-playlists", async (req, res) => {
       success: true,
       playlist,
       tracksQueued,
+      tracksReused: reusedJobIds.length,
+      jobIds: [...reusedJobIds, ...jobIds],
     });
   } catch (error) {
     if (error?.code === "SHARED_PLAYLIST_NAME_CONFLICT") {
@@ -1162,9 +1139,13 @@ router.post("/shared-playlists/import", async (req, res) => {
       ownerUserId: req.user.id,
     });
 
-    const jobIds = downloadTracker.addJobs(normalizedTracks, playlist.id);
+    const reused = await reuseTracksForPlaylist(normalizedTracks, playlist.id);
+    const jobIds = downloadTracker.addJobs(reused.tracksToQueue, playlist.id);
     playlistManager.updateConfig(false);
     await playlistManager.ensureSmartPlaylists();
+    if (reused.reusedJobIds.length > 0) {
+      await playlistManager.scanLibrary();
+    }
     if (jobIds.length > 0 && !weeklyFlowWorker.running) {
       await weeklyFlowWorker.start();
     } else if (jobIds.length > 0) {
@@ -1175,7 +1156,8 @@ router.post("/shared-playlists/import", async (req, res) => {
       success: true,
       playlist,
       tracksQueued: jobIds.length,
-      jobIds,
+      tracksReused: reused.reusedJobIds.length,
+      jobIds: [...reused.reusedJobIds, ...jobIds],
     });
   } catch (error) {
     if (error?.code === "SHARED_PLAYLIST_NAME_CONFLICT") {
@@ -1221,38 +1203,10 @@ router.post("/shared-playlists/:playlistId/tracks", async (req, res) => {
       playlistId,
       tracksToAdd,
     );
-    const reusableJobsByIdentity = buildReusableJobsByIdentity(
-      downloadTracker
-        .getAll()
-        .filter((job) => String(job?.playlistType || "") !== String(playlistId)),
+    const { reusedJobIds, tracksToQueue } = await reuseTracksForPlaylist(
+      tracksToAdd,
+      playlistId,
     );
-    const reusedJobIds = [];
-    const tracksToQueue = [];
-    for (const track of tracksToAdd) {
-      const reusableJob = (reusableJobsByIdentity.get(buildTrackIdentity(track)) || [])[0];
-      if (!reusableJob) {
-        tracksToQueue.push(track);
-        continue;
-      }
-      try {
-        const reusedJobId = await reuseCompletedTrackForPlaylist(
-          track,
-          playlistId,
-          reusableJob,
-        );
-        if (reusedJobId) {
-          reusedJobIds.push(reusedJobId);
-        } else {
-          tracksToQueue.push(track);
-        }
-      } catch (error) {
-        console.warn(
-          `[WeeklyFlow] Failed to reuse completed track for ${playlistId}:`,
-          error.message,
-        );
-        tracksToQueue.push(track);
-      }
-    }
     const jobIds = downloadTracker.addJobs(tracksToQueue, playlistId);
 
     playlistManager.updateConfig(false);
@@ -1353,7 +1307,7 @@ router.put("/shared-playlists/:playlistId", async (req, res) => {
         }
 
         const matchedJobIds = new Set();
-        const tracksToQueue = [];
+        const tracksNeedingWork = [];
         for (const track of normalizedTracks) {
           const identity = buildTrackIdentity(track);
           const reusableJobs = reusableJobsByIdentity.get(identity) || [];
@@ -1361,7 +1315,7 @@ router.put("/shared-playlists/:playlistId", async (req, res) => {
           if (matchedJob) {
             matchedJobIds.add(matchedJob.id);
           } else {
-            tracksToQueue.push(track);
+            tracksNeedingWork.push(track);
           }
         }
 
@@ -1385,6 +1339,10 @@ router.put("/shared-playlists/:playlistId", async (req, res) => {
           name: safeName,
           tracks: normalizedTracks,
         });
+        const { tracksToQueue } = await reuseTracksForPlaylist(
+          tracksNeedingWork,
+          playlistId,
+        );
         tracksQueued = downloadTracker.addJobs(
           tracksToQueue,
           playlistId,
@@ -1658,6 +1616,7 @@ router.put("/worker/settings", requireAdmin, async (req, res) => {
     preferredFormat,
     preferredFormatStrict,
     retryCycleMinutes,
+    existingFileMode,
   } = req.body || {};
   if (concurrency !== undefined) {
     const parsed = Number(concurrency);
@@ -1694,11 +1653,20 @@ router.put("/worker/settings", requireAdmin, async (req, res) => {
       });
     }
   }
+  if (existingFileMode !== undefined) {
+    const normalized = String(existingFileMode || "").trim().toLowerCase();
+    if (!EXISTING_FILE_MODE_OPTIONS.includes(normalized)) {
+      return res.status(400).json({
+        error: "existingFileMode must be one of: download, hardlink, copy",
+      });
+    }
+  }
   const settings = weeklyFlowWorker.updateWorkerSettings({
     concurrency,
     preferredFormat,
     preferredFormatStrict,
     retryCycleMinutes,
+    existingFileMode,
   });
   try {
     await soulseekClient.applyConfigChanges();
