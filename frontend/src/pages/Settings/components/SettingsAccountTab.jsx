@@ -1,5 +1,3 @@
-import { useState } from "react";
-import { Pencil } from "lucide-react";
 import FlipSaveButton from "../../../components/FlipSaveButton";
 
 export function SettingsAccountTab({
@@ -19,8 +17,6 @@ export function SettingsAccountTab({
   saving,
   handleSave,
 }) {
-  const [editing, setEditing] = useState(false);
-
   if (loading) {
     return (
       <div className="card animate-fade-in">
@@ -67,33 +63,16 @@ export function SettingsAccountTab({
               Listening History
             </h3>
             <div className="flex items-center gap-2">
-              {listenHistoryUsername && !editing && (
+              {listenHistoryUsername && (
                 <span className="text-sm" style={{ color: "#c1c1c3" }}>
                   {listenHistoryProvider === "listenbrainz"
                     ? `ListenBrainz: ${listenHistoryUsername}`
                     : `Last.fm: ${listenHistoryUsername}`}
                 </span>
               )}
-              <button
-                type="button"
-                className={`btn ${
-                  editing ? "btn-primary" : "btn-secondary"
-                } px-2 py-1`}
-                onClick={() => setEditing((v) => !v)}
-                aria-label={
-                  editing
-                    ? "Lock listening history settings"
-                    : "Edit listening history settings"
-                }
-              >
-                <Pencil className="w-4 h-4" />
-              </button>
             </div>
           </div>
-          <fieldset
-            disabled={!editing}
-            className={`space-y-4 ${editing ? "" : "opacity-60"}`}
-          >
+          <fieldset className="space-y-4">
             <div>
               <label
                 className="block text-sm font-medium mb-1"

@@ -259,14 +259,10 @@ export const searchCatalog = async (
   {
     limit = 24,
     offset = 0,
-    tagScope = "merged",
     releaseTypes = [],
   } = {},
 ) => {
   const params = { q: query, scope, limit, offset };
-  if (scope === "tag") {
-    params.tagScope = tagScope;
-  }
   if (scope === "album" && Array.isArray(releaseTypes) && releaseTypes.length) {
     params.releaseTypes = releaseTypes.join(",");
   }

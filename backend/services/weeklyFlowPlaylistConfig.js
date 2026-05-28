@@ -355,6 +355,10 @@ const normalizeFlow = (flow) => {
       flow?.nextRunAt != null && Number.isFinite(Number(flow.nextRunAt))
         ? Number(flow.nextRunAt)
         : null,
+    lastRunAt:
+      flow?.lastRunAt != null && Number.isFinite(Number(flow.lastRunAt))
+        ? Number(flow.lastRunAt)
+        : null,
     size: baseSize > 0 ? baseSize : size,
     mix,
     tags,
@@ -722,6 +726,7 @@ export const flowPlaylistConfig = {
       ownerUserId,
       enabled: false,
       nextRunAt: null,
+      lastRunAt: null,
     });
     flows.push(flow);
     setFlows(flows);
@@ -753,6 +758,7 @@ export const flowPlaylistConfig = {
           : current.deepDive,
       enabled: current.enabled,
       nextRunAt: current.nextRunAt,
+      lastRunAt: current.lastRunAt,
       createdAt: current.createdAt,
     });
     const nextSchedule = normalizeScheduleDays(next.scheduleDays);
@@ -807,6 +813,20 @@ export const flowPlaylistConfig = {
       nextRunAt != null && Number.isFinite(Number(nextRunAt))
         ? Number(nextRunAt)
         : null;
+    flows[index] = flow;
+    setFlows(flows);
+    return flow;
+  },
+
+  markLastRunAt(flowId, lastRunAt = Date.now()) {
+    const flows = getStoredFlows();
+    const index = flows.findIndex((flow) => flow.id === flowId);
+    if (index === -1) return null;
+    const flow = { ...flows[index] };
+    flow.lastRunAt =
+      lastRunAt != null && Number.isFinite(Number(lastRunAt))
+        ? Number(lastRunAt)
+        : Date.now();
     flows[index] = flow;
     setFlows(flows);
     return flow;

@@ -622,9 +622,10 @@ export function FlowFormFields({
                 disabled={Object.keys(disabledSources || {}).length > 0}
                 title={
                   Object.keys(disabledSources || {}).length > 0
-                    ? "Last.fm API key required"
-                    : undefined
+                    ? "Last.fm API key required. Deep Dive skips the most obvious tracks and pulls tracks ranked 10-25."
+                    : "Deep Dive skips the most obvious tracks and pulls tracks ranked 10-25."
                 }
+                aria-label={`Deep Dive ${draft.deepDive === true ? "on" : "off"}. Deep Dive pulls tracks ranked 10 through 25 instead of the top 10.`}
               >
                 <span>Deep Dive</span>
                 <span className={draft.deepDive === true ? "text-black/65" : "text-[#76767d]"}>
@@ -1429,6 +1430,20 @@ const shouldHandleMobileCardTap = (event) => {
   return !interactiveTarget;
 };
 
+const formatFlowLastRun = (lastRunAt) => {
+  const timestamp =
+    typeof lastRunAt === "number" ? lastRunAt : Number.parseInt(lastRunAt, 10);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
 export function FlowCard({
   flow,
   isAdminView = false,
@@ -1562,6 +1577,10 @@ export function FlowCard({
     flowWorkerMessage = hintMessage;
   }
   const metaItems = [];
+  const lastRun = formatFlowLastRun(flow?.lastRunAt);
+  if (lastRun) {
+    metaItems.push(`Last run ${lastRun}`);
+  }
   if (enabled && nextRun && state !== "running" && !isGeneratingThisFlow) {
     metaItems.push(
       nextRun === "soon" ? "Next update soon" : `Next update in ${nextRun}`,

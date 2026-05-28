@@ -427,7 +427,6 @@ export async function searchTags(
   query,
   limit = 24,
   offset = 0,
-  tagScope = "merged",
 ) {
   const tag = String(query || "").trim().replace(/^#/, "");
   const limitInt = parsePositiveInt(limit, 24);
@@ -459,131 +458,6 @@ export async function searchTags(
       ),
   );
 
-  if (tagScope === "recommended") {
-    return {
-      scope: "tag",
-      query: tag,
-      count: recommendedMatches.length,
-      offset: offsetInt,
-      hasMore: offsetInt + limitInt < recommendedMatches.length,
-      items: recommendedMatches.slice(offsetInt, offsetInt + limitInt),
-    };
-  }
-
-  if (tagScope === "all") {
-    if (getLastfmApiKey()) {
-      const page = Math.floor(offsetInt / limitInt) + 1;
-      const data = await lastfmRequest("tag.getTopArtists", {
-        tag,
-        limit: limitInt,
-        page,
-      });
-      const artists = Array.isArray(data?.topartists?.artist)
-        ? data.topartists.artist
-        : data?.topartists?.artist
-          ? [data.topartists.artist]
-          : [];
-      const items = artists
-        .map((artist) => normalizeLastfmTagArtist(artist, tag))
-        .filter((artist) => artist.id);
-
-      return {
-        scope: "tag",
-        query: tag,
-        count:
-          Number.parseInt(data?.topartists?.["@attr"]?.total, 10) || items.length,
-        offset: offsetInt,
-        hasMore:
-          offsetInt + items.length <
-          (Number.parseInt(data?.topartists?.["@attr"]?.total, 10) || items.length),
-        items,
-      };
-    }
-
-    const discoveryCacheData = getDiscoveryCache();
-    const fallbackResult = await searchFallbackGenreArtists({
-      tag,
-      limit: limitInt,
-      offset: offsetInt,
-      precomputedGenrePools:
-        discoveryCacheData?.fallbackGenrePools &&
-        Object.keys(discoveryCacheData.fallbackGenrePools).length > 0
-          ? discoveryCacheData.fallbackGenrePools
-          : null,
-    });
-    if (fallbackResult) {
-      return {
-        scope: "tag",
-        query: tag,
-        count: fallbackResult.total,
-        offset: offsetInt,
-        provider: DISCOVERY_PROVIDER_LISTENBRAINZ_FALLBACK,
-        fallbackLimited: true,
-        hasMore: offsetInt + fallbackResult.artists.length < fallbackResult.total,
-        items: fallbackResult.artists.map((artist) =>
-          normalizeTagArtistItem(
-            {
-              type: "artist",
-              id: artist.id || artist.mbid || null,
-              name: artist.name || "Unknown Artist",
-              sortName: artist.sortName || artist.name || "Unknown Artist",
-              image: artist.image || artist.imageUrl || null,
-              imageUrl: artist.image || artist.imageUrl || null,
-              artistType: null,
-              country: null,
-              area: null,
-              begin: null,
-              end: null,
-              disambiguation: null,
-              tags: artist.tags || [tag],
-              genres: artist.genres || [tag],
-              inLibrary: false,
-              score: 0,
-            },
-            tag,
-          ),
-        ),
-      };
-    }
-
-    const discoveryCache = discoveryCacheData;
-    const sourceMap = getTagSourceMap(recommendedMatches);
-    const poolItems = dedupeTagArtists([
-      ...(Array.isArray(discoveryCache.recommendations)
-        ? discoveryCache.recommendations
-        : []),
-      ...(Array.isArray(discoveryCache.globalTop) ? discoveryCache.globalTop : []),
-      ...(Array.isArray(discoveryCache.basedOn) ? discoveryCache.basedOn : []),
-      ...(Array.isArray(discoveryCache.fallbackGenres)
-        ? discoveryCache.fallbackGenres.flatMap((section) =>
-            Array.isArray(section?.artists) ? section.artists : [],
-          )
-        : []),
-    ])
-      .filter((artist) => matchesTagSearch(artist, tagLower))
-      .map((artist) =>
-        normalizeTagArtistItem(
-          {
-            ...artist,
-            tagResultSource: sourceMap.get(getTagArtistKey(artist)) || "all",
-          },
-          tag,
-        ),
-      );
-
-    return {
-      scope: "tag",
-      query: tag,
-      count: poolItems.length,
-      offset: offsetInt,
-      provider: DISCOVERY_PROVIDER_LISTENBRAINZ_FALLBACK,
-      fallbackLimited: true,
-      message: "Tag search is limited without Last.fm",
-      hasMore: offsetInt + limitInt < poolItems.length,
-      items: poolItems.slice(offsetInt, offsetInt + limitInt),
-    };
-  }
-
   if (getLastfmApiKey()) {
     const merged = await fetchMergedLastfmTagArtists(
       tag,
@@ -600,6 +474,58 @@ export async function searchTags(
         : offsetInt + items.length + (merged.items.length > offsetInt + items.length ? 1 : 0),
       offset: offsetInt,
       hasMore: !merged.exhausted || offsetInt + items.length < merged.items.length,
+      items,
+    };
+  }
+
+  const fallbackResult = await searchFallbackGenreArtists({
+    tag,
+    limit: offsetInt + limitInt,
+    offset: 0,
+    precomputedGenrePools:
+      discoveryCache?.fallbackGenrePools &&
+      Object.keys(discoveryCache.fallbackGenrePools).length > 0
+        ? discoveryCache.fallbackGenrePools
+        : null,
+  });
+  if (fallbackResult) {
+    const sourceMap = getTagSourceMap(recommendedMatches);
+    const fallbackItems = fallbackResult.artists.map((artist) =>
+      normalizeTagArtistItem(
+        {
+          type: "artist",
+          id: artist.id || artist.mbid || null,
+          name: artist.name || "Unknown Artist",
+          sortName: artist.sortName || artist.name || "Unknown Artist",
+          image: artist.image || artist.imageUrl || null,
+          imageUrl: artist.image || artist.imageUrl || null,
+          artistType: null,
+          country: null,
+          area: null,
+          begin: null,
+          end: null,
+          disambiguation: null,
+          tags: artist.tags || [tag],
+          genres: artist.genres || [tag],
+          inLibrary: false,
+          score: 0,
+          tagResultSource: sourceMap.get(getTagArtistKey(artist)) || "all",
+        },
+        tag,
+      ),
+    );
+    const mergedItems = dedupeTagArtists([...recommendedMatches, ...fallbackItems]);
+    const items = mergedItems.slice(offsetInt, offsetInt + limitInt);
+    return {
+      scope: "tag",
+      query: tag,
+      count: Math.max(mergedItems.length, fallbackResult.total),
+      offset: offsetInt,
+      provider: DISCOVERY_PROVIDER_LISTENBRAINZ_FALLBACK,
+      fallbackLimited: true,
+      hasMore:
+        offsetInt + items.length < mergedItems.length ||
+        offsetInt + limitInt < fallbackResult.total,
       items,
     };
   }

@@ -3,7 +3,6 @@ import {
   RefreshCw,
   Trash2,
   Compass,
-  Pencil,
   ChevronDown,
   X,
 } from "lucide-react";
@@ -58,7 +57,6 @@ export function SettingsDiscoverTab({
   handleRefreshDiscovery,
   handleClearCache,
 }) {
-  const [discoverEditing, setDiscoverEditing] = useState(false);
   const [lastfmBannerDismissed, setLastfmBannerDismissed] = useState(
     readLastfmDiscoverBannerDismissed,
   );
@@ -146,25 +144,8 @@ export function SettingsDiscoverTab({
             <h3 className="text-lg font-medium" style={{ color: "#fff" }}>
               Discovery behavior
             </h3>
-            <button
-              type="button"
-              className={`btn ${
-                discoverEditing ? "btn-primary" : "btn-secondary"
-              } px-2 py-1`}
-              onClick={() => setDiscoverEditing((value) => !value)}
-              aria-label={
-                discoverEditing
-                  ? "Lock discovery settings"
-                  : "Edit discovery settings"
-              }
-            >
-              <Pencil className="w-4 h-4" />
-            </button>
           </div>
-          <fieldset
-            disabled={!discoverEditing}
-            className={`space-y-4 ${discoverEditing ? "" : "opacity-60"}`}
-          >
+          <fieldset className="space-y-4">
             <div>
               <label
                 className="block text-sm font-medium mb-1"

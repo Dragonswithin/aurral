@@ -673,6 +673,7 @@ export class WeeklyFlowWorker {
     const primaryTracks = Array.isArray(plan?.primaryTracks)
       ? plan.primaryTracks
       : [];
+    flowPlaylistConfig.markLastRunAt(key);
     const jobIds = downloadTracker.addJobs(primaryTracks, key);
     return {
       tracksQueued: primaryTracks.length,
