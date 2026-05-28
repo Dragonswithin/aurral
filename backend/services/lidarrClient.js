@@ -13,6 +13,15 @@ const LIDARR_RETRY_ATTEMPTS = 2;
 const LIDARR_RETRY_DELAY_MS = 800;
 const LIDARR_STATUS_CACHE_MS = 10000;
 const LIDARR_ARTIST_INDEX_TTL_MS = 15 * 60 * 1000;
+const VALID_MONITOR_OPTIONS = new Set([
+  "none",
+  "existing",
+  "all",
+  "future",
+  "missing",
+  "latest",
+  "first",
+]);
 
 function normalizeRootFolderPath(value) {
   const normalized = String(value || "").trim();
@@ -28,6 +37,28 @@ function normalizeProfileId(value) {
     return null;
   }
   return Math.trunc(parsed);
+}
+
+function normalizeMonitorOption(value) {
+  const option = String(value || "none").trim();
+  return VALID_MONITOR_OPTIONS.has(option) ? option : "none";
+}
+
+function getArtistMonitoringPayload(
+  monitorOption,
+  { forceArtistMonitored = true } = {},
+) {
+  const option = normalizeMonitorOption(monitorOption);
+  const monitored = forceArtistMonitored || option !== "none";
+  const monitorNewItems =
+    option === "all" || option === "future" ? "all" : "none";
+
+  return {
+    option,
+    monitored,
+    monitor: option,
+    monitorNewItems,
+  };
 }
 
 function mapTags(tags) {
@@ -849,12 +880,15 @@ export class LidarrClient {
     });
 
     const albumOnly = options.albumOnly === true;
-    const monitorOption = options.monitorOption || options.monitor || "none";
-    const lidarrMonitorOption = monitorOption;
-    const artistMonitored = albumOnly || monitorOption !== "none";
-    const effectiveMonitor = albumOnly ? "missing" : lidarrMonitorOption;
+    const requestedMonitorOption = normalizeMonitorOption(
+      options.monitorOption || options.monitor || "none",
+    );
+    const monitoring = getArtistMonitoringPayload(
+      albumOnly && requestedMonitorOption === "none"
+        ? "missing"
+        : requestedMonitorOption,
+    );
     const searchOnAdd = settings.integrations?.lidarr?.searchOnAdd ?? false;
-    const monitorNewItems = monitorOption === "none" ? "none" : "all";
 
     const qualityProfileId = resolved.qualityProfileId;
     const defaultMetadataProfileId =
@@ -882,22 +916,29 @@ export class LidarrClient {
       rootFolderPath: resolved.rootFolderPath,
       qualityProfileId: qualityProfileId,
       metadataProfileId: metadataProfileId,
-      monitored: artistMonitored,
-      monitor: effectiveMonitor,
-      monitorNewItems: monitorNewItems,
+      monitored: monitoring.monitored,
+      monitor: monitoring.monitor,
+      monitorNewItems: monitoring.monitorNewItems,
       tags: tags,
       albumsToMonitor: [],
       addOptions: {
-        monitor: effectiveMonitor,
+        monitor: monitoring.monitor,
         searchForMissingAlbums: searchOnAdd,
       },
     };
 
+    const ensureArtistMonitored = async (artist) => {
+      if (!artist?.id || artist.monitored === true) {
+        return artist;
+      }
+      return this.updateArtistMonitoring(artist.id, monitoring.option);
+    };
+
     try {
       const result = await this.request("/artist", "POST", lidarrArtist);
-      return result;
+      return ensureArtistMonitored(result);
     } catch (error) {
-      if (monitorOption !== "all") {
+      if (requestedMonitorOption !== "all") {
         throw error;
       }
       const fallbackArtist = {
@@ -908,7 +949,8 @@ export class LidarrClient {
           monitor: "existing",
         },
       };
-      return this.request("/artist", "POST", fallbackArtist);
+      const result = await this.request("/artist", "POST", fallbackArtist);
+      return ensureArtistMonitored(result);
     }
   }
 
@@ -980,24 +1022,23 @@ export class LidarrClient {
 
   async updateArtistMonitoring(artistId, monitorOption) {
     const artist = await this.getArtist(artistId);
-    const lidarrMonitorOption = monitorOption;
-    const monitorNewItems = monitorOption === "none" ? "none" : "all";
+    const monitoring = getArtistMonitoringPayload(monitorOption);
 
     const updated = {
       ...artist,
-      monitored: monitorOption !== "none",
-      monitor: lidarrMonitorOption,
-      monitorNewItems: monitorNewItems,
+      monitored: monitoring.monitored,
+      monitor: monitoring.monitor,
+      monitorNewItems: monitoring.monitorNewItems,
       addOptions: {
         ...(artist.addOptions || {}),
-        monitor: lidarrMonitorOption,
+        monitor: monitoring.monitor,
       },
     };
 
     try {
       return await this.request(`/artist/${artistId}`, "PUT", updated);
     } catch (error) {
-      if (monitorOption !== "all") {
+      if (monitoring.option !== "all") {
         throw error;
       }
       const fallbackUpdated = {
@@ -1018,17 +1059,29 @@ export class LidarrClient {
       throw new Error(`Artist with ID ${artistId} not found in Lidarr`);
     }
 
+    const effectiveArtist =
+      artist.monitored === true
+        ? artist
+        : await this.updateArtistMonitoring(
+            artistId,
+            artist.monitor || artist.addOptions?.monitor || "none",
+          );
+
     const lidarrAlbum = {
       title: albumName,
       foreignAlbumId: albumMbid,
       artistId: artistId,
-      artist: artist,
+      artist: effectiveArtist,
       monitored: options.monitored !== false,
       anyReleaseOk: true,
       images: [],
     };
 
-    const result = await this.request("/album", "POST", lidarrAlbum);
+    let result = await this.request("/album", "POST", lidarrAlbum);
+
+    if (options.monitored !== false && result?.id && result.monitored !== true) {
+      result = await this.monitorAlbum(result.id, true);
+    }
 
     if (options.triggerSearch === true) {
       await this.triggerAlbumSearch(result.id);
@@ -1130,7 +1183,11 @@ export class LidarrClient {
       params.append("deleteFiles", "true");
     }
     const query = params.toString() ? `?${params.toString()}` : "";
-    return this.request(`/artist/${artistId}${query}`, "DELETE");
+    const result = await this.request(`/artist/${artistId}${query}`, "DELETE");
+    this._artistListCache = null;
+    this._invalidateArtistIndexes();
+    this._albumCache.clear();
+    return result;
   }
 
   async deleteAlbum(albumId, deleteFiles = false) {

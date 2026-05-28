@@ -309,7 +309,7 @@ test("requestAlbumFromSearch rejects when artist must be created without addArti
   }
 });
 
-test("addAlbum preserves artist monitoring state while monitoring only the requested album", async () => {
+test("addAlbum checks artist monitoring while monitoring only the requested album", async () => {
   const originalIsConfigured = lidarrClient.isConfigured;
   const originalGetArtist = lidarrClient.getArtist;
   const originalGetAlbumByMbid = lidarrClient.getAlbumByMbid;
@@ -338,14 +338,26 @@ test("addAlbum preserves artist monitoring state while monitoring only the reque
       sizeOnDisk: 0,
     },
   });
-  lidarrClient.updateArtistMonitoring = async () => {
+  lidarrClient.updateArtistMonitoring = async (_artistId, monitorOption) => {
     updateArtistMonitoringCalls += 1;
+    assert.equal(monitorOption, "none");
+    return {
+      id: 7,
+      artistName: "Boards of Canada",
+      foreignArtistId: "artist-mbid",
+      monitored: true,
+      monitor: "none",
+      monitorNewItems: "none",
+      addOptions: {
+        monitor: "none",
+      },
+    };
   };
 
   try {
     const album = await libraryManager.addAlbum(7, "album-mbid", "Geogaddi");
     assert.equal(album.id, "42");
-    assert.equal(updateArtistMonitoringCalls, 0);
+    assert.equal(updateArtistMonitoringCalls, 1);
   } finally {
     lidarrClient.isConfigured = originalIsConfigured;
     lidarrClient.getArtist = originalGetArtist;
@@ -363,11 +375,13 @@ test("addAlbum monitors and searches the requested album after Lidarr conflict l
   const originalGetAlbum = lidarrClient.getAlbum;
   const originalMonitorAlbum = lidarrClient.monitorAlbum;
   const originalTriggerAlbumSearch = lidarrClient.triggerAlbumSearch;
+  const originalUpdateArtistMonitoring = lidarrClient.updateArtistMonitoring;
   const originalWaitForAlbumByMbidForArtist =
     libraryManager.waitForAlbumByMbidForArtist;
 
   let monitorCalls = 0;
   let searchCalls = 0;
+  let updateArtistMonitoringCalls = 0;
 
   lidarrClient.isConfigured = () => true;
   lidarrClient.getArtist = async () => ({
@@ -378,6 +392,17 @@ test("addAlbum monitors and searches the requested album after Lidarr conflict l
     monitor: "none",
   });
   lidarrClient.getAlbumByMbid = async () => null;
+  lidarrClient.updateArtistMonitoring = async (_artistId, monitorOption) => {
+    updateArtistMonitoringCalls += 1;
+    assert.equal(monitorOption, "none");
+    return {
+      id: 7,
+      artistName: "Boards of Canada",
+      foreignArtistId: "artist-mbid",
+      monitored: true,
+      monitor: "none",
+    };
+  };
   lidarrClient.addAlbum = async () => {
     throw new Error("AlbumExistsValidator: This album has already been added");
   };
@@ -420,6 +445,7 @@ test("addAlbum monitors and searches the requested album after Lidarr conflict l
 
     assert.equal(album.id, "42");
     assert.equal(album.monitored, true);
+    assert.equal(updateArtistMonitoringCalls, 1);
     assert.equal(monitorCalls, 1);
     assert.equal(searchCalls, 1);
   } finally {
@@ -430,6 +456,7 @@ test("addAlbum monitors and searches the requested album after Lidarr conflict l
     lidarrClient.getAlbum = originalGetAlbum;
     lidarrClient.monitorAlbum = originalMonitorAlbum;
     lidarrClient.triggerAlbumSearch = originalTriggerAlbumSearch;
+    lidarrClient.updateArtistMonitoring = originalUpdateArtistMonitoring;
     libraryManager.waitForAlbumByMbidForArtist =
       originalWaitForAlbumByMbidForArtist;
   }

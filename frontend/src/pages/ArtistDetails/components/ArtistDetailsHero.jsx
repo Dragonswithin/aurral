@@ -426,6 +426,7 @@ export function ArtistDetailsHero({
                       <div className="my-1" />
                       {[
                         { value: "none", label: "None (Artist Only)" },
+                        { value: "existing", label: "Existing Albums" },
                         { value: "all", label: "All Albums" },
                         { value: "future", label: "Future Albums" },
                         { value: "missing", label: "Missing Albums" },

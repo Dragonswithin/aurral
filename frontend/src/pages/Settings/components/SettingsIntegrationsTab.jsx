@@ -622,6 +622,7 @@ export function SettingsIntegrationsTab({
                 }
               >
                 <option value="none">None (Artist Only)</option>
+                <option value="existing">Existing Albums</option>
                 <option value="all">All Albums</option>
                 <option value="future">Future Albums</option>
                 <option value="missing">Missing Albums</option>
