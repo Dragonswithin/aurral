@@ -92,6 +92,13 @@ const DEFAULT_PERMISSIONS = {
   deleteAlbum: false,
 };
 
+const normalizeExistingFileMode = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["download", "hardlink", "copy"].includes(normalized)
+    ? normalized
+    : "hardlink";
+};
+
 export const userOps = {
   getDefaultPermissions() {
     return { ...DEFAULT_PERMISSIONS };
@@ -394,6 +401,9 @@ export const dbOps = {
             .filter(Boolean),
         )]
       : [];
+    const existingFileMode = normalizeExistingFileMode(
+      weeklyFlowWorker?.existingFileMode,
+    );
 
     const defaultFlowPlaylists = {
       discover: { enabled: false, nextRunAt: null },
@@ -431,6 +441,7 @@ export const dbOps = {
         preferredFormatStrict,
         retryCycleMinutes,
         retryPausedPlaylistIds,
+        existingFileMode,
       },
       blocklist:
         blocklist && typeof blocklist === "object"

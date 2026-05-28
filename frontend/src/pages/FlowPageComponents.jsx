@@ -65,6 +65,11 @@ const FLOW_WORKER_FORMAT_OPTIONS = [
   { id: "flac", label: "FLAC" },
   { id: "mp3", label: "MP3" },
 ];
+const FLOW_WORKER_EXISTING_FILE_OPTIONS = [
+  { id: "download", label: "Download" },
+  { id: "hardlink", label: "Hardlink" },
+  { id: "copy", label: "Copy" },
+];
 const FLOW_WORKER_RETRY_CYCLE_OPTIONS = [
   { minutes: 15, label: "15 min" },
   { minutes: 30, label: "30 min" },
@@ -3349,6 +3354,35 @@ export function FlowWorkerSettingsModal({
                   }}
                 />
               </div>
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <label className="text-xs uppercase tracking-wider text-[#8b8b90] font-medium">
+              Existing Files
+            </label>
+            <div className="relative">
+              <select
+                value={settings.existingFileMode || "hardlink"}
+                onChange={(event) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    existingFileMode: event.target.value,
+                  }))
+                }
+                className="h-[52px] w-full appearance-none rounded-md border border-white/10 bg-black/20 pl-3 pr-12 text-sm text-white outline-none transition focus:border-[#90a07d] focus:ring-1 focus:ring-[#90a07d]"
+                title="How generated playlists reuse existing Aurral or Lidarr files"
+              >
+                {FLOW_WORKER_EXISTING_FILE_OPTIONS.map((option) => (
+                  <option
+                    key={option.id}
+                    value={option.id}
+                    className="bg-[#131419] text-white"
+                  >
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-white" />
             </div>
           </div>
         </div>

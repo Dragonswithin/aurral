@@ -14,6 +14,10 @@ import {
   selectRankedMatchAttempts,
   validateDownloadedTrack,
 } from "./weeklyFlowSoulseekMatcher.js";
+import {
+  normalizeExistingFileMode,
+  reuseTrackForPlaylist,
+} from "./weeklyFlowFileReuse.js";
 
 const DEFAULT_CONCURRENCY = 3;
 const MIN_CONCURRENCY = 1;
@@ -441,6 +445,10 @@ export class WeeklyFlowWorker {
     return DEFAULT_RETRY_CYCLE_MINUTES;
   }
 
+  _normalizeExistingFileMode(value) {
+    return normalizeExistingFileMode(value);
+  }
+
   _getIncompleteRetryDelayMs() {
     const { retryCycleMinutes } = this.getWorkerSettings();
     return Math.max(1000, retryCycleMinutes * 60 * 1000);
@@ -491,6 +499,7 @@ export class WeeklyFlowWorker {
       retryPausedPlaylistIds: this._normalizeRetryPausedPlaylistIds(
         raw.retryPausedPlaylistIds,
       ),
+      existingFileMode: this._normalizeExistingFileMode(raw.existingFileMode),
     };
   }
 
@@ -519,6 +528,10 @@ export class WeeklyFlowWorker {
       retryPausedPlaylistIds: this._normalizeRetryPausedPlaylistIds(
         base.retryPausedPlaylistIds,
       ),
+      existingFileMode:
+        nextSettings.existingFileMode === undefined
+          ? base.existingFileMode
+          : this._normalizeExistingFileMode(nextSettings.existingFileMode),
     };
     dbOps.updateSettings({
       ...current,
@@ -1256,6 +1269,49 @@ export class WeeklyFlowWorker {
       const resolvedTrack = await resolveWeeklyFlowTrackContext(job);
       downloadTracker.updateMetadata(job.id, resolvedTrack);
       Object.assign(job, resolvedTrack);
+      const { existingFileMode } = this.getWorkerSettings();
+      if (existingFileMode !== "download") {
+        const reuse = await reuseTrackForPlaylist(resolvedTrack, job.playlistType, {
+          existingFileMode,
+          weeklyFlowRoot: this.weeklyFlowRoot,
+          existingJobId: job.id,
+          excludeJobIds: [job.id],
+        });
+        if (reuse.reused) {
+          this._resetFailureStreak();
+          this.retryAttempts.delete(job.id);
+          this.retryNotBefore.delete(job.id);
+          this.backupRefillRounds.delete(job.playlistType);
+          this._dropOverflowPendingJobs(job.playlistType);
+          this._recordCompletedTrack(
+            Number(process.hrtime.bigint() - perfStartHr) / 1e6,
+            0,
+          );
+          phaseStart = process.hrtime.bigint();
+          this._assertJobCanContinue(job, runGeneration);
+          await this.checkPlaylistComplete(job.playlistType);
+          timingsMs.completionCheck +=
+            Number(process.hrtime.bigint() - phaseStart) / 1e6;
+          const cpuDelta = process.cpuUsage(perfStartCpu);
+          const elapsedMs = Number(process.hrtime.bigint() - perfStartHr) / 1e6;
+          this.lastJobMetrics = {
+            jobId: job.id,
+            finishedAt: Date.now(),
+            elapsedMs: Math.round(elapsedMs),
+            cpuUserMs: Math.round(cpuDelta.user / 1000),
+            cpuSystemMs: Math.round(cpuDelta.system / 1000),
+            cpuTotalMs: Math.round((cpuDelta.user + cpuDelta.system) / 1000),
+            timingsMs: {
+              search: Math.round(timingsMs.search),
+              download: Math.round(timingsMs.download),
+              finalize: Math.round(timingsMs.finalize),
+              completionCheck: Math.round(timingsMs.completionCheck),
+              cleanupOnError: Math.round(timingsMs.cleanupOnError),
+            },
+          };
+          return;
+        }
+      }
       const searchQueries = buildFlowSearchQueries(resolvedTrack);
       if (searchQueries.length === 0) {
         throw new Error("No search queries could be built");

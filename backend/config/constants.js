@@ -241,6 +241,7 @@ export const defaultData = {
       preferredFormat: "flac",
       preferredFormatStrict: false,
       retryCycleMinutes: 15,
+      existingFileMode: "hardlink",
     },
   },
   blocklist: [],

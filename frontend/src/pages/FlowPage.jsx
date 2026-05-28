@@ -557,8 +557,10 @@ const DEFAULT_WORKER_SETTINGS = {
   preferredFormat: "flac",
   preferredFormatStrict: false,
   retryCycleMinutes: 15,
+  existingFileMode: "hardlink",
 };
 const FLOW_WORKER_RETRY_CYCLE_OPTIONS = [15, 30, 60, 360, 720, 1440];
+const FLOW_WORKER_EXISTING_FILE_MODES = ["download", "hardlink", "copy"];
 
 const normalizeRetryCycleMinutes = (value) => {
   const parsed = Number(value);
@@ -568,6 +570,13 @@ const normalizeRetryCycleMinutes = (value) => {
     return normalized;
   }
   return DEFAULT_WORKER_SETTINGS.retryCycleMinutes;
+};
+
+const normalizeExistingFileMode = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  return FLOW_WORKER_EXISTING_FILE_MODES.includes(normalized)
+    ? normalized
+    : DEFAULT_WORKER_SETTINGS.existingFileMode;
 };
 
 const buildFlowStatsFromJobs = (jobs) => {
@@ -1236,11 +1245,13 @@ function FlowPage() {
         : "flac";
     const preferredFormatStrict = raw.preferredFormatStrict === true;
     const retryCycleMinutes = normalizeRetryCycleMinutes(raw.retryCycleMinutes);
+    const existingFileMode = normalizeExistingFileMode(raw.existingFileMode);
     return {
       concurrency,
       preferredFormat,
       preferredFormatStrict,
       retryCycleMinutes,
+      existingFileMode,
     };
   };
 
@@ -1515,12 +1526,16 @@ function FlowPage() {
     const safeRetryCycleMinutes = normalizeRetryCycleMinutes(
       workerSettingsDraft.retryCycleMinutes,
     );
+    const safeExistingFileMode = normalizeExistingFileMode(
+      workerSettingsDraft.existingFileMode,
+    );
     const current = workerSettingsBaseline;
     const hasChanges =
       safeConcurrency !== current.concurrency ||
       safePreferredFormat !== current.preferredFormat ||
       safePreferredFormatStrict !== current.preferredFormatStrict ||
-      safeRetryCycleMinutes !== current.retryCycleMinutes;
+      safeRetryCycleMinutes !== current.retryCycleMinutes ||
+      safeExistingFileMode !== current.existingFileMode;
     if (!hasChanges || savingWorkerSettings) return;
     setSavingWorkerSettings(true);
     try {
@@ -1529,12 +1544,14 @@ function FlowPage() {
         preferredFormat: safePreferredFormat,
         preferredFormatStrict: safePreferredFormatStrict,
         retryCycleMinutes: safeRetryCycleMinutes,
+        existingFileMode: safeExistingFileMode,
       });
       setWorkerSettingsBaseline({
         concurrency: safeConcurrency,
         preferredFormat: safePreferredFormat,
         preferredFormatStrict: safePreferredFormatStrict,
         retryCycleMinutes: safeRetryCycleMinutes,
+        existingFileMode: safeExistingFileMode,
       });
       showSuccess("Flow worker settings updated");
       setIsWorkerSettingsOpen(false);
@@ -1778,7 +1795,9 @@ function FlowPage() {
     (workerSettingsDraft.preferredFormatStrict === true) !==
       currentWorkerSettings.preferredFormatStrict ||
     normalizeRetryCycleMinutes(workerSettingsDraft.retryCycleMinutes) !==
-      currentWorkerSettings.retryCycleMinutes;
+      currentWorkerSettings.retryCycleMinutes ||
+    normalizeExistingFileMode(workerSettingsDraft.existingFileMode) !==
+      currentWorkerSettings.existingFileMode;
 
   return (
     <div className="flow-page max-w-6xl mx-auto pb-10 sm:px-4">

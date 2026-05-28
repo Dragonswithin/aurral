@@ -102,6 +102,7 @@ Relevant links:
 ### Imported Playlists
 
 - Import exported Aurral playlists, single playlist objects, raw track arrays, or multi-playlist bundles
+- Reuse existing Aurral or Lidarr files with hardlinks or copies to avoid repeated downloads
 - Retry the exact imported tracks on failures instead of replacing them
 - Pause or resume retry cycles for incomplete imported playlists
 - Export static playlists back to JSON for sharing
@@ -160,6 +161,23 @@ Mount a downloads folder for flows, imported playlists, and optional Navidrome i
 ### Main library safety
 
 Aurral does not write to your root music folder directly. Main collection changes happen through Lidarr add, monitor, request, and import actions.
+
+### Existing file reuse
+
+Worker Settings includes an `Existing Files` mode for flows and imported playlists:
+
+- `Download` always downloads a new file into the Aurral library.
+- `Hardlink` reuses completed Aurral tracks or existing Lidarr files with hardlinks, then falls back to copying when the filesystem does not support hardlinks.
+- `Copy` copies completed Aurral tracks or existing Lidarr files into the generated playlist library.
+
+Reused files still get a playlist-local entry under `/app/downloads/aurral-weekly-flow/<playlist-id>`, so deleting a playlist folder removes only that playlist entry. To reuse Lidarr files, Aurral must be able to read the exact file path Lidarr reports. For example, if Lidarr reports `/data/Musik/...`, mount that path into Aurral too:
+
+```yaml
+aurral:
+  volumes:
+    - /srv/mergerfs/Downloads/Musik/aurral:/app/downloads
+    - /srv/mergerfs/Musik:/data/Musik:ro
+```
 
 </details>
 
@@ -307,6 +325,7 @@ Event triggers such as Discover updated and Weekly Flow done apply to all config
 - Discovery looks empty: add artists to Lidarr and configure Last.fm, then give the first recommendation refresh a little time
 - MusicBrainz is slow: MusicBrainz is rate-limited and first runs can take longer
 - Flows do not show in Navidrome: verify `DOWNLOAD_FOLDER` matches your host path mapping and Navidrome purge settings
+- Existing Lidarr tracks are still downloaded: verify Aurral can read the same root path that Lidarr reports for track files
 - Permission errors writing `./data`: set `PUID` and `PGID` to match your host directory ownership
 
 </details>

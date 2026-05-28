@@ -136,6 +136,24 @@ Imported playlists are separate from flows.
 - They do not regenerate on a schedule.
 - They do not use Source Mix, Focus Filters, or Deep Dive.
 - They retry the exact tracklist they were imported with.
+- They can reuse completed Aurral tracks or existing Lidarr files when Worker Settings -> Existing Files is set to Hardlink or Copy.
+
+## Existing file reuse
+
+Aurral keeps every generated playlist entry inside its own playlist folder under `aurral-weekly-flow/<playlist-id>`. When existing file reuse is enabled, that entry can be a hardlink or copy instead of a new Soulseek download.
+
+- `Download` always downloads a new file.
+- `Hardlink` tries to hardlink a matching completed Aurral or Lidarr file, then falls back to copying.
+- `Copy` copies matching completed Aurral or Lidarr files into the generated playlist library.
+
+Aurral-global reuse prevents the same imported track from being downloaded again for another playlist. Lidarr-aware reuse requires Aurral to read the same file path Lidarr reports. If Lidarr reports `/data/Musik/...`, mount the library into Aurral at `/data/Musik`:
+
+```yaml
+aurral:
+  volumes:
+    - /srv/mergerfs/Downloads/Musik/aurral:/app/downloads
+    - /srv/mergerfs/Musik:/data/Musik:ro
+```
 
 ## What the importer accepts
 
@@ -256,6 +274,7 @@ Aurral accepts CSVJSON output directly as one playlist and understands Spotify-s
 - A top-level array of playlist objects is treated as multiple playlists.
 - If an imported playlist name conflicts with an existing playlist, Aurral renames it automatically.
 - Imported playlists queue their own downloads and do not affect any flow configuration.
+- When existing file reuse succeeds, the imported track is marked complete immediately and is not queued for download.
 
 ### Download retries and failure behavior
 
