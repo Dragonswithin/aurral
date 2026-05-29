@@ -4,7 +4,7 @@
   --track-off: #313033;
   --thumb-off: #aeaaae;
   --focus-ring: rgba(132, 218, 137, 0.42);
-  --w: 62.9px;
+  --w: 47.2px;
   --h: calc(var(--w) * 0.4865);
   --thumb-size: calc(var(--w) * 0.3784);
   --thumb-offset: calc(var(--w) * 0.0541);
