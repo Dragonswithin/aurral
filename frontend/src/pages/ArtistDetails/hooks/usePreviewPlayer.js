@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getArtistPreview } from "../../../utils/api";
 
 const SNAP_BACK_MS = 320;
@@ -22,13 +22,6 @@ export function usePreviewPlayer(mbid, artistNameFromNav, artist) {
   const previewAudioRef = useRef(null);
   const previewTickRef = useRef(null);
   const snapBackTimeoutRef = useRef(null);
-  const setPreviewAudioElement = useCallback(
-    (node) => {
-      previewAudioRef.current = node;
-      if (node) node.volume = previewVolume;
-    },
-    [previewVolume],
-  );
 
   useEffect(() => {
     const name = artistNameFromNav || artist?.name;
@@ -54,7 +47,6 @@ export function usePreviewPlayer(mbid, artistNameFromNav, artist) {
   const handlePreviewPlay = (track) => {
     const audio = previewAudioRef.current;
     if (!audio || !track.preview_url) return;
-    audio.volume = previewVolume;
     if (playingPreviewId === track.id) {
       if (audio.paused) {
         if (snapBackTimeoutRef.current)
@@ -166,7 +158,7 @@ export function usePreviewPlayer(mbid, artistNameFromNav, artist) {
     previewSnappingBack,
     previewVolume,
     setPreviewVolume,
-    previewAudioRef: setPreviewAudioElement,
+    previewAudioRef,
     handlePreviewPlay,
   };
 }
