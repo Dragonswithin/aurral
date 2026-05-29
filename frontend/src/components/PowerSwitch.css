@@ -1,7 +1,7 @@
 .power-switch {
   --color-invert: #ffffff;
-  --width: 120px;
-  --height: 120px;
+  --width: 90px;
+  --height: 90px;
   position: relative;
   display: flex;
   justify-content: center;
@@ -11,8 +11,8 @@
 }
 
 .flow-page .power-switch {
-  --width: 44px;
-  --height: 44px;
+  --width: 33px;
+  --height: 33px;
 }
 
 .power-switch .button {
