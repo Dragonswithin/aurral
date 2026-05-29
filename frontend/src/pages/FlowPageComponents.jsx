@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import PillToggle from "../components/PillToggle";
 import FlipSaveButton from "../components/FlipSaveButton";
+import { useSharedVolume } from "../hooks/useSharedVolume";
 import { TAG_COLORS } from "./ArtistDetails/constants";
 
 const SOURCE_MIX_COLORS = {
@@ -1952,11 +1953,11 @@ export function FlowTracksPanel({
   const [currentTrackId, setCurrentTrackId] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isShuffleEnabled, setIsShuffleEnabled] = useState(false);
-  const [volume, setVolume] = useState(80);
-  const [isMuted, setIsMuted] = useState(false);
+  const [sharedVolume, setSharedVolume] = useSharedVolume();
   const [playbackProgress, setPlaybackProgress] = useState(0);
   const [progressSnappingBack, setProgressSnappingBack] = useState(false);
-  const lastVolumeRef = useRef(80);
+  const volume = Math.round(sharedVolume * 100);
+  const lastVolumeRef = useRef(volume > 0 ? volume : 70);
   const progressResetTimeoutRef = useRef(null);
   const audioRef = useRef(null);
 
@@ -2104,32 +2105,34 @@ export function FlowTracksPanel({
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    audio.muted = isMuted || volume <= 0;
-    audio.volume = Math.min(Math.max(volume / 100, 0), 1);
-  }, [volume, isMuted]);
+    audio.muted = volume <= 0;
+    audio.volume = sharedVolume;
+  }, [sharedVolume, volume]);
+
+  useEffect(() => {
+    if (volume > 0) {
+      lastVolumeRef.current = volume;
+    }
+  }, [volume]);
 
   const handleVolumeChange = (nextValue) => {
     const nextVolume = Math.min(Math.max(Number(nextValue) || 0, 0), 100);
-    setVolume(nextVolume);
     if (nextVolume > 0) {
       lastVolumeRef.current = nextVolume;
-      setIsMuted(false);
-      return;
     }
-    setIsMuted(true);
+    setSharedVolume(nextVolume / 100);
   };
 
   const handleToggleMute = () => {
-    if (isMuted || volume <= 0) {
-      const restoredVolume = lastVolumeRef.current > 0 ? lastVolumeRef.current : 80;
-      setVolume(restoredVolume);
-      setIsMuted(false);
+    if (volume <= 0) {
+      const restoredVolume = lastVolumeRef.current > 0 ? lastVolumeRef.current : 70;
+      setSharedVolume(restoredVolume / 100);
       return;
     }
     if (volume > 0) {
       lastVolumeRef.current = volume;
     }
-    setIsMuted(true);
+    setSharedVolume(0);
   };
 
   useEffect(() => {
@@ -2229,9 +2232,9 @@ export function FlowTracksPanel({
           <button
             onClick={handleToggleMute}
             className="btn btn-ghost btn-xs px-1.5"
-            aria-label={isMuted || volume <= 0 ? "Unmute" : "Mute"}
+            aria-label={volume <= 0 ? "Unmute" : "Mute"}
           >
-            {isMuted || volume <= 0 ? (
+            {volume <= 0 ? (
               <VolumeX className="w-4 h-4 text-[#8b8b90]" />
             ) : (
               <Volume2 className="w-4 h-4 text-[#8b8b90]" />
@@ -2241,9 +2244,10 @@ export function FlowTracksPanel({
             type="range"
             min="0"
             max="100"
+            step="1"
             value={volume}
             onChange={(event) => handleVolumeChange(event.target.value)}
-            className="hidden w-24 accent-[#9aa886] sm:block"
+            className="volume-slider hidden w-24 sm:block"
             aria-label="Track volume"
           />
         </div>
