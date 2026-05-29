@@ -109,6 +109,7 @@ const getFallbackGenreFromSectionId = (id) =>
 
 const DISCOVER_NEARBY_MODE_KEY = "discoverNearbyMode";
 const DISCOVER_NEARBY_ZIP_KEY = "discoverNearbyZip";
+const DISCOVER_PREVIEW_ITEM_LIMIT = 12;
 const DISCOVER_SHELF_CARD_CLASS =
   "w-[148px] shrink-0 sm:w-[calc((100%-1rem*2)/3)] md:w-[calc((100%-1rem*3)/4)] lg:w-[calc((100%-1rem*5)/6)]";
 
@@ -1020,6 +1021,8 @@ function DiscoverRail({
   title,
   mobileTitle,
   onViewAll,
+  afterTitle,
+  headerActions,
   children,
   className = "",
   headerClassName = "",
@@ -1080,8 +1083,10 @@ function DiscoverRail({
               →
             </button>
           )}
+          {afterTitle}
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {headerActions}
           <button
             type="button"
             onClick={() => scrollByAmount(-1)}
@@ -1118,6 +1123,8 @@ DiscoverRail.propTypes = {
   title: PropTypes.string.isRequired,
   mobileTitle: PropTypes.string,
   onViewAll: PropTypes.func,
+  afterTitle: PropTypes.node,
+  headerActions: PropTypes.node,
   children: PropTypes.node.isRequired,
   className: PropTypes.string,
   headerClassName: PropTypes.string,
@@ -1527,7 +1534,7 @@ function DiscoverPage() {
     const sections = [];
     const usedArtistIds = new Set(
       (data.recommendations || [])
-        .slice(0, 12)
+        .slice(0, DISCOVER_PREVIEW_ITEM_LIMIT)
         .map((artist) => getArtistId(artist))
         .filter(Boolean),
     );
@@ -1556,7 +1563,7 @@ function DiscoverPage() {
             if (rightScore !== leftScore) return rightScore - leftScore;
             return String(left.name || "").localeCompare(String(right.name || ""));
           })
-          .slice(0, 6);
+          .slice(0, DISCOVER_PREVIEW_ITEM_LIMIT);
 
         selectedArtists.forEach((artist) => {
           const artistId = getArtistId(artist);
@@ -1989,7 +1996,7 @@ function DiscoverPage() {
           }
         >
           <>
-            {section.artists.slice(0, 6).map((artist) => (
+            {section.artists.slice(0, DISCOVER_PREVIEW_ITEM_LIMIT).map((artist) => (
               <div
                 key={`${section.genre}-${artist.id}`}
                 className={DISCOVER_SHELF_CARD_CLASS}
@@ -2030,7 +2037,7 @@ function DiscoverPage() {
           style={{ animationDelay: "0.1s" }}
         >
           <>
-            {recentlyAdded.slice(0, 6).map((artist) => {
+            {recentlyAdded.slice(0, DISCOVER_PREVIEW_ITEM_LIMIT).map((artist) => {
               const artistId = artist.foreignArtistId || artist.mbid || artist.id;
               return (
                 <div key={`artist-${artist.id}`} className={DISCOVER_SHELF_CARD_CLASS}>
@@ -2072,7 +2079,7 @@ function DiscoverPage() {
           style={{ animationDelay: "0.15s" }}
         >
           <>
-            {recentReleases.slice(0, 6).map((album) => (
+            {recentReleases.slice(0, DISCOVER_PREVIEW_ITEM_LIMIT).map((album) => (
               <div
                 key={album.id || album.mbid || album.foreignAlbumId}
                 className={DISCOVER_SHELF_CARD_CLASS}
@@ -2100,7 +2107,7 @@ function DiscoverPage() {
         >
           {recommendations.length > 0 ? (
             <>
-              {recommendations.slice(0, 12).map((artist) => (
+              {recommendations.slice(0, DISCOVER_PREVIEW_ITEM_LIMIT).map((artist) => (
                 <div key={artist.id} className={DISCOVER_SHELF_CARD_CLASS}>
                   <ArtistCard
                     artist={artist}
@@ -2145,118 +2152,135 @@ function DiscoverPage() {
     if (id === "recommendedShows") {
       if (!sectionAvailability.recommendedShows) return null;
       const zipModeActive = nearbyLocationMode === "zip";
-      return (
-        <section key="recommendedShows">
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <h2 className="text-2xl font-bold text-white">Shows Near You</h2>
-              {nearbyShowsData?.configured !== false && (
-                <span className="hidden rounded-full bg-white/5 px-2.5 py-1 text-xs font-medium text-white/60 sm:inline-block">
-                  {nearbyLocationLabel}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="inline-flex border border-white/10 p-1" style={{ backgroundColor: "#17161d" }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNearbyLocationMode("ip");
-                    setShowNearbyZipEditor(false);
-                    try {
-                      localStorage.setItem(DISCOVER_NEARBY_MODE_KEY, "ip");
-                    } catch {}
-                  }}
-                  className="px-3 py-1.5 text-xs font-medium transition-colors"
-                  style={{
-                    backgroundColor: !zipModeActive ? "#5a5a5f" : "transparent",
-                    color: !zipModeActive ? "#0b0b0c" : "#c1c1c3",
-                  }}
+      const showNearbyShowsRail =
+        nearbyShowsData?.configured !== false &&
+        !nearbyShowsLoading &&
+        !nearbyShowsError &&
+        !(zipModeActive && !appliedNearbyZip.trim()) &&
+        nearbyShows.length > 0;
+      const nearbyLocationBadge = nearbyShowsData?.configured !== false && (
+        <span className="hidden rounded-full bg-white/5 px-2.5 py-1 text-xs font-medium text-white/60 sm:inline-block">
+          {nearbyLocationLabel}
+        </span>
+      );
+      const nearbyHeaderActions = (
+        <>
+          <div
+            className="inline-flex border border-white/10 p-1"
+            style={{ backgroundColor: "#17161d" }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setNearbyLocationMode("ip");
+                setShowNearbyZipEditor(false);
+                try {
+                  localStorage.setItem(DISCOVER_NEARBY_MODE_KEY, "ip");
+                } catch {}
+              }}
+              className="px-3 py-1.5 text-xs font-medium transition-colors"
+              style={{
+                backgroundColor: !zipModeActive ? "#5a5a5f" : "transparent",
+                color: !zipModeActive ? "#0b0b0c" : "#c1c1c3",
+              }}
+            >
+              Your Area
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setNearbyLocationMode("zip");
+                try {
+                  localStorage.setItem(DISCOVER_NEARBY_MODE_KEY, "zip");
+                } catch {}
+              }}
+              className="px-3 py-1.5 text-xs font-medium transition-colors"
+              style={{
+                backgroundColor: zipModeActive ? "#5a5a5f" : "transparent",
+                color: zipModeActive ? "#0b0b0c" : "#c1c1c3",
+              }}
+            >
+              ZIP
+            </button>
+          </div>
+          {zipModeActive && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setNearbyZipDraft(appliedNearbyZip);
+                  setShowNearbyZipEditor((value) => !value);
+                }}
+                className="inline-flex h-8 w-8 items-center justify-center border border-white/10 transition-colors"
+                style={{ backgroundColor: "#17161d", color: "#c1c1c3" }}
+                aria-label="Edit ZIP"
+                title="Edit ZIP"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              {showNearbyZipEditor && (
+                <div
+                  className="absolute right-0 top-10 z-20 w-52 border border-white/10 p-2"
+                  style={{ backgroundColor: "#17161d" }}
                 >
-                  Your Area
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNearbyLocationMode("zip");
-                    try {
-                      localStorage.setItem(DISCOVER_NEARBY_MODE_KEY, "zip");
-                    } catch {}
-                  }}
-                  className="px-3 py-1.5 text-xs font-medium transition-colors"
-                  style={{
-                    backgroundColor: zipModeActive ? "#5a5a5f" : "transparent",
-                    color: zipModeActive ? "#0b0b0c" : "#c1c1c3",
-                  }}
-                >
-                  ZIP
-                </button>
-              </div>
-              {zipModeActive && (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNearbyZipDraft(appliedNearbyZip);
-                      setShowNearbyZipEditor((value) => !value);
-                    }}
-                    className="inline-flex h-8 w-8 items-center justify-center border border-white/10 transition-colors"
-                    style={{ backgroundColor: "#17161d", color: "#c1c1c3" }}
-                    aria-label="Edit ZIP"
-                    title="Edit ZIP"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  {showNearbyZipEditor && (
-                    <div
-                      className="absolute right-0 top-10 z-20 w-52 border border-white/10 p-2"
-                      style={{ backgroundColor: "#17161d" }}
+                  <input
+                    type="text"
+                    value={nearbyZipDraft}
+                    onChange={(event) => setNearbyZipDraft(event.target.value)}
+                    className="input mb-2 w-full"
+                    placeholder="ZIP or postal code"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowNearbyZipEditor(false)}
+                      className="border border-white/10 px-2 py-1 text-xs"
+                      style={{ color: "#c1c1c3" }}
                     >
-                      <input
-                        type="text"
-                        value={nearbyZipDraft}
-                        onChange={(event) => setNearbyZipDraft(event.target.value)}
-                        className="input mb-2 w-full"
-                        placeholder="ZIP or postal code"
-                      />
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowNearbyZipEditor(false)}
-                          className="border border-white/10 px-2 py-1 text-xs"
-                          style={{ color: "#c1c1c3" }}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const sanitized = nearbyZipDraft.trim();
-                            if (!sanitized) return;
-                            setAppliedNearbyZip(sanitized);
-                            setNearbyLocationMode("zip");
-                            setShowNearbyZipEditor(false);
-                            try {
-                              localStorage.setItem(DISCOVER_NEARBY_MODE_KEY, "zip");
-                              localStorage.setItem(DISCOVER_NEARBY_ZIP_KEY, sanitized);
-                            } catch {}
-                          }}
-                          className="px-2 py-1 text-xs"
-                          style={{
-                            backgroundColor: "#707e61",
-                            color: "#0b0b0c",
-                            opacity: nearbyZipDraft.trim() ? 1 : 0.5,
-                          }}
-                          disabled={!nearbyZipDraft.trim()}
-                        >
-                          Save
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const sanitized = nearbyZipDraft.trim();
+                        if (!sanitized) return;
+                        setAppliedNearbyZip(sanitized);
+                        setNearbyLocationMode("zip");
+                        setShowNearbyZipEditor(false);
+                        try {
+                          localStorage.setItem(DISCOVER_NEARBY_MODE_KEY, "zip");
+                          localStorage.setItem(DISCOVER_NEARBY_ZIP_KEY, sanitized);
+                        } catch {}
+                      }}
+                      className="px-2 py-1 text-xs"
+                      style={{
+                        backgroundColor: "#707e61",
+                        color: "#0b0b0c",
+                        opacity: nearbyZipDraft.trim() ? 1 : 0.5,
+                      }}
+                      disabled={!nearbyZipDraft.trim()}
+                    >
+                      Save
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
+          )}
+        </>
+      );
+      return (
+        <section key="recommendedShows">
+          <div
+            className={`mb-6 items-center justify-between ${
+              showNearbyShowsRail ? "hidden" : "flex"
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl font-bold text-white">Shows Near You</h2>
+              {nearbyLocationBadge}
+            </div>
+            <div className="flex items-center gap-2">{nearbyHeaderActions}</div>
           </div>
 
           {nearbyShowsData?.configured === false ? (
@@ -2302,10 +2326,11 @@ function DiscoverPage() {
             <DiscoverRail
               title="Shows Near You"
               onViewAll={() => navigate("/shows")}
-              headerClassName="hidden"
+              afterTitle={nearbyLocationBadge}
+              headerActions={nearbyHeaderActions}
             >
               <>
-                {nearbyShows.slice(0, 8).map((show) => (
+                {nearbyShows.slice(0, DISCOVER_PREVIEW_ITEM_LIMIT).map((show) => (
                   <div key={`${show.id}-${show.artistName}-${show.sourceType || show.matchType || "show"}`} className="w-[288px] shrink-0">
                     <ShowCard show={show} />
                   </div>
@@ -2336,7 +2361,7 @@ function DiscoverPage() {
           onViewAll={() => navigate("/search?type=trending")}
         >
           <>
-            {globalTop.slice(0, 12).map((artist) => (
+            {globalTop.slice(0, DISCOVER_PREVIEW_ITEM_LIMIT).map((artist) => (
               <div key={artist.id} className={DISCOVER_SHELF_CARD_CLASS}>
                 <ArtistCard
                   artist={{
@@ -2380,7 +2405,7 @@ function DiscoverPage() {
               }
             >
               <>
-                {section.artists.slice(0, 6).map((artist) => (
+                {section.artists.slice(0, DISCOVER_PREVIEW_ITEM_LIMIT).map((artist) => (
                   <div
                     key={`${section.genre}-${artist.id}`}
                     className={DISCOVER_SHELF_CARD_CLASS}
