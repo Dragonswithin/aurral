@@ -26,7 +26,6 @@ import {
   searchCatalog,
   updateBlocklist,
 } from "../utils/api";
-import PillToggle from "../components/PillToggle";
 import SearchAlbumResults from "../components/SearchAlbumResults";
 import SearchArtistResults from "../components/SearchArtistResults";
 import { useAuth } from "../contexts/AuthContext";
@@ -159,11 +158,7 @@ function SearchResultsPage() {
   }, [type, trimmedQuery]);
   const isTagSearch = normalizedType === "tag";
   const isAlbumSearch = normalizedType === "album";
-  const tagScope = searchParams.get("scope") || "all";
-  const effectiveTagScope =
-    isTagSearch && lastfmConfigured === false ? "all" : tagScope;
   const albumSort = searchParams.get("sort") || DEFAULT_ALBUM_SORT;
-  const showAllTagResults = isTagSearch && effectiveTagScope === "all";
   const showTagBanner = isTagSearch && lastfmConfigured === false && !dismissedTagBanner;
   const supportsDiscoveryFeedback =
     normalizedType === "recommended" || isTagSearch;
@@ -181,15 +176,6 @@ function SearchResultsPage() {
         (typeName) => !selectedReleaseTypes.includes(typeName),
       ).length,
     [allReleaseTypes, selectedReleaseTypes],
-  );
-
-  const updateTagScope = useCallback(
-    (nextScope) => {
-      const params = new URLSearchParams(searchParams);
-      params.set("scope", nextScope === "all" ? "all" : "recommended");
-      setSearchParams(params);
-    },
-    [searchParams, setSearchParams],
   );
 
   const updateAlbumSort = useCallback(
@@ -302,7 +288,6 @@ function SearchResultsPage() {
         const data = await searchCatalog(searchQuery, normalizedType, {
           limit: PAGE_SIZE,
           offset: 0,
-          tagScope: effectiveTagScope,
           releaseTypes: isAlbumSearch ? selectedReleaseTypes : [],
         });
         const nextResults = isAlbumSearch
@@ -344,7 +329,6 @@ function SearchResultsPage() {
   }, [
     trimmedQuery,
     normalizedType,
-    effectiveTagScope,
     isAlbumSearch,
     isTagSearch,
     selectedReleaseTypes,
@@ -589,7 +573,6 @@ function SearchResultsPage() {
       const data = await searchCatalog(searchQuery, normalizedType, {
         limit: PAGE_SIZE,
         offset: results.length,
-        tagScope: effectiveTagScope,
         releaseTypes: isAlbumSearch ? selectedReleaseTypes : [],
       });
       const newItems = data.items || [];
@@ -626,7 +609,6 @@ function SearchResultsPage() {
     results,
     searchTotalCount,
     selectedReleaseTypes,
-    effectiveTagScope,
     trimmedQuery,
     visibleCount,
   ]);
@@ -894,28 +876,6 @@ function SearchResultsPage() {
                       : "Search Results"}
           </h1>
 
-          {isTagSearch && lastfmConfigured !== false && (
-            <div className="ml-auto inline-flex items-center gap-3">
-              <span
-                className="text-sm"
-                style={{ color: showAllTagResults ? "#8a8a8f" : "#fff" }}
-              >
-                Recommended
-              </span>
-              <PillToggle
-                checked={showAllTagResults}
-                onChange={(event) =>
-                  updateTagScope(event.target.checked ? "all" : "recommended")
-                }
-              />
-              <span
-                className="text-sm"
-                style={{ color: showAllTagResults ? "#fff" : "#8a8a8f" }}
-              >
-                All
-              </span>
-            </div>
-          )}
         </div>
 
         {normalizedType === "recommended" && (
@@ -932,10 +892,8 @@ function SearchResultsPage() {
             className="flex flex-wrap items-center gap-x-3 gap-y-2"
             style={{ color: "#c1c1c3" }}
           >
-            <p>
-              {`${lastfmConfigured === false || showAllTagResults ? "Top artists" : "Recommended artists"} for tag "${trimmedQuery.replace(/^#/, "")}"`}
-            </p>
-            {lastfmConfigured !== false && showAllTagResults && (
+            <p>{`Artists for tag "${trimmedQuery.replace(/^#/, "")}"`}</p>
+            {lastfmConfigured !== false && (
               <div className="ml-auto flex items-center gap-1.5 text-sm">
                 <Star
                   className="h-3.5 w-3.5"

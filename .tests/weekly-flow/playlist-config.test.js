@@ -45,6 +45,7 @@ test("creates flows with normalized scheduling and enforces unique names", () =>
   assert.deepEqual(flow.scheduleDays, [1, 5]);
   assert.equal(flow.scheduleTime, "06:00");
   assert.equal(flow.enabled, false);
+  assert.equal(flow.lastRunAt, null);
 
   assert.throws(
     () =>
@@ -53,6 +54,20 @@ test("creates flows with normalized scheduling and enforces unique names", () =>
       }),
     /already exists/,
   );
+});
+
+test("records flow last run time", () => {
+  const flow = flowPlaylistConfig.createFlow({
+    name: "Morning",
+    size: 20,
+  });
+  const lastRunAt = 1710000000000;
+
+  const updated = flowPlaylistConfig.markLastRunAt(flow.id, lastRunAt);
+  const stored = flowPlaylistConfig.getFlow(flow.id);
+
+  assert.equal(updated?.lastRunAt, lastRunAt);
+  assert.equal(stored?.lastRunAt, lastRunAt);
 });
 
 test("stores full shared playlists but exposes trackless summaries for hot paths", () => {

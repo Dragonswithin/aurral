@@ -215,7 +215,7 @@ export function useArtistDetailsLibrary({
     try {
       const updatedArtist = {
         ...libraryArtist,
-        monitored: newMonitorOption !== "none",
+        monitored: true,
         monitorOption: newMonitorOption,
         addOptions: {
           ...(libraryArtist.addOptions || {}),
@@ -231,6 +231,7 @@ export function useArtistDetailsLibrary({
       setShowRemoveDropdown(false);
       const monitorLabels = {
         none: "None (Artist Only)",
+        existing: "Existing Albums",
         all: "All Albums",
         future: "Future Albums",
         missing: "Missing Albums",
@@ -354,9 +355,15 @@ export function useArtistDetailsLibrary({
       libraryArtist.monitorNewItems;
     if (
       monitorOption &&
-      ["none", "all", "future", "missing", "latest", "first"].includes(
-        monitorOption,
-      )
+      [
+        "none",
+        "existing",
+        "all",
+        "future",
+        "missing",
+        "latest",
+        "first",
+      ].includes(monitorOption)
     ) {
       return monitorOption;
     }

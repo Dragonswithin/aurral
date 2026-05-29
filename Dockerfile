@@ -33,7 +33,8 @@ COPY package*.json ./
 COPY backend/package*.json ./backend/
 COPY frontend/package*.json ./frontend/
 RUN apk add --no-cache python3 make g++ && \
-    npm ci --workspace backend --omit=dev --include-workspace-root=false
+    npm ci --workspace backend --omit=dev --include=optional --include-workspace-root=false && \
+    node -e "require('sharp')"
 
 COPY backend/ ./backend/
 COPY lib/ ./lib/

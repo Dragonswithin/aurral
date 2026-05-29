@@ -1,4 +1,4 @@
-import { UserPlus, Lock, Pencil, Trash2, X } from "lucide-react";
+import { UserPlus, Lock, Trash2, X } from "lucide-react";
 import { GRANULAR_PERMISSIONS, granularPerms } from "../constants";
 import { loginApi, setStoredAuth } from "../../../utils/api";
 
@@ -372,8 +372,8 @@ export function SettingsUsersTab({
                           );
                         }}
                       >
-                        <Pencil className="w-4 h-4" />
-                        Edit
+                        <Lock className="w-4 h-4" />
+                        Manage
                       </button>
                       <button
                         type="button"
@@ -649,7 +649,7 @@ export function SettingsUsersTab({
               >
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-xl font-bold text-main">
-                    Edit {editUser.username}
+                    Manage {editUser.username}
                   </h3>
                   <button
                     type="button"

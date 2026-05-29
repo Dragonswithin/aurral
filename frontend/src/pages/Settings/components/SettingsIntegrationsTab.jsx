@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CheckCircle, ChevronDown, Pencil, RefreshCw } from "lucide-react";
+import { CheckCircle, ChevronDown, RefreshCw } from "lucide-react";
 import FlipSaveButton from "../../../components/FlipSaveButton";
 import {
   getLidarrMetadataProfiles,
@@ -35,10 +35,6 @@ export function SettingsIntegrationsTab({
   showError,
   showInfo,
 }) {
-  const [lidarrEditing, setLidarrEditing] = useState(false);
-  const [ticketmasterEditing, setTicketmasterEditing] = useState(false);
-  const [navidromeEditing, setNavidromeEditing] = useState(false);
-  const [lastfmEditing, setLastfmEditing] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState({
     lidarr: false,
     lastfm: true,
@@ -271,27 +267,10 @@ export function SettingsIntegrationsTab({
                   Connected
                 </span>
               )}
-              <button
-                type="button"
-                className={`btn ${
-                  lidarrEditing ? "btn-primary" : "btn-secondary"
-                } px-2 py-1`}
-                onClick={() => setLidarrEditing((value) => !value)}
-                aria-label={
-                  lidarrEditing ? "Lock Lidarr settings" : "Edit Lidarr settings"
-                }
-              >
-                <Pencil className="w-4 h-4" />
-              </button>
             </div>
           </div>
           {!collapsedSections.lidarr && (
-          <fieldset
-            disabled={!lidarrEditing}
-            className={`grid grid-cols-1 gap-4 ${
-              lidarrEditing ? "" : "opacity-60"
-            }`}
-          >
+          <fieldset className="grid grid-cols-1 gap-4">
             <div>
               <label
                 className="block text-sm font-medium mb-1"
@@ -622,6 +601,7 @@ export function SettingsIntegrationsTab({
                 }
               >
                 <option value="none">None (Artist Only)</option>
+                <option value="existing">Existing Albums</option>
                 <option value="all">All Albums</option>
                 <option value="future">Future Albums</option>
                 <option value="missing">Missing Albums</option>
@@ -745,27 +725,10 @@ export function SettingsIntegrationsTab({
                   Configured
                 </span>
               )}
-              <button
-                type="button"
-                className={`btn ${
-                  lastfmEditing ? "btn-primary" : "btn-secondary"
-                } px-2 py-1`}
-                onClick={() => setLastfmEditing((value) => !value)}
-                aria-label={
-                  lastfmEditing
-                    ? "Lock Last.fm settings"
-                    : "Edit Last.fm settings"
-                }
-              >
-                <Pencil className="w-4 h-4" />
-              </button>
             </div>
           </div>
           {!collapsedSections.lastfm && (
-          <fieldset
-            disabled={!lastfmEditing}
-            className={`space-y-4 ${lastfmEditing ? "" : "opacity-60"}`}
-          >
+          <fieldset className="space-y-4">
             <div>
               <label
                 className="block text-sm font-medium mb-1"
@@ -861,27 +824,10 @@ export function SettingsIntegrationsTab({
                   Configured
                 </span>
               )}
-              <button
-                type="button"
-                className={`btn ${
-                  ticketmasterEditing ? "btn-primary" : "btn-secondary"
-                } px-2 py-1`}
-                onClick={() => setTicketmasterEditing((value) => !value)}
-                aria-label={
-                  ticketmasterEditing
-                    ? "Lock Ticketmaster settings"
-                    : "Edit Ticketmaster settings"
-                }
-              >
-                <Pencil className="w-4 h-4" />
-              </button>
             </div>
           </div>
           {!collapsedSections.ticketmaster && (
-          <fieldset
-            disabled={!ticketmasterEditing}
-            className={`space-y-4 ${ticketmasterEditing ? "" : "opacity-60"}`}
-          >
+          <fieldset className="space-y-4">
             <div
               className="rounded-lg p-4 space-y-2"
               style={{ backgroundColor: "#141418", border: "1px solid #2a2a2e" }}
@@ -1048,27 +994,10 @@ export function SettingsIntegrationsTab({
                   Configured
                 </span>
               )}
-              <button
-                type="button"
-                className={`btn ${
-                  navidromeEditing ? "btn-primary" : "btn-secondary"
-                } px-2 py-1`}
-                onClick={() => setNavidromeEditing((value) => !value)}
-                aria-label={
-                  navidromeEditing
-                    ? "Lock Subsonic / Navidrome settings"
-                    : "Edit Subsonic / Navidrome settings"
-                }
-              >
-                <Pencil className="w-4 h-4" />
-              </button>
             </div>
           </div>
           {!collapsedSections.navidrome && (
-          <fieldset
-            disabled={!navidromeEditing}
-            className={`${navidromeEditing ? "" : "opacity-60"}`}
-          >
+          <fieldset>
             <div>
             <label
               className="block text-sm font-medium mb-1"

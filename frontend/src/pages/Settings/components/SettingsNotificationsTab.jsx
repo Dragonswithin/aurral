@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { CheckCircle, Pencil, Plus, Trash2, GripVertical } from "lucide-react";
+import { CheckCircle, Plus, Trash2, GripVertical } from "lucide-react";
 import FlipSaveButton from "../../../components/FlipSaveButton";
 import PillToggle from "../../../components/PillToggle";
 import { testGotifyConnection } from "../../../utils/api";
@@ -15,8 +15,6 @@ export function SettingsNotificationsTab({
   showSuccess,
   showError,
 }) {
-  const [gotifyEditing, setGotifyEditing] = useState(false);
-
   const handleTestGotify = async () => {
     const url = settings.integrations?.gotify?.url;
     const token = settings.integrations?.gotify?.token;
@@ -167,26 +165,9 @@ export function SettingsNotificationsTab({
                     Configured
                   </span>
                 )}
-              <button
-                type="button"
-                className={`btn ${
-                  gotifyEditing ? "btn-primary" : "btn-secondary"
-                } px-2 py-1`}
-                onClick={() => setGotifyEditing((value) => !value)}
-                aria-label={
-                  gotifyEditing ? "Lock Gotify settings" : "Edit Gotify settings"
-                }
-              >
-                <Pencil className="w-4 h-4" />
-              </button>
             </div>
           </div>
-          <fieldset
-            disabled={!gotifyEditing}
-            className={`grid grid-cols-1 gap-4 ${
-              gotifyEditing ? "" : "opacity-60"
-            }`}
-          >
+          <fieldset className="grid grid-cols-1 gap-4">
             <div>
               <label
                 className="block text-sm font-medium mb-1"
@@ -533,4 +514,3 @@ export function SettingsNotificationsTab({
     </div>
   );
 }
-

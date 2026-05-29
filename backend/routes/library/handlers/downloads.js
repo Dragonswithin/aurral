@@ -524,18 +524,7 @@ export default function registerDownloads(router) {
         }
 
         try {
-          if (!artist.monitored || artist.monitorOption === "none") {
-            const artistMbidToUpdate = artist.mbid || artist.foreignArtistId;
-            if (artistMbidToUpdate) {
-              try {
-                await libraryManager.updateArtist(artistMbidToUpdate, {
-                  monitored: true,
-                  monitorOption: "missing",
-                });
-                artist = await libraryManager.getArtist(artistMbidToUpdate);
-              } catch {}
-            }
-          }
+          artist = await libraryManager.ensureArtistMonitored(artist);
           if (!album.monitored) {
             await libraryManager.updateAlbum(albumId, { monitored: true });
           }
@@ -549,6 +538,14 @@ export default function registerDownloads(router) {
               name: "AlbumSearch",
               albumIds: [parseInt(albumId, 10)],
             });
+            await libraryManager.ensureRequestedAlbumMonitoring(
+              artist.id,
+              albumId,
+            );
+            libraryManager.scheduleRequestedAlbumMonitoringRepair(
+              artist.id,
+              albumId,
+            );
           }
           invalidateAllDownloadStatusesCache();
 
@@ -601,6 +598,13 @@ export default function registerDownloads(router) {
           return res.status(404).json({ error: "Album not found" });
         }
 
+        const artist = album.artistId
+          ? await libraryManager.getArtistById(album.artistId)
+          : null;
+        if (artist) {
+          await libraryManager.ensureArtistMonitored(artist);
+        }
+
         if (!album.monitored) {
           await libraryManager.updateAlbum(albumId, { monitored: true });
         }
@@ -609,6 +613,16 @@ export default function registerDownloads(router) {
           name: "AlbumSearch",
           albumIds: [parseInt(albumId, 10)],
         });
+        if (album.artistId) {
+          await libraryManager.ensureRequestedAlbumMonitoring(
+            album.artistId,
+            albumId,
+          );
+          libraryManager.scheduleRequestedAlbumMonitoringRepair(
+            album.artistId,
+            albumId,
+          );
+        }
         invalidateAllDownloadStatusesCache();
 
         res.json({
