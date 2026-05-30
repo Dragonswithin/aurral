@@ -48,10 +48,6 @@ It is built for people who love discovering music and want that discovery loop t
   <img src="frontend/images/artist.webp" width="440" alt="Aurral artist details" />
 </p>
 
-<p align="center">
-  <img src="frontend/images/flows.webp" width="900" alt="Aurral flows and playlists" />
-</p>
-
 ## Recommended Stack
 
 Aurral only needs Lidarr to get started, but it shines with a fuller music stack:
@@ -170,6 +166,10 @@ Blocklist keeps unwanted artists and tags out of discovery. Use it when recommen
 ## Flows And Playlists
 
 Flows are dynamic playlists that refresh on a schedule. Imported playlists are static tracklists that keep retrying the same tracks.
+
+<p align="center">
+  <img src="frontend/images/flows.webp" width="900" alt="Aurral flows and playlists" />
+</p>
 
 Both download into Aurral's own folder:
 
@@ -321,7 +321,8 @@ Main library safety:
 - Artist and album changes go through Lidarr.
 - Flows and imported playlists stay in Aurral's generated-download area.
 
-## Troubleshooting
+<details>
+<summary><strong>Troubleshooting</strong></summary>
 
 ### Lidarr will not connect
 
@@ -360,6 +361,8 @@ Main library safety:
 ### Need more logs
 
 Set `AURRAL_VERBOSE_LOGS=true`, restart Aurral, then check container logs.
+
+</details>
 
 ## Special Thanks
 
