@@ -146,13 +146,13 @@ Aurral keeps every generated playlist entry inside its own playlist folder under
 - `Hardlink` tries to hardlink a matching completed Aurral or Lidarr file, then falls back to copying.
 - `Copy` copies matching completed Aurral or Lidarr files into the generated playlist library.
 
-Aurral-global reuse prevents the same imported track from being downloaded again for another playlist. Lidarr-aware reuse requires Aurral to read the same file path Lidarr reports. If Lidarr reports `/data/Musik/...`, mount the library into Aurral at `/data/Musik`:
+Aurral-global reuse prevents the same imported track from being downloaded again for another playlist. Lidarr-aware reuse requires Aurral to see Lidarr's root directory the same way Lidarr sees it. In Lidarr, find this at `Settings -> Media Management -> Root Folders -> Path`. If your Lidarr root folder is `/data`, mount that same host library path into Aurral as `/data`:
 
 ```yaml
 aurral:
   volumes:
-    - /srv/mergerfs/Downloads/Musik/aurral:/app/downloads
-    - /srv/mergerfs/Musik:/data/Musik:ro
+    - /srv/aurral/downloads:/app/downloads
+    - /srv/music:/data:ro
 ```
 
 ## What the importer accepts

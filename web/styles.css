@@ -795,6 +795,69 @@ footer {
   margin-top: 10px;
 }
 
+.doc-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin: 0 auto 64px;
+  max-width: 920px;
+}
+
+.doc-toc a {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 9px 13px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.doc-toc a:hover {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.doc-table-wrap {
+  overflow-x: auto;
+  margin: 24px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.doc-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.doc-table th,
+.doc-table td {
+  padding: 15px 16px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.doc-table th {
+  color: var(--text);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.doc-table td {
+  color: var(--muted);
+}
+
+.doc-table tr:last-child td {
+  border-bottom: 0;
+}
+
 .content-section {
   margin-bottom: 88px;
   padding-top: 8px;
@@ -812,6 +875,10 @@ footer {
 
 .page-guide .comparison-card {
   padding: 32px;
+}
+
+.doc-feature-grid.comparison-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .content-section h2,
@@ -1210,6 +1277,7 @@ input[type="file"] {
   }
 
   .comparison-grid,
+  .doc-feature-grid.comparison-grid,
   .stats-grid,
   .actions {
     grid-template-columns: 1fr;
