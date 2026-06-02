@@ -269,6 +269,54 @@
         return values;
       }
 
+      function normalizeCsvHeader(header) {
+        return String(header || "")
+          .trim()
+          .toLowerCase()
+          .replace(/^\uFEFF/, "")
+          .replace(/\([^)]*\)/g, "")
+          .replace(/[^a-z0-9]+/g, " ")
+          .trim();
+      }
+
+      function findHeaderIndex(headers, aliases) {
+        const normalizedHeaders = headers.map(normalizeCsvHeader);
+        for (const alias of aliases) {
+          const index = normalizedHeaders.indexOf(normalizeCsvHeader(alias));
+          if (index !== -1) return index;
+        }
+        return -1;
+      }
+
+      const csvHeaderAliases = {
+        trackName: [
+          "Track Name",
+          "Track",
+          "Track Title",
+          "Title",
+          "Song",
+          "Song Name",
+          "Name",
+        ],
+        artistName: [
+          "Artist Name(s)",
+          "Artist Name",
+          "Artist",
+          "Artists",
+          "Artist(s)",
+          "Artist Names",
+          "Track Artist",
+        ],
+        albumName: [
+          "Album Name",
+          "Album",
+          "Release",
+          "Release Name",
+          "Record",
+          "Collection",
+        ],
+      };
+
       function csvToPlaylistJson(csvText, filename) {
         const rows = csvText
           .split(/\r?\n/)
@@ -280,17 +328,13 @@
         }
 
         const headers = parseCsvLine(rows[0]);
-        const trackNameIndex = headers.indexOf("Track Name");
-        const albumNameIndex = headers.indexOf("Album Name");
-        const artistNameIndex = headers.indexOf("Artist Name(s)");
+        const trackNameIndex = findHeaderIndex(headers, csvHeaderAliases.trackName);
+        const albumNameIndex = findHeaderIndex(headers, csvHeaderAliases.albumName);
+        const artistNameIndex = findHeaderIndex(headers, csvHeaderAliases.artistName);
 
-        if (
-          trackNameIndex === -1 ||
-          albumNameIndex === -1 ||
-          artistNameIndex === -1
-        ) {
+        if (trackNameIndex === -1 || artistNameIndex === -1) {
           throw new Error(
-            "CSV is missing required columns: Track Name, Album Name, Artist Name(s).",
+            "CSV is missing required columns. Aurral needs a track/title column and an artist column.",
           );
         }
 
@@ -300,7 +344,7 @@
             const cols = parseCsvLine(row);
             return {
               artistName: cols[artistNameIndex] || "",
-              albumName: cols[albumNameIndex] || "",
+              albumName: albumNameIndex === -1 ? "" : cols[albumNameIndex] || "",
               trackName: cols[trackNameIndex] || "",
             };
           })
