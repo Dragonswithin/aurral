@@ -3,7 +3,6 @@ import PropTypes from "prop-types";
 import {
   Loader,
   Music,
-  CheckCircle,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -12,9 +11,9 @@ import {
   ExternalLink,
   Trash2,
   RefreshCw,
-  Plus,
 } from "lucide-react";
 import { getPopularityScale } from "../utils";
+import { TrackPlaylistMenu } from "./TrackPlaylistMenu";
 
 export function ArtistDetailsLibraryAlbums({
   artist,
@@ -36,6 +35,12 @@ export function ArtistDetailsLibraryAlbums({
   handleReSearchAlbum,
   handleReSearchMissingDownloads,
   onAddTrackToPlaylist,
+  playlists,
+  playlistsLoading,
+  playlistSavingKey,
+  playlistError,
+  getDefaultPlaylistName,
+  onLoadPlaylists,
   onVisibleCoverIdsChange,
 }) {
   const railRef = useRef(null);
@@ -43,6 +48,7 @@ export function ArtistDetailsLibraryAlbums({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [completionFilter, setCompletionFilter] = useState("all");
+  const [activePlaylistTrackKey, setActivePlaylistTrackKey] = useState(null);
   const downloadedAlbums = libraryAlbums.filter((album) => {
     if (String(album.id ?? "").startsWith("pending-")) return false;
     return (
@@ -586,69 +592,87 @@ export function ArtistDetailsLibraryAlbums({
                 </div>
               ) : tracks && tracks.length > 0 ? (
                 <div className="space-y-1">
-                  {tracks.map((track, idx) => (
-                    <div
-                      key={track.id || track.title || idx}
-                      className="group flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-white/5"
-                    >
-                      <div className="flex min-w-0 flex-1 items-center gap-3">
-                        <span
-                          className="w-6 flex-shrink-0 text-xs"
-                          style={{ color: "#c1c1c3" }}
-                        >
-                          {track.trackNumber || track.position || idx + 1}
-                        </span>
-                        <span className="truncate text-sm" style={{ color: "#fff" }}>
-                          {track.title || track.trackName || "Unknown Track"}
-                        </span>
-                      </div>
-                      <div className="flex flex-shrink-0 items-center gap-2">
-                        {track.length && (
-                          <span className="text-xs" style={{ color: "#c1c1c3" }}>
-                            {Math.floor(track.length / 60000)}:
-                            {Math.floor((track.length % 60000) / 1000)
+                  {tracks.map((track, idx) => {
+                    const trackMenuKey = String(
+                      track.id || track.mbid || track.title || idx,
+                    );
+                    const isPlaylistMenuOpen =
+                      activePlaylistTrackKey === trackMenuKey;
+                    return (
+                      <div
+                        key={trackMenuKey}
+                        className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm transition-colors"
+                        style={{
+                          backgroundColor: isPlaylistMenuOpen
+                            ? "rgba(255, 255, 255, 0.06)"
+                            : "transparent",
+                        }}
+                        onMouseEnter={(event) => {
+                          event.currentTarget.style.backgroundColor =
+                            "rgba(255, 255, 255, 0.06)";
+                        }}
+                        onMouseLeave={(event) => {
+                          event.currentTarget.style.backgroundColor =
+                            isPlaylistMenuOpen
+                              ? "rgba(255, 255, 255, 0.06)"
+                              : "transparent";
+                        }}
+                      >
+                      <span
+                        className="w-7 flex-shrink-0 text-xs tabular-nums"
+                        style={{ color: "#c1c1c3" }}
+                      >
+                        {track.trackNumber || track.position || idx + 1}
+                      </span>
+                      <span
+                        className="min-w-0 flex-1 truncate text-sm"
+                        style={{ color: "#fff" }}
+                      >
+                        {track.title || track.trackName || "Unknown Track"}
+                      </span>
+                      {onAddTrackToPlaylist ? (
+                        <TrackPlaylistMenu
+                          playlists={playlists}
+                          loading={playlistsLoading}
+                          saving={
+                            playlistSavingKey === trackMenuKey
+                          }
+                          error={playlistError}
+                          defaultNewPlaylistName={getDefaultPlaylistName?.(
+                            track,
+                            libraryAlbum,
+                          )}
+                          onLoadPlaylists={onLoadPlaylists}
+                          onSelect={(target) =>
+                            onAddTrackToPlaylist(
+                              track,
+                              libraryAlbum,
+                              rgId,
+                              target,
+                            )
+                          }
+                          onOpenChange={(open) =>
+                            setActivePlaylistTrackKey(
+                              open ? trackMenuKey : null,
+                            )
+                          }
+                        />
+                      ) : null}
+                      <span
+                        className="w-11 flex-shrink-0 text-right text-xs tabular-nums"
+                        style={{ color: "#c1c1c3" }}
+                      >
+                        {track.length
+                          ? `${Math.floor(track.length / 60000)}:${Math.floor(
+                              (track.length % 60000) / 1000
+                            )
                               .toString()
-                              .padStart(2, "0")}
-                          </span>
-                        )}
-                        {onAddTrackToPlaylist ? (
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onAddTrackToPlaylist(track, libraryAlbum, rgId);
-                            }}
-                            className="group inline-flex h-7 w-7 items-center overflow-hidden rounded-full transition-all duration-200 ease-out hover:w-[118px]"
-                            style={{
-                              backgroundColor: "rgba(255,255,255,0.06)",
-                              color: "#fff",
-                            }}
-                            title="Add to playlist"
-                            aria-label="Add to playlist"
-                          >
-                            <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center">
-                              <Plus className="w-3.5 h-3.5" />
-                            </span>
-                            <span className="pr-3 text-xs font-medium whitespace-nowrap opacity-0 transition-all duration-150 ease-out -translate-x-2 group-hover:translate-x-0 group-hover:opacity-100">
-                              Add to playlist
-                            </span>
-                          </button>
-                        ) : null}
-                        {track.hasFile ||
-                        libraryAlbum?.statistics?.percentOfTracks >= 100 ||
-                        libraryAlbum?.statistics?.sizeOnDisk > 0 ? (
-                          <span
-                            className="flex w-12 items-center justify-end"
-                            style={{ color: "#c1c1c3" }}
-                          >
-                            <CheckCircle className="w-4 h-4 text-green-500" />
-                          </span>
-                        ) : (
-                          <span className="w-12" />
-                        )}
+                              .padStart(2, "0")}`
+                          : ""}
+                      </span>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="py-4 text-sm italic" style={{ color: "#c1c1c3" }}>
@@ -683,5 +707,11 @@ ArtistDetailsLibraryAlbums.propTypes = {
   handleReSearchAlbum: PropTypes.func,
   handleReSearchMissingDownloads: PropTypes.func,
   onAddTrackToPlaylist: PropTypes.func,
+  playlists: PropTypes.array,
+  playlistsLoading: PropTypes.bool,
+  playlistSavingKey: PropTypes.string,
+  playlistError: PropTypes.string,
+  getDefaultPlaylistName: PropTypes.func,
+  onLoadPlaylists: PropTypes.func,
   onVisibleCoverIdsChange: PropTypes.func,
 };

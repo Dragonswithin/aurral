@@ -294,8 +294,17 @@ export const getArtistDetails = async (
   return response.data;
 };
 
-export const getReleaseGroupTracks = async (mbid) => {
-  const response = await api.get(`/artists/release-group/${mbid}/tracks`);
+export const getReleaseGroupTracks = async (mbid, context = {}) => {
+  const params = {};
+  if (context.artistMbid) params.artistMbid = context.artistMbid;
+  if (context.artistName) params.artistName = context.artistName;
+  if (context.albumTitle) params.albumTitle = context.albumTitle;
+  if (context.releaseType) params.releaseType = context.releaseType;
+  if (context.releaseDate) params.releaseDate = context.releaseDate;
+  if (context.deezerAlbumId) params.deezerAlbumId = context.deezerAlbumId;
+  const response = await api.get(`/artists/release-group/${mbid}/tracks`, {
+    params,
+  });
   return response.data;
 };
 

@@ -3,13 +3,27 @@ import { dbOps } from "../../../config/db-helpers.js";
 import { cacheMiddleware } from "../../../middleware/cache.js";
 import { warmImageProxy } from "../../../services/imageProxyService.js";
 import { selectBestAlbumImage } from "../../../services/imageService.js";
+import { enrichTracksWithDeezerPreviews } from "../../../services/apiClients.js";
 import {
   getAlbumByMbid,
+  getArtistByMbid,
   getAlbumTracksByAlbumMbid,
 } from "../../../services/metadataProvider.js";
 
 const LEGACY_COVER_HOST_PATTERN =
   /https?:\/\/(?:caa\.lkly\.net|coverartarchive\.org|archive\.org|[\w-]+\.ca\.archive\.org)\//i;
+
+function extractDeezerArtistIdFromLinks(links = []) {
+  if (!Array.isArray(links)) return null;
+  for (const link of links) {
+    const type = String(link?.type || "").toLowerCase();
+    const target = String(link?.target || link?.url?.resource || "").trim();
+    if (type !== "deezer" && !/deezer\.com\/artist\//i.test(target)) continue;
+    const match = target.match(/deezer\.com\/artist\/(\d+)/i);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
 
 export default function registerReleaseGroup(router) {
   router.get("/release-group/:mbid/cover", cacheMiddleware(86400), async (req, res) => {
@@ -107,9 +121,60 @@ export default function registerReleaseGroup(router) {
         return res.status(400).json({ error: "Invalid MBID format" });
       }
 
+      const artistMbid =
+        typeof req.query.artistMbid === "string" &&
+        UUID_REGEX.test(req.query.artistMbid)
+          ? req.query.artistMbid
+          : "";
+      const artistName =
+        typeof req.query.artistName === "string"
+          ? req.query.artistName.trim()
+          : "";
+      const albumTitle =
+        typeof req.query.albumTitle === "string"
+          ? req.query.albumTitle.trim()
+          : "";
+      const releaseType =
+        typeof req.query.releaseType === "string"
+          ? req.query.releaseType.trim()
+          : "";
+      const releaseDate =
+        typeof req.query.releaseDate === "string"
+          ? req.query.releaseDate.trim()
+          : "";
+      const deezerAlbumId =
+        typeof req.query.deezerAlbumId === "string"
+          ? req.query.deezerAlbumId.trim()
+          : "";
+
       const tracks = await getAlbumTracksByAlbumMbid(mbid);
+      let deezerArtistId = "";
+      if (artistMbid) {
+        const override = dbOps.getArtistOverride(artistMbid);
+        deezerArtistId = override?.deezerArtistId || "";
+        if (!deezerArtistId) {
+          const resolvedArtistMbid = override?.musicbrainzId || artistMbid;
+          const metadataArtist = await getArtistByMbid(resolvedArtistMbid).catch(
+            () => null,
+          );
+          deezerArtistId =
+            extractDeezerArtistIdFromLinks(metadataArtist?.links) || "";
+        }
+      }
+      const enrichedTracks = await enrichTracksWithDeezerPreviews(tracks, {
+        artistName,
+        deezerArtistId,
+        deezerAlbumId,
+        albumTitle,
+        releaseType,
+        releaseDate,
+        cacheKey: `release-group:${mbid}:${
+          deezerAlbumId || deezerArtistId || artistName
+        }`,
+      });
+
       res.json(
-        tracks.map((track) => ({
+        enrichedTracks.map((track) => ({
           id: track.recordingId || track.id,
           mbid: track.recordingId || track.id,
           title: track.title,
@@ -117,6 +182,9 @@ export default function registerReleaseGroup(router) {
           trackNumber: track.trackPosition || track.trackNumber || 0,
           position: track.trackPosition || track.trackNumber || 0,
           length: track.durationMs || null,
+          preview_url: track.preview_url || null,
+          previewProvider: track.previewProvider || null,
+          previewTrackId: track.previewTrackId || null,
         })),
       );
     } catch (error) {

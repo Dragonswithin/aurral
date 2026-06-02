@@ -14,7 +14,6 @@ import { ArtistDetailsSimilar } from "./components/ArtistDetailsSimilar";
 import { DeleteArtistModal } from "./components/DeleteArtistModal";
 import { DeleteAlbumModal } from "./components/DeleteAlbumModal";
 import { AddArtistCustomizeModal } from "./components/AddArtistCustomizeModal";
-import { PlaylistTrackModal } from "../../components/PlaylistModals";
 import {
   addSharedPlaylistTracks,
   getArtistCover,
@@ -86,10 +85,9 @@ function ArtistDetailsPage() {
     deezerArtistId: "",
   });
   const [sharedPlaylists, setSharedPlaylists] = useState([]);
-  const [playlistTrackModal, setPlaylistTrackModal] = useState(null);
   const [playlistModalLoading, setPlaylistModalLoading] = useState(false);
-  const [playlistModalSubmitting, setPlaylistModalSubmitting] = useState(false);
   const [playlistModalError, setPlaylistModalError] = useState("");
+  const [playlistMenuSavingKey, setPlaylistMenuSavingKey] = useState("");
   const [blockingArtist, setBlockingArtist] = useState(false);
   const [artistBlocked, setArtistBlocked] = useState(false);
   const [visibleReleaseGroupCoverIds, setVisibleReleaseGroupCoverIds] = useState(
@@ -396,28 +394,17 @@ function ArtistDetailsPage() {
     }
   };
 
-  const openPlaylistTrackModal = async (trackPayload) => {
-    if (!trackPayload?.artistName || !trackPayload?.trackName) {
-      showError("Track details are incomplete");
-      return;
-    }
-    setPlaylistModalError("");
-    const playlists = await loadSharedPlaylists();
-    if (!playlists) return;
-    setPlaylistTrackModal({
-      tracks: [trackPayload],
-      defaultNewPlaylistName: reserveUniquePlaylistName(
-        playlists,
-        `${trackPayload.artistName} Picks`,
-      ),
-    });
-  };
+  const getDefaultTrackPlaylistName = (track) =>
+    reserveUniquePlaylistName(
+      sharedPlaylists,
+      `${artist?.name || artistNameFromNav || track?.artistName || "Artist"} Picks`,
+    );
 
-  const handleReleaseTrackAdd = (track, releaseGroup) => {
+  const buildReleaseTrackPayload = (track, releaseGroup) => {
     const year = String(
       releaseGroup?.["first-release-date"] || "",
     ).slice(0, 4);
-    void openPlaylistTrackModal({
+    return {
       artistName: artist?.name || artistNameFromNav || "",
       trackName: track?.trackName || track?.title || "",
       albumName: releaseGroup?.title || "",
@@ -431,12 +418,12 @@ function ArtistDetailsPage() {
           : null,
       reason: null,
       artistAliases: [],
-    });
+    };
   };
 
-  const handleLibraryTrackAdd = (track, libraryAlbum, releaseGroupId) => {
+  const buildLibraryTrackPayload = (track, libraryAlbum, releaseGroupId) => {
     const year = String(libraryAlbum?.releaseDate || "").slice(0, 4);
-    void openPlaylistTrackModal({
+    return {
       artistName: artist?.name || artistNameFromNav || "",
       trackName: track?.trackName || track?.title || "",
       albumName: libraryAlbum?.albumName || "",
@@ -450,33 +437,42 @@ function ArtistDetailsPage() {
           : null,
       reason: null,
       artistAliases: [],
-    });
+    };
   };
 
-  const handleSubmitPlaylistTrackModal = async (payload) => {
-    setPlaylistModalSubmitting(true);
+  const saveTrackToPlaylist = async (trackPayload, target, savingKey) => {
+    if (!trackPayload?.artistName || !trackPayload?.trackName) {
+      showError("Track details are incomplete");
+      return;
+    }
     setPlaylistModalError("");
+    setPlaylistMenuSavingKey(String(savingKey || ""));
     try {
-      if (payload?.mode === "new") {
+      if (target?.mode === "new") {
+        const name =
+          String(target?.name || "").trim() ||
+          reserveUniquePlaylistName(
+            sharedPlaylists,
+            `${trackPayload.artistName} Picks`,
+          );
         const response = await createSharedPlaylist({
-          name: payload.name,
-          tracks: payload.tracks,
+          name,
+          tracks: [trackPayload],
         });
         showSuccess(
-          `Track saved to ${response?.playlist?.name || payload.name}`,
+          `Track saved to ${response?.playlist?.name || name}`,
         );
       } else {
         const targetPlaylist = sharedPlaylists.find(
-          (playlist) => playlist.id === payload?.playlistId,
+          (playlist) => playlist.id === target?.playlistId,
         );
-        await addSharedPlaylistTracks(payload.playlistId, {
-          tracks: payload.tracks,
+        await addSharedPlaylistTracks(target.playlistId, {
+          tracks: [trackPayload],
         });
         showSuccess(
           `Track added to ${targetPlaylist?.name || "playlist"}`,
         );
       }
-      setPlaylistTrackModal(null);
       const nextPlaylists = await loadSharedPlaylists();
       if (nextPlaylists) {
         setSharedPlaylists(nextPlaylists);
@@ -490,8 +486,20 @@ function ArtistDetailsPage() {
       setPlaylistModalError(message);
       showError(message);
     } finally {
-      setPlaylistModalSubmitting(false);
+      setPlaylistMenuSavingKey("");
     }
+  };
+
+  const handleReleaseTrackAdd = (track, releaseGroup, target) => {
+    const payload = buildReleaseTrackPayload(track, releaseGroup);
+    const savingKey = String(track?.id ?? track?.mbid ?? "");
+    return saveTrackToPlaylist(payload, target, savingKey);
+  };
+
+  const handleLibraryTrackAdd = (track, libraryAlbum, releaseGroupId, target) => {
+    const payload = buildLibraryTrackPayload(track, libraryAlbum, releaseGroupId);
+    const savingKey = String(track?.id ?? track?.mbid ?? track?.title ?? "");
+    return saveTrackToPlaylist(payload, target, savingKey);
   };
 
   if (loading) {
@@ -599,6 +607,12 @@ function ArtistDetailsPage() {
           handleReSearchAlbum={library.handleReSearchAlbum}
           handleReSearchMissingDownloads={library.handleReSearchMissingDownloads}
           onAddTrackToPlaylist={handleLibraryTrackAdd}
+          playlists={sharedPlaylists}
+          playlistsLoading={playlistModalLoading}
+          playlistSavingKey={playlistMenuSavingKey}
+          playlistError={playlistModalError}
+          getDefaultPlaylistName={getDefaultTrackPlaylistName}
+          onLoadPlaylists={loadSharedPlaylists}
           onVisibleCoverIdsChange={setVisibleLibraryCoverIds}
         />
       )}
@@ -639,6 +653,12 @@ function ArtistDetailsPage() {
             library.isReleaseGroupDownloadedInLibrary
           }
           onAddTrackToPlaylist={handleReleaseTrackAdd}
+          playlists={sharedPlaylists}
+          playlistsLoading={playlistModalLoading}
+          playlistSavingKey={playlistMenuSavingKey}
+          playlistError={playlistModalError}
+          getDefaultPlaylistName={getDefaultTrackPlaylistName}
+          onLoadPlaylists={loadSharedPlaylists}
           onVisibleCoverIdsChange={setVisibleReleaseGroupCoverIds}
         />
       )}
@@ -708,28 +728,6 @@ function ArtistDetailsPage() {
         onSave={handleSaveIds}
       />
 
-      <PlaylistTrackModal
-        open={!!playlistTrackModal}
-        title="Add Track To Playlist"
-        description={
-          playlistModalLoading
-            ? "Loading your playlists..."
-            : "Save this song into an existing playlist or start a new one."
-        }
-        playlists={sharedPlaylists}
-        initialTracks={playlistTrackModal?.tracks || []}
-        defaultNewPlaylistName={
-          playlistTrackModal?.defaultNewPlaylistName || "Playlist"
-        }
-        saving={playlistModalSubmitting || playlistModalLoading}
-        error={playlistModalError}
-        onClose={() => {
-          if (playlistModalSubmitting || playlistModalLoading) return;
-          setPlaylistModalError("");
-          setPlaylistTrackModal(null);
-        }}
-        onSubmit={handleSubmitPlaylistTrackModal}
-      />
     </div>
   );
 }

@@ -860,10 +860,15 @@ export function useArtistDetailsLibrary({
     }
   };
 
-  const handleReleaseGroupAlbumClick = async (
-    releaseGroupId,
-    libraryAlbumId,
-  ) => {
+  const handleReleaseGroupAlbumClick = async (releaseGroupOrId, libraryAlbumId) => {
+    const releaseGroup =
+      releaseGroupOrId && typeof releaseGroupOrId === "object"
+        ? releaseGroupOrId
+        : artist?.["release-groups"]?.find((rg) => rg.id === releaseGroupOrId);
+    const releaseGroupId =
+      typeof releaseGroupOrId === "string" ? releaseGroupOrId : releaseGroup?.id;
+    if (!releaseGroupId) return;
+
     if (expandedReleaseGroup === releaseGroupId) {
       setExpandedReleaseGroup(null);
       return;
@@ -878,7 +883,14 @@ export function useArtistDetailsLibrary({
           const tracks = await getLibraryTracks(libraryAlbumId, releaseGroupId);
           setAlbumTracks((prev) => ({ ...prev, [trackKey]: tracks }));
         } else {
-          const tracks = await getReleaseGroupTracks(releaseGroupId);
+          const tracks = await getReleaseGroupTracks(releaseGroupId, {
+            artistMbid: artist?.id || "",
+            artistName: artist?.name || "",
+            albumTitle: releaseGroup?.title || "",
+            releaseType: releaseGroup?.["primary-type"] || "",
+            releaseDate: releaseGroup?.["first-release-date"] || "",
+            deezerAlbumId: releaseGroup?._deezerAlbumId || "",
+          });
           setAlbumTracks((prev) => ({ ...prev, [trackKey]: tracks }));
         }
       } catch (err) {

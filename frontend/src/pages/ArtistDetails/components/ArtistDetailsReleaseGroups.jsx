@@ -14,7 +14,6 @@ import {
   Filter,
   ExternalLink,
   Trash2,
-  Plus,
   Disc,
   Disc3,
   FileMusic,
@@ -24,6 +23,7 @@ import {
 } from "lucide-react";
 import AddAlbumButton from "../../../components/AddAlbumButton";
 import { matchesReleaseTypeFilter } from "../utils";
+import { TrackPlaylistMenu } from "./TrackPlaylistMenu";
 
 export function ArtistDetailsReleaseGroups({
   artist,
@@ -53,11 +53,18 @@ export function ArtistDetailsReleaseGroups({
   previewVolume,
   isReleaseGroupDownloadedInLibrary,
   onAddTrackToPlaylist,
+  playlists,
+  playlistsLoading,
+  playlistSavingKey,
+  playlistError,
+  getDefaultPlaylistName,
+  onLoadPlaylists,
   onVisibleCoverIdsChange,
 }) {
   const [sortMode, setSortMode] = useState("date");
   const [playingTrackId, setPlayingTrackId] = useState(null);
   const [loadingTrackId, setLoadingTrackId] = useState(null);
+  const [activePlaylistTrackId, setActivePlaylistTrackId] = useState(null);
   const [showMobileFilterMenu, setShowMobileFilterMenu] = useState(false);
   const previewAudioRef = useRef(null);
   const listRef = useRef(null);
@@ -573,7 +580,7 @@ export function ArtistDetailsReleaseGroups({
                   className="flex min-w-0 cursor-pointer items-start justify-between gap-3 px-3 py-3 sm:items-center"
                   onClick={() =>
                     handleReleaseGroupAlbumClick(
-                      releaseGroup.id,
+                      releaseGroup,
                       status?.libraryId
                     )
                   }
@@ -584,7 +591,7 @@ export function ArtistDetailsReleaseGroups({
                       onClick={(e) => {
                         e.stopPropagation();
                         handleReleaseGroupAlbumClick(
-                          releaseGroup.id,
+                          releaseGroup,
                           status?.libraryId
                         );
                       }}
@@ -914,108 +921,106 @@ export function ArtistDetailsReleaseGroups({
                                   .toString()
                                   .padStart(2, "0")}`
                               : "";
+                            const trackRowBg =
+                              idx % 2 === 0
+                                ? "transparent"
+                                : "rgba(255, 255, 255, 0.02)";
+                            const trackRowActiveBg = "rgba(255, 255, 255, 0.06)";
+                            const isPlaylistMenuOpen =
+                              activePlaylistTrackId === trackId;
 
                             return (
                               <div
                                 key={trackId}
-                                className="flex items-center justify-between py-1.5 px-2 transition-colors text-sm"
+                                className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm transition-colors"
                                 style={{
-                                  backgroundColor:
-                                    idx % 2 === 0
-                                      ? "transparent"
-                                      : "rgba(255, 255, 255, 0.02)",
+                                  backgroundColor: isPlaylistMenuOpen
+                                    ? trackRowActiveBg
+                                    : trackRowBg,
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor =
+                                    trackRowActiveBg;
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor =
+                                    isPlaylistMenuOpen
+                                      ? trackRowActiveBg
+                                      : trackRowBg;
                                 }}
                               >
-                                <div className="flex items-center gap-3 flex-1 min-w-0">
-                                  <span
-                                    className="text-xs  w-6 flex-shrink-0"
-                                    style={{ color: "#c1c1c3" }}
+                                <span
+                                  className="w-7 flex-shrink-0 text-xs tabular-nums"
+                                  style={{ color: "#c1c1c3" }}
+                                >
+                                  {track.trackNumber || track.position || idx + 1}
+                                </span>
+                                {hasPreview ? (
+                                  <button
+                                    type="button"
+                                    className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+                                    style={{
+                                      backgroundColor: "rgba(255,255,255,0.06)",
+                                      color: "#fff",
+                                    }}
+                                    onClick={(e) =>
+                                      handleTrackPreviewPlay(track, e)
+                                    }
+                                    title={
+                                      isPlaying ? "Pause preview" : "Play preview"
+                                    }
+                                    aria-label={
+                                      isPlaying ? "Pause preview" : "Play preview"
+                                    }
                                   >
-                                    {track.trackNumber ||
-                                      track.position ||
-                                      idx + 1}
-                                  </span>
-                                  <span
-                                    className="text-sm  truncate"
-                                    style={{ color: "#fff" }}
-                                  >
-                                    {track.title ||
-                                      track.trackName ||
-                                      "Unknown Track"}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-2 flex-shrink-0">
-                                  <span
-                                    className="text-xs w-10 text-right tabular-nums"
-                                    style={{ color: "#c1c1c3" }}
-                                  >
-                                    {durationLabel}
-                                  </span>
-                                  {onAddTrackToPlaylist ? (
-                                    <button
-                                      type="button"
-                                      className="group inline-flex h-7 w-7 items-center overflow-hidden rounded-full transition-all duration-200 ease-out hover:w-[118px]"
-                                      style={{
-                                        backgroundColor: "rgba(255,255,255,0.06)",
-                                        color: "#fff",
-                                      }}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        onAddTrackToPlaylist(track, releaseGroup);
-                                      }}
-                                      title="Add to playlist"
-                                      aria-label="Add to playlist"
-                                    >
-                                      <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center">
-                                        <Plus className="w-3.5 h-3.5" />
-                                      </span>
-                                      <span className="pr-3 text-xs font-medium whitespace-nowrap opacity-0 transition-all duration-150 ease-out -translate-x-2 group-hover:translate-x-0 group-hover:opacity-100">
-                                        Add to playlist
-                                      </span>
-                                    </button>
-                                  ) : null}
-                                  {hasPreview && (
-                                    <button
-                                      type="button"
-                                      className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
-                                      style={{
-                                        backgroundColor: "rgba(255,255,255,0.06)",
-                                        color: "#fff",
-                                      }}
-                                      onClick={(e) =>
-                                        handleTrackPreviewPlay(track, e)
-                                      }
-                                      title={
-                                        isPlaying ? "Pause preview" : "Play preview"
-                                      }
-                                      aria-label={
-                                        isPlaying ? "Pause preview" : "Play preview"
-                                      }
-                                    >
-                                      {isLoadingPreview ? (
-                                        <Loader className="w-3.5 h-3.5 animate-spin" />
-                                      ) : isPlaying ? (
-                                        <Pause className="w-3.5 h-3.5" />
-                                      ) : (
-                                        <Play className="w-3.5 h-3.5 ml-0.5" />
-                                      )}
-                                    </button>
-                                  )}
-                                  {track.hasFile ||
-                                  status?.albumInfo?.statistics
-                                    ?.percentOfTracks >= 100 ||
-                                  status?.albumInfo?.statistics?.sizeOnDisk >
-                                    0 ? (
-                                    <span
-                                      className="w-12 flex items-center justify-end"
-                                      style={{ color: "#c1c1c3" }}
-                                    >
-                                      <CheckCircle className="w-4 h-4 text-green-500" />
-                                    </span>
-                                  ) : (
-                                    <span className="w-12" />
-                                  )}
-                                </div>
+                                    {isLoadingPreview ? (
+                                      <Loader className="h-3.5 w-3.5 animate-spin" />
+                                    ) : isPlaying ? (
+                                      <Pause className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <Play className="ml-0.5 h-3.5 w-3.5" />
+                                    )}
+                                  </button>
+                                ) : null}
+                                <span
+                                  className="min-w-0 flex-1 truncate text-sm"
+                                  style={{ color: "#fff" }}
+                                >
+                                  {track.title ||
+                                    track.trackName ||
+                                    "Unknown Track"}
+                                </span>
+                                {onAddTrackToPlaylist ? (
+                                  <TrackPlaylistMenu
+                                    playlists={playlists}
+                                    loading={playlistsLoading}
+                                    saving={playlistSavingKey === trackId}
+                                    error={playlistError}
+                                    defaultNewPlaylistName={getDefaultPlaylistName?.(
+                                      track,
+                                      releaseGroup,
+                                    )}
+                                    onLoadPlaylists={onLoadPlaylists}
+                                    onSelect={(target) =>
+                                      onAddTrackToPlaylist(
+                                        track,
+                                        releaseGroup,
+                                        target,
+                                      )
+                                    }
+                                    onOpenChange={(open) =>
+                                      setActivePlaylistTrackId(
+                                        open ? trackId : null,
+                                      )
+                                    }
+                                  />
+                                ) : null}
+                                <span
+                                  className="w-11 flex-shrink-0 text-right text-xs tabular-nums"
+                                  style={{ color: "#c1c1c3" }}
+                                >
+                                  {durationLabel}
+                                </span>
                               </div>
                             );
                           })}
@@ -1067,5 +1072,11 @@ ArtistDetailsReleaseGroups.propTypes = {
   previewVolume: PropTypes.number,
   isReleaseGroupDownloadedInLibrary: PropTypes.func,
   onAddTrackToPlaylist: PropTypes.func,
+  playlists: PropTypes.array,
+  playlistsLoading: PropTypes.bool,
+  playlistSavingKey: PropTypes.string,
+  playlistError: PropTypes.string,
+  getDefaultPlaylistName: PropTypes.func,
+  onLoadPlaylists: PropTypes.func,
   onVisibleCoverIdsChange: PropTypes.func,
 };
