@@ -853,7 +853,7 @@ export function MoreMenu({ children, activeButtonClass = "btn-primary" }) {
   }, [isOpen]);
 
   return (
-    <div className={`relative ${isOpen ? "z-[300]" : "z-30"}`} ref={menuRef}>
+    <div className={`relative ${isOpen ? "z-20" : "z-10"}`} ref={menuRef}>
       <button 
         type="button" 
         onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }} 
@@ -864,7 +864,7 @@ export function MoreMenu({ children, activeButtonClass = "btn-primary" }) {
         <span className="hidden sm:inline">More</span>
       </button>
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-48 rounded-md border border-[#3a3a44] bg-[#2d2d36] py-1 z-[320] flex flex-col"
+        <div className="absolute right-0 top-full mt-2 z-30 flex w-48 flex-col rounded-md border border-[#3a3a44] bg-[#2d2d36] py-1"
              onClick={() => setIsOpen(false)}>
           {children}
         </div>
