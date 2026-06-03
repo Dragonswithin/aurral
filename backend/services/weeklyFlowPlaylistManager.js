@@ -65,18 +65,6 @@ export class WeeklyFlowPlaylistManager {
   }
 
   _getWeeklyFlowLibraryHostPath() {
-    if (Object.hasOwn(process.env, "NAVIDROME_WEEKLY_FLOW_LIBRARY_PATH")) {
-      const override = String(
-        process.env.NAVIDROME_WEEKLY_FLOW_LIBRARY_PATH || "",
-      ).trim();
-      if (
-        !override ||
-        ["false", "off", "disabled", "none"].includes(override.toLowerCase())
-      ) {
-        return null;
-      }
-      return override.replace(/\\/g, "/").replace(/\/+$/, "");
-    }
     const base = process.env.DOWNLOAD_FOLDER || "/data/downloads/tmp";
     return `${base.replace(/\\/g, "/").replace(/\/+$/, "")}/aurral-weekly-flow`;
   }
@@ -135,9 +123,8 @@ export class WeeklyFlowPlaylistManager {
     if (this.navidromeClient?.isConfigured()) {
       try {
         const hostPath = this._getWeeklyFlowLibraryHostPath();
-        const library = hostPath
-          ? await this.navidromeClient.ensureWeeklyFlowLibrary(hostPath)
-          : null;
+        const library =
+          await this.navidromeClient.ensureWeeklyFlowLibrary(hostPath);
         if (
           library != null &&
           library.id !== undefined &&
