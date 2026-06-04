@@ -327,10 +327,8 @@ export class LidarrClient {
     }
 
     const now = Date.now();
-    const bypassCache = options?.bypassCache === true;
     if (method === "GET" && endpoint === "/artist") {
       if (
-        !bypassCache &&
         this._artistListCache &&
         now - this._artistListCache.at < LIDARR_LIST_CACHE_MS
       ) {
@@ -960,20 +958,16 @@ export class LidarrClient {
     return this.request(`/artist/${artistId}`);
   }
 
-  async getArtistByMbid(mbid, options = {}) {
+  async getArtistByMbid(mbid) {
     const normalizedMbid = String(mbid || "").trim();
     if (!normalizedMbid) return null;
-    const forceRefresh = options?.forceRefresh === true;
 
-    const cachedArtist = forceRefresh
-      ? undefined
-      : this._getArtistByMbidCacheEntry(normalizedMbid);
-    if (cachedArtist) {
+    const cachedArtist = this._getArtistByMbidCacheEntry(normalizedMbid);
+    if (cachedArtist !== undefined) {
       return cachedArtist;
     }
 
     if (
-      !forceRefresh &&
       this._artistListCache &&
       Date.now() - this._artistListCache.at < LIDARR_LIST_CACHE_MS
     ) {
@@ -983,10 +977,8 @@ export class LidarrClient {
       this._populateArtistIndexes(artists);
       const artist =
         artists.find((entry) => entry?.foreignArtistId === normalizedMbid) || null;
-      if (artist) {
-        this._setArtistByMbidCacheEntry(normalizedMbid, artist);
-        return artist;
-      }
+      this._setArtistByMbidCacheEntry(normalizedMbid, artist);
+      return artist;
     }
 
     const inflight = this._artistByMbidInflight.get(normalizedMbid);
@@ -995,17 +987,13 @@ export class LidarrClient {
     }
 
     const startedAt = Date.now();
-    const requestPromise = this.request("/artist", "GET", null, false, {
-      bypassCache: forceRefresh || !!this._artistListCache,
-    })
+    const requestPromise = this.request("/artist")
       .then((artists) => {
         const list = Array.isArray(artists) ? artists : [];
         this._populateArtistIndexes(list);
         const artist =
           list.find((entry) => entry?.foreignArtistId === normalizedMbid) || null;
-        if (artist) {
-          this._setArtistByMbidCacheEntry(normalizedMbid, artist);
-        }
+        this._setArtistByMbidCacheEntry(normalizedMbid, artist);
         return artist;
       })
       .finally(() => {
